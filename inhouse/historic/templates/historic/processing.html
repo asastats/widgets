@@ -1,0 +1,29 @@
+{% load partials %}{% load core_extras %}
+
+{% partialdef phaseprogress %}
+  <div class="col s2 right-align">
+    <span title="{{ label }}" class="truncate">{{ label }}</span>
+  </div>
+  <div class="col s10">
+    <div class="progress">
+      <div id="id-{{ address }}-{{ phase }}" class="determinate" style="width: {{ value }}%"></div>
+    </div>
+  </div>
+{% endpartialdef phaseprogress %}
+
+<div id="id-process-content">
+  <input type="hidden" name="bundle" value="{{ bundle }}">
+  <input type="hidden" name="addresses" value="{{ addresses|slice:":-1"|join:" " }}">
+  {% for address in addresses %}
+    <div class="col s12 center-align">
+      <h5>{{ address|short_address }}</h5>
+    </div>
+    <div id="id-{{ address }}-content" class="col s12">
+      {% for phase in '123'|make_list %}
+        {% with address=address label=labels|list_item:forloop.counter0 phase=phase value=statuses|list_item:forloop.parentloop.counter0|list_item:forloop.counter0 %}
+          {% partial phaseprogress %}
+        {% endwith %}
+      {% endfor %}
+    </div>
+  {% endfor %}
+</div>

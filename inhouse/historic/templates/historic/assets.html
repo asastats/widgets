@@ -1,0 +1,302 @@
+{% load partials %}{% load static %}{% load core_extras %}
+
+{% comment %} ASA {% endcomment %}
+{% partialdef asaheader %}
+<span>&nbsp;{{ item.header.amount }}&nbsp;&nbsp;<span class="unit">{{ item.header.label|escape }}</span></span>
+<div class="icondiv">
+  <img src="{% static item.header.icon %}" alt="{{ item.info.name }} logo" class="circle asaicon" />
+</div>
+<div class="right">
+  &nbsp;<span class="val" data-val="{{ item.header.total }}">{{ item.header.total|floatformat:'2g' }} ALGO</span>
+</div>
+{% endpartialdef asaheader %}
+
+{% partialdef asainfo %}
+<span class="title">{{ item.info.name|escape }}</span><br />
+<a href="https://allo.info/{% if item.info.id != 0 %}asset/{{ item.info.id }}{% endif %}" target="_blank" title="Show in Allo">{% if item.info.id != 0 %}{{ item.info.id }}{% else %}Allo{% endif %}</a>{% if item.info.id != 0 %}&nbsp;<span class="copy">&nbsp;&#128203;&nbsp;</span>{% endif %} <br />
+<span>Unit name: {{ item.info.unit|escape }}</span> <br />
+<span>Total supply: {{ item.info.total|floatformat:'g' }}</span> <br />
+<span>Decimals: {{ item.info.decimals }}</span> <br />
+{% if item.info.url %}
+  <span class="truncate">URL: <a href="{% if item.info.url|slice:':4' != 'http' %}https://{% endif %}{{ asset.url }}" target="_blank" rel="noopener" title="Official URL">{{ item.info.url }}</a></span> <br />
+{% endif %}
+{% endpartialdef asainfo %}
+
+{% partialdef asaprogram %}
+<div class="col s12 asa">
+  <div class="col s6 push-s6 m5 push-m7 right-align asar">
+    {% if program.value.0 == "-" %}
+      (<span class="myred-text val" data-val="{{ program.value }}">{{ program.value|floatformat:'2g' }} ALGO</span>) <br />
+    {% else %}
+      {% if item.info.id == 0 and program.type == "Balance" %}
+        <span class="balance">{{ program.type }}</span>: <span class="val" data-val="{{ program.value }}">{{ program.value|floatformat:'2g' }} ALGO</span> <br />
+      {% else %}
+        <span class="val" data-val="{{ program.value }}">{{ program.value|floatformat:'2g' }} ALGO</span> <br />
+      {% endif %}
+    {% endif %}
+    {% if program.source and program.source.1 %}
+    <a href="{{ program.source.1 }}" target="_blank" title="Go to {{ program.source.0 }} page">{{ program.source.0 }}</a> <br />
+    {% elif program.source %}
+    <span>{{ program.source.0 }}</span> <br />
+    {% endif %}
+    {% if program.url %}<a href="{{ program.url }}" target="_blank" title="Go to {{ program.name }} page">{{ program.name }}</a> <br />{% endif %}
+    {% if item.info.id != 0 %}{% if program.type %}<span{% if program.type == "Balance" %} class="balance"{% endif %}>{{ program.type }}</span>: {% endif %}<span>{{ program.amount }} {{ item.info.unit }}</span> <br />{% endif %}
+  </div>
+</div>
+<br />
+{% endpartialdef asaprogram %}
+
+{% partialdef notevalasaprogram %}
+<div class="col s12 asa">
+  <div class="col s6 push-s6 m5 push-m7 right-align asar">
+    {% if program.source and program.source.1 %}
+    <a href="{{ program.source.1 }}" target="_blank" title="Go to {{ program.source.0 }} page">{{ program.source.0 }}</a> <br />
+    {% elif program.source %}
+    <span>{{ program.source.0 }}</span> <br />
+    {% endif %}
+    {% if program.url %}<a href="{{ program.url }}" target="_blank" title="Go to {{ program.name }} page">{{ program.name }}</a> <br />{% endif %}
+    {% if program.type %}<span{% if program.type == "Balance" %} class="balance"{% endif %}>{{ program.type }}</span>: {% endif %}<span>{{ program.amount }} {{ item.info.unit }}</span> <br />
+  </div>
+</div>
+<br />
+{% endpartialdef notevalasaprogram %}
+
+{% comment %} NFT {% endcomment %}
+{% partialdef nftheader %}
+<div class="nftleft col s6">
+  <span>&nbsp;{{ item.header.amount }}&nbsp;from&nbsp;</span><span class="unit">{{ item.header.label|escape }}</span>&nbsp;&nbsp;
+</div>
+<div class="nftmid col s12 center-align">
+  {% for elem in item.body %}
+    <img id="t{{ elem.asset.id }}" src="{% static elem.asset.tpath %}" alt="{{ elem.asset.name }} thumbnail" class="nfticon" data-path="{% static elem.asset.path %}" />
+  {% endfor %}
+</div>
+<div class="nftright col s6 right-align">
+  <small><sub>BETA</sub></small>&nbsp;<span class="val" data-val="{{ item.header.total }}">{{ item.header.total|floatformat:'2g' }} ALGO</span>
+</div>
+{% endpartialdef nftheader %}
+
+{% partialdef nftinfo %}
+<span>{% if nft.asset.unit %}{{ nft.asset.unit }}{% endif %}</span>&nbsp;<span>{{ nft.amount }}/{{ nft.asset.total }}</span> <br />
+<span class="title">{% autoescape on %}{{ nft.asset.name }}{% endautoescape %}</span><br />
+<a href="https://allo.info/asset/{{ nft.asset.id }}" target="_blank" title="Show in Allo">{{ nft.asset.id }}</a>&nbsp;<span class="copy">&nbsp;&#128203;&nbsp;</span> <br />
+{% if nft.title %}
+  <span>Title: {{ nft.title }}</span> <br />
+{% endif %}
+{% if nft.rarity %}
+  <span>Rarity: {{ nft.rarity }}</span> <br />
+{% endif %}
+{% endpartialdef nftinfo %}
+
+{% partialdef nftextrainfo %}
+{% if nft.asset.attrs %}
+  {% autoescape on %}
+  <div class="col s12 l7 left-align">
+    <br />
+    {% for key, val in nft.asset.attrs %}
+      <div class="col s6 left-align truncate">
+        <span><strong>{{ key }}</strong></span>:&nbsp;<span>{{ val }}</span><br />
+      </div>
+    {% endfor %}
+  </div>
+  {% endautoescape %}
+{% endif %}
+{% for url in nft.asset.urls %}
+  <div class="col s12 l7 left-align">
+    <div class="col s12 left-align">
+      <span class="truncate">{{ url.0 }}: <a href="{% if not url.1|slice:':4' in 'http,ipfs' %}https://{% endif %}{{ url.1 }}" target="_blank" title="Visit additional NFT's URL">{{ url.1 }}</a></span>
+    </div>
+  </div>
+{% endfor %}
+{% if nft.asset.desc %}
+  <div class="col s12 left-align">
+    <div class="col s12 left-align">
+      <span>Description: {% autoescape on %}{{ nft.asset.desc }}{% endautoescape %}</span> <br />
+    </div>
+  </div>
+{% endif %}
+{% endpartialdef nftextrainfo %}
+
+{% partialdef nftprogram %}
+<small><sub>BETA</sub></small>&nbsp;<span>Estimated value: </span><span class="val" data-val="{{ nft.value }}">&nbsp;{{ nft.value|floatformat:'2g' }} ALGO</span><br />
+{% if nft.url %}{% if nft.type == "Amount" %}<span>Listed at </span>{% endif %}<a href="{{ nft.url }}" target="_blank" title="Go to {{ nft.name }} page">{{ nft.name }}</a> <br />{% endif %}
+<span{% if nft.type == "Balance" %} class="balance"{% endif %}>{{ nft.type }}</span>: <span>{{ nft.amount }} {{ item.info.unit }}</span> <br />
+<br />
+{% endpartialdef nftprogram %}
+
+{% partialdef nftimage %}
+<a href="{{ nft.asset.urls.0.1 }}" target="_blank" rel="noopener" title="View original NFT through an IPFS gateway"><img src="{% static 'nft.png' %}" data-src="{% static nft.asset.path %}" alt="{{ nft.asset.name }} link" class="responsive-img hoverable nft" /></a>
+{% endpartialdef nftimage %}
+
+{% partialdef nftelement %}
+<li id="{{ nft.asset.id }}" class="collection-item fitem">
+  <div class="col s12">
+    <div class="col s6 l3 left-align push-l5">
+      {% partial nftinfo %}
+    </div>
+    <div class="col s6 l4 right-align push-l5">
+      {% partial nftprogram %}
+    </div>
+    <div class="col s8 offset-s2 l5 pull-l7 center-align">
+      {% partial nftimage %}
+    </div>
+    {% partial nftextrainfo %}
+  </div>
+</li>
+{% endpartialdef nftelement %}
+
+{% comment %} STRUCTURE {% endcomment %}
+{% autoescape off %}
+
+<div id="id-assets" class="row flex-stack" data-timestamp={{ timestamp }} data-label="{{ label }}">
+
+  {{ asachart|json_script:"asachart" }}{{ nftchart|json_script:"nftchart" }}{{ ratiochart|json_script:"ratiochart" }}{{ distchart|json_script:"distchart" }}{{ consolidated|json_script:"consolidated" }}
+
+  <div class="divider col s12"></div>
+  <div class="col s12 center-align"><br><span>{{ date }}</span></div>
+
+  <h2 class="center-align pricetip" data-price={{ data.total.priceusdc }} data-pricealgo={{ data.total.pricealgo }} data-total={{ data.total.totalusdc }} data-totalwnft={{ data.total.total }} data-totalnft={{ data.total.nft }} data-tooltip='{{ data.total.totalusdc|floatformat:"2g" }} USD ({{ data.total.pricealgo|floatformat:"2g" }} USD/ALGO)'>{{ data.total.total|floatformat:"2g" }} ALGO</h2>
+
+  <div class="col s12 consolidated">
+    <ul id="id-cons" class="collapsible consolidated">
+      <li id="li-cons" class="active consolidated">
+        <div id="id-cons-header" class="collapsible-header consolidated" data-balance={{ consolidated.balance }} data-staked={{ consolidated.staked }} data-liquidity={{ consolidated.liquidity }} data-defi={{ consolidated.defi }}>
+          <div class="col s12 center-align">
+            <div class="col s6 m4 xl2 offset-xl1 cons">
+              <span class="cons-text">Balance</span><br>
+              <span class="cons-value val" data-val="{{ consolidated.balance }}">{{ consolidated.balance|floatformat:"2g" }} ALGO</span>
+            </div>
+            <div class="col s6 m4 xl2 cons">
+              <span class="cons-text">Staked</span><br>
+              <span class="cons-value val" data-val="{{ consolidated.staked }}">{{ consolidated.staked|floatformat:"2g" }} ALGO</span>
+            </div>
+            <div class="col s6 m4 xl2 cons">
+              <span class="cons-text">Liquidity</span><br>
+              <span class="cons-value val" data-val="{{ consolidated.liquidity }}">{{ consolidated.liquidity|floatformat:"2g" }} ALGO</span>
+            </div>
+            <div class="col s6 m4 xl2 cons">
+              <span class="cons-text">DeFi</span><br>
+              <span class="cons-value val" data-val="{{ consolidated.defi }}">{{ consolidated.defi|floatformat:"2g" }} ALGO</span>
+            </div>
+            <div class="col s6 m4 xl2 cons">
+              <span class="cons-text">NFT</span><br>
+              <span class="cons-value val" data-val="{{ data.total.nft }}">{{ data.total.nft|floatformat:"2g" }} ALGO</span>
+            </div>
+          </div>
+        </div>
+        <div id="id-cons-body" class="collapsible-body consolidated">
+          <div class="col s12 charts">
+            <div class="col s12 m6 xl5 offset-xl1 chart-container valign-wrapper">
+              <div id="id-legend-distchart" class="col s2 legend"></div>
+              <div class="col s10 canvas"><canvas id="id-distchart" width="500" height="{{ distchart|dist_height }}"></canvas></div>
+            </div>
+            <div id="id-chart-ratio" class="col s12 m6 xl5 offset-xl1 chart-container scale-transition valign-wrapper">
+              <div id="id-legend-ratiochart" class="col s3 legend"></div>
+              <div class="col s9 canvas"><canvas id="id-ratiochart" width="500" height="500"></canvas></div>
+            </div>
+          </div>
+          <div class="col s12 charts">
+            <div class="col s12 m6 xl5 offset-xl1 chart-container valign-wrapper">
+              <div id="id-legend-asachart" class="col s3 legend"></div>
+              <div class="col s9 canvas"><canvas id="id-asachart" width="500" height="500"></canvas></div>
+            </div>
+            <div id="id-chart-nft" class="col s12 m6 xl5 offset-xl1 chart-container scale-transition valign-wrapper">
+              <div id="id-legend-nftchart" class="col s3 legend"></div>
+              <div class="col s9 canvas"><canvas id="id-nftchart" width="500" height="500"></canvas></div>
+            </div>
+          </div>
+        </div>
+      </li>
+    </ul>
+  </div>
+
+  <div class="col s12 center-align cons-expand">
+    <span>Click totals to show charts</span>
+  </div>
+
+  <div class="col s12 valign-wrapper">
+    <div class="col s6 pull-s6 input-field filter">
+      <input placeholder="Filter" id="filter" type="text" class="validate">
+    </div>
+  </div>
+
+  {% comment %} ASA {% endcomment %}
+  <div class="col s12">
+    <ul class="collapsible">
+      {% for item in data.asa %}
+        {% if item.body %}
+          <li id="f{{ item.info.id }}" class="fitem">
+            <div class="collapsible-header token">
+              {% partial asaheader %}
+            </div>
+            <div class="collapsible-body">
+              <ul class="collection">
+                <li id="{{ item.info.id }}" class="collection-item fitem">
+                  <div class="col s12 m9 push-m3 right-align asar">
+                    {% for program in item.body %}
+                      {% partial asaprogram %}
+                    {% endfor %}
+                  </div>
+                  <div class="col s12 m3 pull-m9 left-align asal">
+                    {% partial asainfo %}
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+        {% endif %}
+      {% endfor %}
+    </ul>
+  </div>
+
+  {% comment %} NFT {% endcomment %}
+  {% if data.nft %}
+  <div id="id-nft" class="col s12">
+    <ul class="collapsible">
+      {% for item in data.nft %}
+      <li id="f{{ item.info|slugify }}" class="fitem">
+        <div class="collapsible-header nft">
+          {% partial nftheader %}
+        </div>
+        <div class="collapsible-body">
+          <ul class="collection">
+            {% for nft in item.body %}
+              {% partial nftelement %}
+            {% endfor %}
+          </ul>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% comment %} NOT EVALUATED {% endcomment %}
+  {% if data.noteval %}
+  <div class="col s12">
+    <ul class="collapsible notevalsec">
+      <li>
+        <div class="collapsible-header">{{ data.noteval|length }} not evaluated</div>
+        <div class="collapsible-body">
+          <ul class="collection">
+          {% for item in data.noteval %}
+            <li id="{{ item.info.id }}" class="collection-item fitem">
+              <div class="col s12 m9 push-m3 right-align asar">
+                {% for program in item.body %}
+                  {% partial notevalasaprogram %}
+                {% endfor %}
+              </div>
+              <div class="col s12 m3 pull-m9 left-align asal">
+                {% partial asainfo %}
+              </div>
+            </li>
+          {% endfor %}
+          </ul>
+        </div>
+      </li>
+    </ul>
+  </div>
+  {% endif %}
+
+</div>
+{% endautoescape %}

@@ -1,0 +1,143 @@
+{% extends 'base.html' %}{% load static %}{% load core_extras %}
+{% block otherheader %}
+<meta name="format-detection" content="telephone=no">
+<link href="{% static 'historic/style.css' %}" type="text/css" rel="stylesheet" media="screen">
+{% endblock %}
+{% block content %}
+<div hx-ext="ws" ws-connect="/ws/historic/{{ bundle }}/">
+  <h1 class="center-align">Historic data</h1>
+
+  <div class="row">
+
+    <div class="col s12 bundle center-align">
+      <ul id="id-bundle" class="collapsible expand">
+        <li id="li-bundle" class="expand">
+          <div id="id-bundle-header" class="collapsible-header expand">
+            <div class="col s12">
+              <h4 class="flow-text" title="Click to show/hide bundle's addresses">{{ bundle|short_address }}</h4>
+            </div>
+          </div>
+          <div id="id-bundle-body center-align" class="collapsible-body expand">
+          <p class="flow-text">
+          {% for addr in addresses|split_by_space %}
+            <a href="{% url 'historic' addr %}" target="_blank" title="Historic data for address {{ addr }}">{{ addr|short_address }}</a>&emsp;&emsp;
+          {% endfor %}
+          </p>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <div class="col s12">
+      <ul class="tabs">
+        <li class="tab col s3"><a class="active" href="#tbars">Bars</a></li>
+        <li class="tab col s3"><a href="#tcandles">Candles</a></li>
+        <li class="tab col s3"><a href="#tupdate">Update</a></li>
+        <li class="tab col s3"><a href="#tsettings">Settings</a></li>
+      </ul>
+    </div>
+    <div id="tbars" class="col s12 canvas">
+      <div class="col s12 center-align">
+        <form id="id-reset-bars" ws-send >
+          <button class="btn-flat reset" type="submit" disabled>Reset chart</button>
+        </form>
+      </div>
+      <canvas id="id-bars" width="500" height="250"></canvas>
+    </div>
+    <div id="tcandles" class="col s12 canvas">
+      <div class="col s12 center-align">
+        <form id="id-reset-candles" ws-send >
+          <button class="btn-flat reset" type="submit" disabled>Reset chart</button>
+        </form>
+      </div>
+      <canvas id="id-candles" width="500" height="250"></canvas>
+    </div>
+    <div id="tupdate" class="col s12">
+      <br>
+      <form id="id-process" ws-send data-bundle={{ bundle }} data-addresses="{{ addresses }}">
+        <div class="row flex-stack toolbar">
+          <div class="col s12 center-align">
+            <div id="id-process-content">
+              <input type="hidden" name="bundle" value="{{ bundle }}">
+              <input type="hidden" name="addresses" value="{{ addresses }}">
+            </div>
+          </div>
+          <div class="col s12 center-align">
+            <button class="waves-effect waves-mydark btn whenmoon process" type="submit">Process</button>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div id="tsettings" class="col s12 right-align">
+      <div class="col s12 m6 left-align">
+        <blockquote>
+          <h5>Candlestick chart</h5>
+          Click a candle with the left mouse button (tap on mobile) to retrieve data for timestamp related to <strong>low</strong> value.
+          Click a candle with the middle mouse button (long-press on mobile) to retrieve data for timestamp related to <strong>high</strong> value.
+          <br>
+          Hold CTRL while clicking to retrieve data for timestamp related to <strong>open</strong>, respectively <strong>close</strong> value.
+        </blockquote>
+        <br>
+        <blockquote>
+          <h5>This is a BETA software</h5>
+          Changes and bug fixes are deployed on a daily basis.
+          After you get confirmation that bugs which have affected your data have been fixed,
+          please click the button bellow to start from scratch.
+          <br><br>
+          <form id="id-reset" method="get" action="{% url 'historic_reset' bundle %}">
+            {% csrf_token %}
+            <button class="waves-effect waves-mydark btn whenmoon" type="submit" name="reset">Reset</button>
+          </form>
+        </blockquote>
+      </div>
+      <div class="col s12 m6 right-align">
+        <div class="switch toolbar">
+        <label>
+          ALGO
+          <input type="checkbox">
+          <span class="lever"></span>
+          USD
+        </label>
+        </div>
+        <div class="totalnonft">
+          <label title="Show total value without NFTs">
+            <input type="checkbox">
+            <span>Total without NFTs</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <form id="id-view" ws-send style="display:none;">
+      <input type="hidden" name="type" value="zoom">
+      <input type="hidden" name="x-min" id="view-x-min">
+      <input type="hidden" name="x-max" id="view-x-max">
+    </form>
+
+    <form id="id-show" ws-send style="display:none;">
+      <input type="hidden" name="type" value="show">
+      <input type="hidden" name="x-val" id="show-x-val">
+      <input type="hidden" name="label" id="show-label">
+    </form>
+
+    <div class="col s8 push-s2"><div class="indeterminate"></div></div>
+
+    <div id="id-assets"></div>
+
+  </div>
+</div>
+{% include "snippets/modal_confirm.html" %}
+{% endblock %}
+
+{% block otherfooter %}
+<script src="{% static 'historic/htmx.min.js' %}"></script>
+<script src="{% static 'historic/htmx-ext-ws.min.js' %}"></script>
+<script src="{% static 'historic/hammerjs.min.js' %}"></script>
+<script src="{% static 'historic/chart.min.js' %}"></script>
+<script src="{% static 'historic/luxon.min.js' %}"></script>
+<script src="{% static 'historic/chartjs-adapter-luxon.min.js' %}"></script>
+<script src="{% static 'historic/chartjs-plugin-zoom.min.js' %}"></script>
+<script src="{% static 'historic/chartjs-chart-financial.min.js' %}"></script>
+<script src="{% static 'js/consolidated.js' %}"></script>
+<script src="{% static 'historic/historic.js' %}"></script>
+{% endblock %}

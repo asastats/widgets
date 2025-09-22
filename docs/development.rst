@@ -1,0 +1,168 @@
+Development
+===========
+
+Setup
+-----
+
+Python environment
+^^^^^^^^^^^^^^^^^^
+
+Create Python virtual environment:
+
+.. code-block:: bash
+
+  python3 -m venv asastats
+
+
+Set some environment variables upon activation:
+
+.. code-block:: bash
+  :caption: /home/ipaleka/dev/venvs/asa/bin/activate
+
+  export DJANGO_SETTINGS_MODULE=asastats.settings.development
+  export SECRET_KEY="xxxxxxxxxxxxxxxxxxxx"
+
+
+Activate Python environment:
+
+.. code-block:: bash
+
+  source asa/bin/activate
+
+
+Adding an alias can be useful:
+
+.. code-block:: bash
+  :caption: ~/.bashrc
+
+  alias 'asa'='cd /home/ipaleka/dev/asastats_repo;source /home/ipaleka/dev/venvs/asa/bin/activate'
+
+
+Changing bash to colored:
+
+.. code-block:: bash
+
+  DEFAULT=$PS1
+  PS1="\[\033[42m\]\[\033[31m\]\u@\h:\w\\[\033[00m\]\$ "
+
+Revert back with:
+
+.. code-block:: bash
+
+  PS1=$DEFAULT
+
+Code profiling
+^^^^^^^^^^^^^^
+
+`django-cprofile-middleware` in the development is run by adding `?prof` to a url:
+
+http://127.0.0.1:8000/?prof
+
+Install SnakeViz to visualize data:
+
+.. code-block:: bash
+
+  pip install SnakeViz
+
+Save profiling file with:
+
+http://127.0.0.1:8000/?prof&download
+
+and open it with SnakeViz:
+
+.. code-block:: bash
+
+  snakeviz view.prof
+
+
+SonarQube
+^^^^^^^^^
+
+SonarQube_ is an open-source platform for inspection of code quality for detecting
+bugs, code smells, and security vulnerabilities.
+
+.. _SonarQube: https://docs.sonarqube.org/latest/setup/get-started-2-minutes/
+
+
+Starting server
+"""""""""""""""
+
+.. code-block:: bash
+
+  $ ~/opt/repos/sonarqube-9.4.0/bin/linux-x86-64/sonar.sh console
+
+
+Starting scanner
+""""""""""""""""
+
+You should add scanner executable to your PATH. For example, by adding the following
+line to your ``~/.bashrc``:
+
+.. code-block:: bash
+
+  export PATH=$PATH:~/opt/repos/sonar-scanner/bin
+
+
+To start scanning, run the scanner from the root directory of the project with:
+
+.. code-block:: bash
+
+  $ sonar-scanner
+
+Newer versions require authentication:
+
+.. code-block:: bash
+
+  $ sonar-scanner -Dsonar.login=admin -Dsonar.password=password -Dsonar.projectKey=asastats.com
+
+
+For additional information read the scanner `documentation`_.
+
+.. _documentation: https://docs.sonarqube.org/latest/analysis/scan/sonarscanner/
+
+
+Tests
+-----
+
+Python
+^^^^^^
+
+.. code-block:: bash
+
+  cd /home/ipaleka/dev/asastats_repo/asastats
+  source /home/ipaleka/dev/venvs/asa/bin/activate
+  python -m pytest -v
+
+
+Javascript
+^^^^^^^^^^
+
+System wide `nodejs` and `npm` should be installed:
+
+.. code-block:: bash
+
+  apt-get install nodejs npm
+
+
+Install project's Node dependencies with:
+
+.. code-block:: bash
+
+  cd /home/ipaleka/dev/asastats_repo/asastats/
+  npm install
+
+
+Install jest globally:
+
+.. code-block:: bash
+
+  npm install -g jest
+
+
+Run project's Javascript tests with:
+
+.. code-block:: bash
+
+  cd /home/ipaleka/dev/asastats_repo/asastats/
+  jest
+

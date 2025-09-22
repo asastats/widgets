@@ -1,0 +1,78 @@
+.chart-blurred {
+  filter: blur(8px);
+  pointer-events: none; /* Optional: disables all interaction */
+  transition: filter 0.05s ease;
+}
+
+.asaicon {
+  width: 32px;
+  height: 32px;
+}
+
+.col.asal {
+  padding-left: 0;
+}
+
+.col.asar {
+  padding-right: 0;
+}
+
+.balance {
+  border: 1px solid #ababab;
+}
+
+.collapsible-body {
+  padding: .5rem 0;
+}
+
+.collapsible-header.token {
+  border-left: 4px solid #ababab;
+  display: block;
+}
+
+.collapsible-header.nft {
+  border-left: 4px solid #ababab;
+  display: flex;
+  padding-top: 15px;
+  padding-bottom: 5px;
+}
+
+.collapsible-body.nft {
+  border: none;
+}
+
+.collapsible.expand, .collapsible-header.expand, .collapsible-body.expand, ul.collapsible>li {
+  border: 0!important;
+  box-shadow: none!important;
+  padding: 0;
+}
+
+.collapsible.consolidated, .collapsible-header.consolidated, .collapsible-body.consolidated, ul.collapsible>li {
+  border: 0!important;
+  box-shadow: none!important;
+}
+
+.collcenter {
+  position: absolute;
+  left: 50%;
+  margin-top: -28px;
+  margin-left: -16px;
+}
+
+.row .col.nftleft, .row .col.nftmid, .row .col.nftright {
+  padding: 0;
+}
+
+.nfticon {
+  width: 32px;
+  height: 32px;
+  object-fit: scale-down;
+}
+
+.copy {
+  cursor: pointer;
+}
+
+.toolbar {
+  padding: 1rem;
+}
