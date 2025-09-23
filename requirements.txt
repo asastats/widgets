@@ -1,4 +1,9 @@
--r base.txt
+## base requirements
+Django>=5.2,<6
+django-cors-headers>=4.9
+channels[daphne]>=4.2
+django-htmx>=1.26.0
+django-template-partials>=25.2
 ## tests requirements
 pytest>=8.4
 pytest-cov>=7.0
