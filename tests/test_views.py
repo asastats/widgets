@@ -46,7 +46,7 @@ class BaseUserCreatedView(BaseView):
         self.user.set_password("12345o")
         self.user.save()
         # self.set_permission()
-        self.user.profile  = mock.MagicMock()
+        self.user.profile = mock.MagicMock()
 
         # Setup request
         self.request = RequestFactory().get("/fake-path")

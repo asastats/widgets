@@ -68,8 +68,8 @@
   :members:
   :undoc-members:
   :show-inheritance:
-  
-  
+
+
 :mod:`widgets.inhouse.historic.structs` -- Historic widget's data structures module
 -----------------------------------------------------------------------------------
 

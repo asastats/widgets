@@ -165,12 +165,8 @@ class TestWidgetsHistoricResetView(BaseView):
         view = HistoricResetView()
         view = self.setup_view(view, self.request)
         view.args = ["bundle"]
-        mocked_reset = mocker.patch(
-            "inhouse.historic.views.reset_bundle_historic_data"
-        )
-        mocked_dispatch = mocker.patch(
-            "inhouse.historic.views.RedirectView.dispatch"
-        )
+        mocked_reset = mocker.patch("inhouse.historic.views.reset_bundle_historic_data")
+        mocked_dispatch = mocker.patch("inhouse.historic.views.RedirectView.dispatch")
         mocker.patch(
             "inhouse.historic.views.HistoricResetView.test_func",
         )

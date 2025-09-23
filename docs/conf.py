@@ -1,30 +1,21 @@
 # Configuration file for the Sphinx documentation builder.
 #
-# This file only contains a selection of the most common options. For a full
-# list see the documentation:
+# For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
-# -- Path setup --------------------------------------------------------------
+# -- Project information -----------------------------------------------------
+# https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-# If extensions (or modules to document with autodoc) are in another directory,
-# add these directories to sys.path here. If the directory is relative to the
-# documentation root, use os.path.abspath to make it absolute, like shown here.
-#
-# import os
-# import sys
-# sys.path.insert(0, os.path.abspath('.'))
-
-# from .. import __version__
 
 import os
 import sys
 from unittest.mock import MagicMock
 
-# import django
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-sys.path.insert(0, os.path.abspath("../"))
+import widgets
 
-# django.setup()
+__version__ = widgets.__version__
 
 import django
 from django.conf import settings
@@ -57,32 +48,8 @@ MOCK_MODULES = [
     "utils.constants.storage",
     "utils.constants.users",
 ]
-# MOCK_MODULES += [
-#     "django",
-#     "django.apps",
-#     "django.conf",
-#     "django.conf.settings",
-#     "django.contrib",
-#     "django.contrib.auth",
-#     "django.contrib.auth.models",
-#     "django.contrib.auth.mixins",
-#     "django.core",
-#     "django.core.exceptions",
-#     "django.core.signals",
-#     "django.db",
-#     "django.shortcuts",
-#     "django.template",
-#     "django.template.defaultfilters",
-#     "django.template.loader",
-#     "django.urls",
-#     "django.utils",
-#     "django.utils.module_loading",
-#     "django.utils.safestring",
-# ]
-
 for mod in MOCK_MODULES:
     sys.modules[mod] = MagicMock()
-
 
 # -- Project information -----------------------------------------------------
 
@@ -90,7 +57,7 @@ project = "ASA Stats user widgets"
 copyright = "2025, ASA Stats DAO"
 author = "Ivica Paleka"
 
-release = "0.8.7"
+release = __version__
 
 # -- General configuration ---------------------------------------------------
 

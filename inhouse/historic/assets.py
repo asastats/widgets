@@ -252,7 +252,7 @@ class ElementsCreator:
         :type custom_nfts: list
         :param nfts: collection of NFT collection members' IDs
         :type nfts: list
-        :return: list_
+        :return: list
         """
         return [
             self._nft_item(row, custom_nfts)

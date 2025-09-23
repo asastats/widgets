@@ -17,9 +17,7 @@ class TestWidgetsHistoricStructsNamedTuples:
     # # HeaderElement
     def test_widgets_inhouse_historic_structs_defines_headerelement_named_tuple(self):
         assert inspect.isclass(inhouse.historic.structs.HeaderElement)
-        assert (
-            inhouse.historic.structs.HeaderElement.__name__ == "HeaderElement"
-        )
+        assert inhouse.historic.structs.HeaderElement.__name__ == "HeaderElement"
 
     def test_widgets_inhouse_historic_structs_headerelement_fields(self):
         assert inhouse.historic.structs.HeaderElement._fields == (

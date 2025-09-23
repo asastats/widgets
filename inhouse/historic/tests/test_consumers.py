@@ -11,7 +11,7 @@ from inhouse.historic.consumers import (
     evaluate_bundle_ledger_data_for_period,
     evaluate_bundle_ledger_data_for_timestamp,
 )
-from .fixtures import TEST_BUNDLE
+from inhouse.historic.tests.fixtures import TEST_BUNDLE
 
 user_model = get_user_model()
 
@@ -282,9 +282,7 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         period = mocker.MagicMock()
         view.period_for_range.return_value = period
         self.consumer.view = view
-        mocked_period = mocker.patch(
-            "inhouse.historic.consumers.check_chart_period"
-        )
+        mocked_period = mocker.patch("inhouse.historic.consumers.check_chart_period")
         mocked_process = mocker.patch(f"{CONSUMER_PATH}._process_for_period")
         message_x_min, message_x_max = mocker.MagicMock(), mocker.MagicMock()
         message = {"x-min": message_x_min, "x-max": message_x_max}
@@ -716,9 +714,7 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         mocked_data = mocker.patch(
             "inhouse.historic.consumers.assets_data_from_timestamp_data"
         )
-        mocked_template = mocker.patch(
-            "inhouse.historic.consumers.get_template"
-        )
+        mocked_template = mocker.patch("inhouse.historic.consumers.get_template")
         mocked_send = mocker.patch(f"{CONSUMER_PATH}.send")
         x_val, label = mocker.MagicMock(), mocker.MagicMock()
         message = {"x-val": x_val, "label": label}
@@ -938,9 +934,7 @@ class TestWidgetsHistoricConsumerBroadcasting(HistoricConsumerBaseTest):
     async def test_widgets_historic_historicconsumer_historic_update_for_update_none(
         self, mocker
     ):
-        mocked_template = mocker.patch(
-            "inhouse.historic.consumers.get_template"
-        )
+        mocked_template = mocker.patch("inhouse.historic.consumers.get_template")
         mocked_send = mocker.patch(f"{CONSUMER_PATH}.send")
         message = mocker.MagicMock()
         event = {"message": message}
@@ -955,9 +949,7 @@ class TestWidgetsHistoricConsumerBroadcasting(HistoricConsumerBaseTest):
         update = mocker.MagicMock()
         self.consumer.update = update
         update.check_phase_init.return_value = True
-        mocked_template = mocker.patch(
-            "inhouse.historic.consumers.get_template"
-        )
+        mocked_template = mocker.patch("inhouse.historic.consumers.get_template")
         mocked_send = mocker.patch(f"{CONSUMER_PATH}.send")
         message = mocker.MagicMock()
         event = {"message": message}
@@ -975,9 +967,7 @@ class TestWidgetsHistoricConsumerBroadcasting(HistoricConsumerBaseTest):
         update.check_phase_init.return_value = False
         phase, value = None, None
         update.evaluate.return_value = (phase, value)
-        mocked_template = mocker.patch(
-            "inhouse.historic.consumers.get_template"
-        )
+        mocked_template = mocker.patch("inhouse.historic.consumers.get_template")
         mocked_send = mocker.patch(f"{CONSUMER_PATH}.send")
         address = mocker.MagicMock()
         message = {"address": address, "foo": "bar"}

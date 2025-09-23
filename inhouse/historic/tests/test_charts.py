@@ -1228,9 +1228,7 @@ class TestWidgetsHistoricChartsProcess:
         self, mocker
     ):
         asset_values, asset_tags = (mocker.MagicMock(), mocker.MagicMock())
-        mocked_top = mocker.patch(
-            "inhouse.historic.charts._top_assets_and_groups"
-        )
+        mocked_top = mocker.patch("inhouse.historic.charts._top_assets_and_groups")
         grouped_data = {
             "key1": mocker.MagicMock(),
             "key2": mocker.MagicMock(),
@@ -1243,9 +1241,7 @@ class TestWidgetsHistoricChartsProcess:
         mocked_dates = mocker.patch(
             "inhouse.historic.charts._timestamps_formatted_to_dates"
         )
-        mocked_data = mocker.patch(
-            "inhouse.historic.charts._chart_data_unit_datasets"
-        )
+        mocked_data = mocker.patch("inhouse.historic.charts._chart_data_unit_datasets")
         unit_colors = {
             "unit1": mocker.MagicMock(),
             "unit2": mocker.MagicMock(),
@@ -1510,9 +1506,7 @@ class TestWidgetsHistoricChartsProcess:
         mocked_data = mocker.patch(
             "inhouse.historic.charts._candles_from_interval_values_for_timestamps"
         )
-        mocked_chart = mocker.patch(
-            "inhouse.historic.charts._candlestick_chart_config"
-        )
+        mocked_chart = mocker.patch("inhouse.historic.charts._candlestick_chart_config")
         candles_count = 10
         returned = _create_candlestick_chart(
             asset_values, timeline_data, candles_count=candles_count
@@ -1581,9 +1575,7 @@ class TestWidgetsHistoricChartsProcess:
         mocked_data = mocker.patch(
             "inhouse.historic.charts._candles_from_interval_values_for_timestamps"
         )
-        mocked_chart = mocker.patch(
-            "inhouse.historic.charts._candlestick_chart_config"
-        )
+        mocked_chart = mocker.patch("inhouse.historic.charts._candlestick_chart_config")
         returned = _create_candlestick_chart(asset_values, timeline_data)
         assert returned == {
             "data": mocked_chart.return_value,

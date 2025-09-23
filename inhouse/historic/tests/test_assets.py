@@ -946,9 +946,7 @@ class TestWidgetsHistoricAssetsProcess:
         )
         usd_price_in_algo = mocker.MagicMock()
         carrier.usd_price_in_algo_for_timestamp.return_value = usd_price_in_algo
-        mocked_process = mocker.patch(
-            "inhouse.historic.assets._process_sorted_ledger"
-        )
+        mocked_process = mocker.patch("inhouse.historic.assets._process_sorted_ledger")
         returned = assets_data_from_timestamp_data(timestamp, timestamp_data, carrier)
         assert returned == mocked_process.return_value
         mocked_sorted.assert_called_once_with(timestamp_data)
