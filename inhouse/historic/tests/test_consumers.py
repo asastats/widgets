@@ -799,7 +799,7 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         template.render.assert_called_once_with(
             context={
                 "timestamp": timestamp,
-                "date": "24 Aug 2024 13:46:40",
+                "date": "24 Aug 2024 11:46:40",
                 "data": assets_data,
                 "label": label,
                 "foo": "bar",
