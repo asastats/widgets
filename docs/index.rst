@@ -11,6 +11,7 @@ Welcome to ASA Stats user widgets documentation!
    :caption: Contents:
 
    development
+   widgets
    howto
 
 

@@ -14,14 +14,74 @@
 # import sys
 # sys.path.insert(0, os.path.abspath('.'))
 
+# from .. import __version__
+
 import os
 import sys
+from unittest.mock import MagicMock
 
-import django
+# import django
 
 sys.path.insert(0, os.path.abspath("../"))
 
+# django.setup()
+
+import django
+from django.conf import settings
+
+if not settings.configured:
+    settings.configure(
+        INSTALLED_APPS=[
+            "django.contrib.auth",
+            "django.contrib.contenttypes",
+            "inhouse.historic",  # your app if it has models
+        ],
+        DATABASES={
+            "default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}
+        },
+    )
 django.setup()
+
+# Mock external/nonexistent dependencies
+MOCK_MODULES = [
+    "api",
+    "api.data",
+    "api.widgets",
+    "storage",
+    "storage.helpers",
+    "storage.ledger",
+    "storage.main",
+    "utils",
+    "utils.charts",
+    "utils.constants",
+    "utils.constants.storage",
+    "utils.constants.users",
+]
+# MOCK_MODULES += [
+#     "django",
+#     "django.apps",
+#     "django.conf",
+#     "django.conf.settings",
+#     "django.contrib",
+#     "django.contrib.auth",
+#     "django.contrib.auth.models",
+#     "django.contrib.auth.mixins",
+#     "django.core",
+#     "django.core.exceptions",
+#     "django.core.signals",
+#     "django.db",
+#     "django.shortcuts",
+#     "django.template",
+#     "django.template.defaultfilters",
+#     "django.template.loader",
+#     "django.urls",
+#     "django.utils",
+#     "django.utils.module_loading",
+#     "django.utils.safestring",
+# ]
+
+for mod in MOCK_MODULES:
+    sys.modules[mod] = MagicMock()
 
 
 # -- Project information -----------------------------------------------------
@@ -30,10 +90,7 @@ project = "ASA Stats user widgets"
 copyright = "2025, ASA Stats DAO"
 author = "Ivica Paleka"
 
-# The full version, including alpha/beta/rc tags
-from .. import __version__
-
-release = __version__
+release = "0.8.7"
 
 # -- General configuration ---------------------------------------------------
 

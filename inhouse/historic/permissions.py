@@ -1,4 +1,4 @@
-"""Module containing historic widget's prmission functions."""
+"""Module containing historic widget's permission functions."""
 
 SUBSCRIPTION_TIER_PERMISSIONS = {
     "Intro": 2_329_968_943,
