@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from widgets.inhouse.historic.assets import (
+from inhouse.historic.assets import (
     ElementsCreator,
     _base_program_name,
     _base_program_url,
@@ -18,11 +18,11 @@ from widgets.inhouse.historic.assets import (
     _sorted_timestamp_data_and_totals_mapping,
     assets_data_from_timestamp_data,
 )
-from widgets.inhouse.historic.structs import BodyElement, HeaderElement, Total
+from inhouse.historic.structs import BodyElement, HeaderElement, Total
 
 
 class TestWidgetsHistoricAssetsElements:
-    """Testing class for :py:mod:`widgets.inhouse.historic.assets` elements section."""
+    """Testing class for :py:mod:`inhouse.historic.assets` elements section."""
 
     # # ElementsCreator
     @pytest.mark.parametrize("attr", ["ledger_rows", "columns", "carrier"])
@@ -144,7 +144,7 @@ class TestWidgetsHistoricAssetsElements:
         asa1.unit = "unit1"
         asa2.unit = "unit2"
         mocked_asa = mocker.patch(
-            "widgets.inhouse.historic.assets.ElementsCreator.custom_asa",
+            "inhouse.historic.assets.ElementsCreator.custom_asa",
             side_effect=(asa1, asa2),
         )
         returned = elements_creator._format_lp_token(lp_token_id)
@@ -243,7 +243,7 @@ class TestWidgetsHistoricAssetsElements:
         custom_asa = mocker.MagicMock()
         custom_asa.decimals = 6
         mocker.patch(
-            "widgets.inhouse.historic.assets.ElementsCreator.custom_asa",
+            "inhouse.historic.assets.ElementsCreator.custom_asa",
             return_value=custom_asa,
         )
         returned = elements_creator._nft_item(ledger_row, custom_nfts)
@@ -270,12 +270,12 @@ class TestWidgetsHistoricAssetsElements:
         custom_asa = mocker.MagicMock()
         custom_asa.decimals = 6
         mocked_asa = mocker.patch(
-            "widgets.inhouse.historic.assets.ElementsCreator.custom_asa",
+            "inhouse.historic.assets.ElementsCreator.custom_asa",
             return_value=custom_asa,
         )
         token_name, token_url = "token", "token_url"
         mocked_token = mocker.patch(
-            "widgets.inhouse.historic.assets.ElementsCreator._format_lp_token",
+            "inhouse.historic.assets.ElementsCreator._format_lp_token",
             return_value=(token_name, token_url),
         )
         returned = elements_creator._program_item(asset_id, ledger_row)
@@ -303,11 +303,11 @@ class TestWidgetsHistoricAssetsElements:
         custom_asa = mocker.MagicMock()
         custom_asa.decimals = 6
         mocked_asa = mocker.patch(
-            "widgets.inhouse.historic.assets.ElementsCreator.custom_asa",
+            "inhouse.historic.assets.ElementsCreator.custom_asa",
             return_value=custom_asa,
         )
         mocked_token = mocker.patch(
-            "widgets.inhouse.historic.assets.ElementsCreator._format_lp_token",
+            "inhouse.historic.assets.ElementsCreator._format_lp_token",
             return_value=None,
         )
         returned = elements_creator._program_item(asset_id, ledger_row)
@@ -359,7 +359,7 @@ class TestWidgetsHistoricAssetsElements:
             mocker.MagicMock(),
         )
         mocked_program = mocker.patch(
-            "widgets.inhouse.historic.assets.ElementsCreator._program_item",
+            "inhouse.historic.assets.ElementsCreator._program_item",
             side_effect=(program1, program2, program3),
         )
         asset_id = 508
@@ -396,7 +396,7 @@ class TestWidgetsHistoricAssetsElements:
         custom_asa.unit = "unit"
         custom_asa.decimals = 2
         mocked_asa = mocker.patch(
-            "widgets.inhouse.historic.assets.ElementsCreator.custom_asa",
+            "inhouse.historic.assets.ElementsCreator.custom_asa",
             return_value=custom_asa,
         )
         total = 12789242804
@@ -446,7 +446,7 @@ class TestWidgetsHistoricAssetsElements:
             mocker.MagicMock(),
         )
         mocked_item = mocker.patch(
-            "widgets.inhouse.historic.assets.ElementsCreator._nft_item",
+            "inhouse.historic.assets.ElementsCreator._nft_item",
             side_effect=(nft_item1, nft_item2, nft_item3),
         )
         custom_nfts = mocker.MagicMock()
@@ -526,7 +526,7 @@ class TestWidgetsHistoricAssetsElements:
 
 
 class TestWidgetsHistoricAssetsHelpers:
-    """Testing class for :py:mod:`widgets.inhouse.historic.assets` helpers functions."""
+    """Testing class for :py:mod:`inhouse.historic.assets` helpers functions."""
 
     # # _base_program_name
     @pytest.mark.parametrize(
@@ -685,7 +685,7 @@ class TestWidgetsHistoricAssetsHelpers:
 
 
 class TestWidgetsHistoricAssetsProcess:
-    """Testing class for :py:mod:`widgets.inhouse.historic.assets` process functions."""
+    """Testing class for :py:mod:`inhouse.historic.assets` process functions."""
 
     # # _create_asa_section
     def test_widgets_inhouse_historic_assets_create_asa_section_functionality(
@@ -756,7 +756,7 @@ class TestWidgetsHistoricAssetsProcess:
         )
         nft_collection_totals = {name1: total1, name2: total2, name3: total3}
         mocked_group = mocker.patch(
-            "widgets.inhouse.historic.assets._group_nfts_by_collection",
+            "inhouse.historic.assets._group_nfts_by_collection",
             return_value=(nft_collections, nft_collection_nfts, nft_collection_totals),
         )
         header1, header2, header3 = (
@@ -874,12 +874,12 @@ class TestWidgetsHistoricAssetsProcess:
             mocker.MagicMock(),
         )
         mocked_sections = mocker.patch(
-            "widgets.inhouse.historic.assets._group_asset_totals_into_sections",
+            "inhouse.historic.assets._group_asset_totals_into_sections",
             return_value=(asa_totals, nft_totals, not_eval_totals),
         )
         elements_creator = mocker.MagicMock()
         mocked_creator = mocker.patch(
-            "widgets.inhouse.historic.assets.ElementsCreator",
+            "inhouse.historic.assets.ElementsCreator",
             return_value=elements_creator,
         )
         total, asa_section, nft_section, not_eval_section = (
@@ -889,19 +889,19 @@ class TestWidgetsHistoricAssetsProcess:
             mocker.MagicMock(),
         )
         mocked_total = mocker.patch(
-            "widgets.inhouse.historic.assets._create_total",
+            "inhouse.historic.assets._create_total",
             return_value=total,
         )
         mocked_asa = mocker.patch(
-            "widgets.inhouse.historic.assets._create_asa_section",
+            "inhouse.historic.assets._create_asa_section",
             return_value=asa_section,
         )
         mocked_noteval = mocker.patch(
-            "widgets.inhouse.historic.assets._create_noteval_section",
+            "inhouse.historic.assets._create_noteval_section",
             return_value=not_eval_section,
         )
         mocked_nft = mocker.patch(
-            "widgets.inhouse.historic.assets._create_nft_section",
+            "inhouse.historic.assets._create_nft_section",
             return_value=nft_section,
         )
         returned = _process_sorted_ledger(
@@ -941,13 +941,13 @@ class TestWidgetsHistoricAssetsProcess:
         )
         sorted_ledger, asset_totals_mapping = mocker.MagicMock(), mocker.MagicMock()
         mocked_sorted = mocker.patch(
-            "widgets.inhouse.historic.assets._sorted_timestamp_data_and_totals_mapping",
+            "inhouse.historic.assets._sorted_timestamp_data_and_totals_mapping",
             return_value=(sorted_ledger, asset_totals_mapping),
         )
         usd_price_in_algo = mocker.MagicMock()
         carrier.usd_price_in_algo_for_timestamp.return_value = usd_price_in_algo
         mocked_process = mocker.patch(
-            "widgets.inhouse.historic.assets._process_sorted_ledger"
+            "inhouse.historic.assets._process_sorted_ledger"
         )
         returned = assets_data_from_timestamp_data(timestamp, timestamp_data, carrier)
         assert returned == mocked_process.return_value

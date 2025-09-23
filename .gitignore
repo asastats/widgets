@@ -1,0 +1,8 @@
+__pycache__
+*.pyc
+docs/_build
+.cache
+.pytest_cache
+.vscode
+.VSCodeCounter
+*.code-workspace

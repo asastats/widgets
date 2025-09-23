@@ -1,7 +1,9 @@
 """Testing module for :py:mod:`asastats.widgets.views` module."""
 
-import pytest
+from unittest import mock
 import time
+
+import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import UserPassesTestMixin
 from django.contrib.auth.models import AnonymousUser
@@ -44,6 +46,7 @@ class BaseUserCreatedView(BaseView):
         self.user.set_password("12345o")
         self.user.save()
         # self.set_permission()
+        self.user.profile  = mock.MagicMock()
 
         # Setup request
         self.request = RequestFactory().get("/fake-path")

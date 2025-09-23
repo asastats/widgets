@@ -6,16 +6,16 @@ import pandas as pd
 import pytest
 from django.contrib.auth import get_user_model
 
-from utils.tests.fixtures import TEST_BUNDLE
-from widgets.inhouse.historic.consumers import (
+from inhouse.historic.consumers import (
     HistoricConsumer,
     evaluate_bundle_ledger_data_for_period,
     evaluate_bundle_ledger_data_for_timestamp,
 )
+from .fixtures import TEST_BUNDLE
 
 user_model = get_user_model()
 
-CONSUMER_PATH = "widgets.inhouse.historic.consumers.HistoricConsumer"
+CONSUMER_PATH = "inhouse.historic.consumers.HistoricConsumer"
 
 
 @pytest.mark.django_db
@@ -29,7 +29,7 @@ class HistoricConsumerBaseTest:
         self.channel_name = "channel_name"
         self.consumer.channel_name = self.channel_name
         mocker.patch(
-            "widgets.inhouse.historic.consumers.group_name_from_bundle",
+            "inhouse.historic.consumers.group_name_from_bundle",
             return_value=self.group_name,
         )
         mocker.patch(
@@ -75,7 +75,7 @@ class TestWidgetsHistoricConsumerSetup(HistoricConsumerBaseTest):
         channel_name, group_name = "channel_name", "group_name"
         self.consumer.channel_name = channel_name
         mocked_group_name = mocker.patch(
-            "widgets.inhouse.historic.consumers.group_name_from_bundle",
+            "inhouse.historic.consumers.group_name_from_bundle",
             return_value=group_name,
         )
         mocked_accept = mocker.patch(f"{CONSUMER_PATH}.accept")
@@ -283,7 +283,7 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         view.period_for_range.return_value = period
         self.consumer.view = view
         mocked_period = mocker.patch(
-            "widgets.inhouse.historic.consumers.check_chart_period"
+            "inhouse.historic.consumers.check_chart_period"
         )
         mocked_process = mocker.patch(f"{CONSUMER_PATH}._process_for_period")
         message_x_min, message_x_max = mocker.MagicMock(), mocker.MagicMock()
@@ -306,10 +306,10 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         await self._connect_helper(mocker)
         update = mocker.MagicMock()
         mocked_update = mocker.patch(
-            "widgets.inhouse.historic.consumers.UpdateStatus", return_value=update
+            "inhouse.historic.consumers.UpdateStatus", return_value=update
         )
         mocked_retrieve = mocker.patch(
-            "widgets.inhouse.historic.consumers.retrieve_bundle_historic_data"
+            "inhouse.historic.consumers.retrieve_bundle_historic_data"
         )
         message = {"HEADERS": {"HX-Trigger": "id-process"}}
         text_data = json.dumps(message)
@@ -343,10 +343,10 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
     ):
         await self._connect_helper(mocker, connect=False)
         mocked_load = mocker.patch(
-            "widgets.inhouse.historic.consumers.load_bundle_event_records",
+            "inhouse.historic.consumers.load_bundle_event_records",
             return_value={},
         )
-        mocked_update = mocker.patch("widgets.inhouse.historic.consumers.UpdateStatus")
+        mocked_update = mocker.patch("inhouse.historic.consumers.UpdateStatus")
         bundle = mocker.MagicMock()
         await self.consumer._load_statuses(bundle)
         mocked_load.assert_called_with(bundle)
@@ -358,12 +358,12 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         await self._connect_helper(mocker, connect=False)
         events = {"bundle": {-1: {"state": 1}}}
         mocked_load = mocker.patch(
-            "widgets.inhouse.historic.consumers.load_bundle_event_records",
+            "inhouse.historic.consumers.load_bundle_event_records",
             return_value=events,
         )
         update = mocker.MagicMock()
         mocked_update = mocker.patch(
-            "widgets.inhouse.historic.consumers.UpdateStatus", return_value=update
+            "inhouse.historic.consumers.UpdateStatus", return_value=update
         )
         mocked_send = mocker.patch(f"{CONSUMER_PATH}.send")
         bundle = mocker.MagicMock()
@@ -398,12 +398,12 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         bundle = mocker.MagicMock()
         events = {bundle: {-1: {"state": "finished"}}}
         mocked_load = mocker.patch(
-            "widgets.inhouse.historic.consumers.load_bundle_event_records",
+            "inhouse.historic.consumers.load_bundle_event_records",
             return_value=events,
         )
         update = mocker.MagicMock()
         mocked_update = mocker.patch(
-            "widgets.inhouse.historic.consumers.UpdateStatus", return_value=update
+            "inhouse.historic.consumers.UpdateStatus", return_value=update
         )
         mocked_send = mocker.patch(f"{CONSUMER_PATH}.send")
         await self.consumer._load_statuses(bundle)
@@ -437,13 +437,13 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         self.consumer.view = view
         sync_to_async = mocker.AsyncMock()
         mocked_sync = mocker.patch(
-            "widgets.inhouse.historic.consumers.sync_to_async",
+            "inhouse.historic.consumers.sync_to_async",
             return_value=sync_to_async,
         )
         sync_to_async.return_value = (None, None, None, None)
         mocked_charts = mocker.patch(
             (
-                "widgets.inhouse.historic.consumers"
+                "inhouse.historic.consumers"
                 ".charts_data_from_asset_values_and_timeline_data"
             )
         )
@@ -491,7 +491,7 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         )
         sync_to_async = mocker.AsyncMock()
         mocked_sync = mocker.patch(
-            "widgets.inhouse.historic.consumers.sync_to_async",
+            "inhouse.historic.consumers.sync_to_async",
             return_value=sync_to_async,
         )
         computed_data = pd.DataFrame()
@@ -502,13 +502,13 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
             asset_tags,
         )
         mocked_values = mocker.patch(
-            "widgets.inhouse.historic.consumers.asset_values_from_computed_data"
+            "inhouse.historic.consumers.asset_values_from_computed_data"
         )
         charts_data = {"some": "charts data"}
         extended_timestamps = mocker.MagicMock()
         mocked_charts = mocker.patch(
             (
-                "widgets.inhouse.historic.consumers"
+                "inhouse.historic.consumers"
                 ".charts_data_from_asset_values_and_timeline_data"
             ),
             return_value=(charts_data, extended_timestamps),
@@ -565,7 +565,7 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         computed_data.empty = False
         sync_to_async = mocker.AsyncMock()
         mocked_sync = mocker.patch(
-            "widgets.inhouse.historic.consumers.sync_to_async",
+            "inhouse.historic.consumers.sync_to_async",
             return_value=sync_to_async,
         )
         sync_to_async.return_value = (
@@ -576,14 +576,14 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         )
         asset_values = mocker.MagicMock()
         mocked_values = mocker.patch(
-            "widgets.inhouse.historic.consumers.asset_values_from_computed_data",
+            "inhouse.historic.consumers.asset_values_from_computed_data",
             return_value=asset_values,
         )
         charts_data = {"some": "charts data"}
         extended_timestamps = mocker.MagicMock()
         mocked_charts = mocker.patch(
             (
-                "widgets.inhouse.historic.consumers"
+                "inhouse.historic.consumers"
                 ".charts_data_from_asset_values_and_timeline_data"
             ),
             return_value=(charts_data, extended_timestamps),
@@ -641,7 +641,7 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         computed_data.empty = False
         sync_to_async = mocker.AsyncMock()
         mocked_sync = mocker.patch(
-            "widgets.inhouse.historic.consumers.sync_to_async",
+            "inhouse.historic.consumers.sync_to_async",
             return_value=sync_to_async,
         )
         sync_to_async.return_value = (
@@ -652,14 +652,14 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         )
         asset_values = mocker.MagicMock()
         mocked_values = mocker.patch(
-            "widgets.inhouse.historic.consumers.asset_values_from_computed_data",
+            "inhouse.historic.consumers.asset_values_from_computed_data",
             return_value=asset_values,
         )
         charts_data = {"some": "charts data"}
         extended_timestamps = mocker.MagicMock()
         mocked_charts = mocker.patch(
             (
-                "widgets.inhouse.historic.consumers"
+                "inhouse.historic.consumers"
                 ".charts_data_from_asset_values_and_timeline_data"
             ),
             return_value=(charts_data, extended_timestamps),
@@ -709,15 +709,15 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         self.consumer.view = view
         sync_to_async = mocker.AsyncMock()
         mocked_sync = mocker.patch(
-            "widgets.inhouse.historic.consumers.sync_to_async",
+            "inhouse.historic.consumers.sync_to_async",
             return_value=sync_to_async,
         )
         sync_to_async.return_value = None
         mocked_data = mocker.patch(
-            "widgets.inhouse.historic.consumers.assets_data_from_timestamp_data"
+            "inhouse.historic.consumers.assets_data_from_timestamp_data"
         )
         mocked_template = mocker.patch(
-            "widgets.inhouse.historic.consumers.get_template"
+            "inhouse.historic.consumers.get_template"
         )
         mocked_send = mocker.patch(f"{CONSUMER_PATH}.send")
         x_val, label = mocker.MagicMock(), mocker.MagicMock()
@@ -765,23 +765,23 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         self.consumer.view = view
         sync_to_async = mocker.AsyncMock()
         mocked_sync = mocker.patch(
-            "widgets.inhouse.historic.consumers.sync_to_async",
+            "inhouse.historic.consumers.sync_to_async",
             return_value=sync_to_async,
         )
         timestamp_data = mocker.MagicMock()
         sync_to_async.return_value = timestamp_data
         assets_data = mocker.MagicMock()
         mocked_data = mocker.patch(
-            "widgets.inhouse.historic.consumers.assets_data_from_timestamp_data",
+            "inhouse.historic.consumers.assets_data_from_timestamp_data",
             return_value=assets_data,
         )
         mocked_consolidated = mocker.patch(
-            "widgets.inhouse.historic.consumers.consolidated_view_charts_from_assets_data",
+            "inhouse.historic.consumers.consolidated_view_charts_from_assets_data",
             return_value={"foo": "bar", "foobar": 1},
         )
         template = mocker.MagicMock()
         mocked_template = mocker.patch(
-            "widgets.inhouse.historic.consumers.get_template", return_value=template
+            "inhouse.historic.consumers.get_template", return_value=template
         )
         html = mocker.MagicMock()
         template.render.return_value = html
@@ -803,7 +803,7 @@ class TestWidgetsHistoricConsumerProcessing(HistoricConsumerBaseTest):
         template.render.assert_called_once_with(
             context={
                 "timestamp": timestamp,
-                "date": "24 Aug 2024 11:46:40",
+                "date": "24 Aug 2024 13:46:40",
                 "data": assets_data,
                 "label": label,
                 "foo": "bar",
@@ -840,12 +840,12 @@ class TestWidgetsHistoricConsumerBroadcasting(HistoricConsumerBaseTest):
     ):
         carrier = mocker.MagicMock()
         mocked_initialize = mocker.patch(
-            "widgets.inhouse.historic.consumers.initialize_storage_carrier",
+            "inhouse.historic.consumers.initialize_storage_carrier",
             return_value=carrier,
         )
         view = mocker.MagicMock()
         mocked_view = mocker.patch(
-            "widgets.inhouse.historic.consumers.ViewStatus", return_value=view
+            "inhouse.historic.consumers.ViewStatus", return_value=view
         )
         mocked_process = mocker.patch(f"{CONSUMER_PATH}._process_for_period")
         bundle = mocker.MagicMock()
@@ -904,7 +904,7 @@ class TestWidgetsHistoricConsumerBroadcasting(HistoricConsumerBaseTest):
     ):
         template = mocker.MagicMock()
         mocked_template = mocker.patch(
-            "widgets.inhouse.historic.consumers.get_template", return_value=template
+            "inhouse.historic.consumers.get_template", return_value=template
         )
         html = mocker.MagicMock()
         template.render.return_value = html
@@ -922,7 +922,7 @@ class TestWidgetsHistoricConsumerBroadcasting(HistoricConsumerBaseTest):
     ):
         template = mocker.MagicMock()
         mocked_template = mocker.patch(
-            "widgets.inhouse.historic.consumers.get_template", return_value=template
+            "inhouse.historic.consumers.get_template", return_value=template
         )
         html = mocker.MagicMock()
         template.render.return_value = html
@@ -939,7 +939,7 @@ class TestWidgetsHistoricConsumerBroadcasting(HistoricConsumerBaseTest):
         self, mocker
     ):
         mocked_template = mocker.patch(
-            "widgets.inhouse.historic.consumers.get_template"
+            "inhouse.historic.consumers.get_template"
         )
         mocked_send = mocker.patch(f"{CONSUMER_PATH}.send")
         message = mocker.MagicMock()
@@ -956,7 +956,7 @@ class TestWidgetsHistoricConsumerBroadcasting(HistoricConsumerBaseTest):
         self.consumer.update = update
         update.check_phase_init.return_value = True
         mocked_template = mocker.patch(
-            "widgets.inhouse.historic.consumers.get_template"
+            "inhouse.historic.consumers.get_template"
         )
         mocked_send = mocker.patch(f"{CONSUMER_PATH}.send")
         message = mocker.MagicMock()
@@ -976,7 +976,7 @@ class TestWidgetsHistoricConsumerBroadcasting(HistoricConsumerBaseTest):
         phase, value = None, None
         update.evaluate.return_value = (phase, value)
         mocked_template = mocker.patch(
-            "widgets.inhouse.historic.consumers.get_template"
+            "inhouse.historic.consumers.get_template"
         )
         mocked_send = mocker.patch(f"{CONSUMER_PATH}.send")
         address = mocker.MagicMock()
@@ -999,7 +999,7 @@ class TestWidgetsHistoricConsumerBroadcasting(HistoricConsumerBaseTest):
         update.evaluate.return_value = (phase, value)
         template = mocker.MagicMock()
         mocked_template = mocker.patch(
-            "widgets.inhouse.historic.consumers.get_template", return_value=template
+            "inhouse.historic.consumers.get_template", return_value=template
         )
         html = mocker.MagicMock()
         template.render.return_value = html

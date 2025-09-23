@@ -2,11 +2,11 @@
 
 import pytest
 
-from widgets.inhouse.historic.permissions import can_access
+from inhouse.historic.permissions import can_access
 
 
 class TestWidgetsHistoricPermissions:
-    """Testing class for :py:mod:`widgets.inhouse.historic.permissions` functions`."""
+    """Testing class for :py:mod:`inhouse.historic.permissions` functions`."""
 
     @pytest.mark.parametrize(
         "permission,size",

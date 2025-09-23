@@ -4,11 +4,10 @@ from collections import defaultdict
 from urllib.parse import urlsplit
 
 import pandas as pd
-from algosdk.constants import MICROALGOS_TO_ALGOS_RATIO
 from django.template.defaultfilters import floatformat
 
 from api.data import ASA_PROGRAMS
-from .constants import DUST_LIMIT
+from .constants import DUST_LIMIT, MICROALGOS_TO_ALGOS_RATIO
 from .structs import HeaderElement, BodyElement, Total
 
 

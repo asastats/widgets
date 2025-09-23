@@ -8,10 +8,15 @@ from django.views.generic.base import RedirectView, TemplateView
 
 from api.widgets import bundle_and_addresses_from_path
 from storage.main import reset_bundle_historic_data
-from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
-from widgets.views import BaseUserPassesTestMixin
 
-from .permissions import TIERS_ADDRESSES_LIMIT, ADDRESSES_LIMIT_ERROR, can_access
+from views import BaseUserPassesTestMixin
+
+from .permissions import (
+    TIERS_ADDRESSES_LIMIT,
+    ADDRESSES_LIMIT_ERROR,
+    SUBSCRIPTION_TIER_PERMISSIONS,
+    can_access,
+)
 
 
 class HistoricView(BaseUserPassesTestMixin, TemplateView):

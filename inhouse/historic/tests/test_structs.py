@@ -6,23 +6,23 @@ from unittest import mock
 import pandas as pd
 import pytest
 
-import widgets.inhouse.historic.structs
-from widgets.inhouse.historic.constants import BARS_COUNT
-from widgets.inhouse.historic.structs import UpdateStatus, ViewStatus
+import inhouse.historic.structs
+from inhouse.historic.constants import BARS_COUNT
+from inhouse.historic.structs import UpdateStatus, ViewStatus
 
 
 class TestWidgetsHistoricStructsNamedTuples:
-    """Testing class for :py:mod:`widgets.inhouse.historic.structs` namedtuples."""
+    """Testing class for :py:mod:`inhouse.historic.structs` namedtuples."""
 
     # # HeaderElement
     def test_widgets_inhouse_historic_structs_defines_headerelement_named_tuple(self):
-        assert inspect.isclass(widgets.inhouse.historic.structs.HeaderElement)
+        assert inspect.isclass(inhouse.historic.structs.HeaderElement)
         assert (
-            widgets.inhouse.historic.structs.HeaderElement.__name__ == "HeaderElement"
+            inhouse.historic.structs.HeaderElement.__name__ == "HeaderElement"
         )
 
     def test_widgets_inhouse_historic_structs_headerelement_fields(self):
-        assert widgets.inhouse.historic.structs.HeaderElement._fields == (
+        assert inhouse.historic.structs.HeaderElement._fields == (
             "icon",
             "label",
             "amount",
@@ -31,11 +31,11 @@ class TestWidgetsHistoricStructsNamedTuples:
 
     # # BodyElement
     def test_widgets_inhouse_historic_structs_defines_bodyelement_named_tuple(self):
-        assert inspect.isclass(widgets.inhouse.historic.structs.BodyElement)
-        assert widgets.inhouse.historic.structs.BodyElement.__name__ == "BodyElement"
+        assert inspect.isclass(inhouse.historic.structs.BodyElement)
+        assert inhouse.historic.structs.BodyElement.__name__ == "BodyElement"
 
     def test_widgets_inhouse_historic_structs_bodyelement_fields(self):
-        assert widgets.inhouse.historic.structs.BodyElement._fields == (
+        assert inhouse.historic.structs.BodyElement._fields == (
             "asset",
             "name",
             "type",
@@ -47,11 +47,11 @@ class TestWidgetsHistoricStructsNamedTuples:
 
     # # Total
     def test_widgets_inhouse_historic_structs_defines_total_named_tuple(self):
-        assert inspect.isclass(widgets.inhouse.historic.structs.Total)
-        assert widgets.inhouse.historic.structs.Total.__name__ == "Total"
+        assert inspect.isclass(inhouse.historic.structs.Total)
+        assert inhouse.historic.structs.Total.__name__ == "Total"
 
     def test_widgets_inhouse_historic_structs_total_fields(self):
-        assert widgets.inhouse.historic.structs.Total._fields == (
+        assert inhouse.historic.structs.Total._fields == (
             "algo",
             "asa",
             "nft",
@@ -63,7 +63,7 @@ class TestWidgetsHistoricStructsNamedTuples:
 
 
 class TestWidgetsHistoricStructsUpdateStatus:
-    """Testing class for :class:`widgets.inhouse.historic.structs.UpdateStatus`."""
+    """Testing class for :class:`inhouse.historic.structs.UpdateStatus`."""
 
     # # UpdateStatus
     @pytest.mark.parametrize("attr", ["bundle", "addresses", "timestamp"])
@@ -82,10 +82,10 @@ class TestWidgetsHistoricStructsUpdateStatus:
     def test_widgets_inhouse_historic_structs_updatestatus_init_initializes_variables(
         self, mocker
     ):
-        mocker.patch("widgets.inhouse.historic.structs.UpdateStatus.reset_states")
+        mocker.patch("inhouse.historic.structs.UpdateStatus.reset_states")
         message = {"bundle": "bundle", "addresses": "address1 address2"}
         timestamp = 1750000000
-        with mock.patch("widgets.inhouse.historic.structs.datetime") as mocked_datetime:
+        with mock.patch("inhouse.historic.structs.datetime") as mocked_datetime:
             mocked_datetime.now.return_value.timestamp.return_value = timestamp
             status = UpdateStatus(message)
         assert status.bundle == "bundle"
@@ -96,7 +96,7 @@ class TestWidgetsHistoricStructsUpdateStatus:
         self, mocker
     ):
         mocked_reset = mocker.patch(
-            "widgets.inhouse.historic.structs.UpdateStatus.reset_states"
+            "inhouse.historic.structs.UpdateStatus.reset_states"
         )
         message = {"bundle": "bundle", "addresses": "address1 address2"}
         UpdateStatus(message)
@@ -191,7 +191,7 @@ class TestWidgetsHistoricStructsUpdateStatus:
             ),
         }
         timestamp = 1760000000
-        with mock.patch("widgets.inhouse.historic.structs.datetime") as mocked_datetime:
+        with mock.patch("inhouse.historic.structs.datetime") as mocked_datetime:
             mocked_datetime.now.return_value.timestamp.return_value = timestamp
             status = UpdateStatus(message)
         collection = [
@@ -237,7 +237,7 @@ class TestWidgetsHistoricStructsUpdateStatus:
         self, mocker
     ):
         mocked_is_finished = mocker.patch(
-            "widgets.inhouse.historic.structs.UpdateStatus._is_finished_phase"
+            "inhouse.historic.structs.UpdateStatus._is_finished_phase"
         )
         message = {"bundle": "bundle", "addresses": "address1 address2 address3"}
         status = UpdateStatus(
@@ -252,7 +252,7 @@ class TestWidgetsHistoricStructsUpdateStatus:
         self, mocker
     ):
         mocked_calculate = mocker.patch(
-            "widgets.inhouse.historic.structs.UpdateStatus._calculate_phase_value"
+            "inhouse.historic.structs.UpdateStatus._calculate_phase_value"
         )
         message = {"bundle": "bundle", "addresses": "address1 address2 address3"}
         status = UpdateStatus(
@@ -269,11 +269,11 @@ class TestWidgetsHistoricStructsUpdateStatus:
     ):
         calculated_value = 75
         mocked_calculate = mocker.patch(
-            "widgets.inhouse.historic.structs.UpdateStatus._calculate_phase_value",
+            "inhouse.historic.structs.UpdateStatus._calculate_phase_value",
             return_value=calculated_value,
         )
         timestamp = 85
-        with mock.patch("widgets.inhouse.historic.structs.datetime") as mocked_datetime:
+        with mock.patch("inhouse.historic.structs.datetime") as mocked_datetime:
             mocked_datetime.now.return_value.timestamp.return_value = timestamp
             status = UpdateStatus(
                 {"bundle": "bundle1", "addresses": "address1 address2 address3"}
@@ -290,11 +290,11 @@ class TestWidgetsHistoricStructsUpdateStatus:
     ):
         calculated_value = 75
         mocked_calculate = mocker.patch(
-            "widgets.inhouse.historic.structs.UpdateStatus._calculate_phase_value",
+            "inhouse.historic.structs.UpdateStatus._calculate_phase_value",
             return_value=calculated_value,
         )
         timestamp = 85
-        with mock.patch("widgets.inhouse.historic.structs.datetime") as mocked_datetime:
+        with mock.patch("inhouse.historic.structs.datetime") as mocked_datetime:
             mocked_datetime.now.return_value.timestamp.return_value = timestamp
             status = UpdateStatus(
                 {"bundle": "bundle1", "addresses": "address1 address2 address3"}
@@ -314,7 +314,7 @@ class TestWidgetsHistoricStructsUpdateStatus:
         message = {"bundle": "bundle", "addresses": "address1 address2 address3"}
         status = UpdateStatus(message)
         mocked_statuses = mocker.patch(
-            "widgets.inhouse.historic.structs.UpdateStatus._statuses_from_events"
+            "inhouse.historic.structs.UpdateStatus._statuses_from_events"
         )
         events = mocker.MagicMock()
         returned = status.template_context(events=events)
@@ -334,7 +334,7 @@ class TestWidgetsHistoricStructsUpdateStatus:
         message = {"bundle": "bundle", "addresses": "address1 address2 address3"}
         status = UpdateStatus(message)
         mocked_statuses = mocker.patch(
-            "widgets.inhouse.historic.structs.UpdateStatus._statuses_from_events"
+            "inhouse.historic.structs.UpdateStatus._statuses_from_events"
         )
         returned = status.template_context()
         assert returned == {
@@ -347,7 +347,7 @@ class TestWidgetsHistoricStructsUpdateStatus:
 
 
 class TestWidgetsHistoricStructsViewStatus:
-    """Testing class for :class:`widgets.inhouse.historic.structs.ViewStatus`."""
+    """Testing class for :class:`inhouse.historic.structs.ViewStatus`."""
 
     # # ViewStatus
     @pytest.mark.parametrize(
@@ -666,11 +666,11 @@ class TestWidgetsHistoricStructsViewStatus:
     ):
         status = ViewStatus(mocker.MagicMock(), mocker.MagicMock())
         mocked_is_zoom = mocker.patch(
-            "widgets.inhouse.historic.structs.ViewStatus._is_zoom_out",
+            "inhouse.historic.structs.ViewStatus._is_zoom_out",
             return_value=True,
         )
         mocked_zoom = mocker.patch(
-            "widgets.inhouse.historic.structs.ViewStatus._zoom_out_period_for_range"
+            "inhouse.historic.structs.ViewStatus._zoom_out_period_for_range"
         )
         x_min, x_max = 10, 30
         returned = status.period_for_range(x_min, x_max)
@@ -684,11 +684,11 @@ class TestWidgetsHistoricStructsViewStatus:
     ):
         status = ViewStatus(mocker.MagicMock(), mocker.MagicMock())
         mocked_is_zoom = mocker.patch(
-            "widgets.inhouse.historic.structs.ViewStatus._is_zoom_out",
+            "inhouse.historic.structs.ViewStatus._is_zoom_out",
             return_value=False,
         )
         mocked_zoom = mocker.patch(
-            "widgets.inhouse.historic.structs.ViewStatus._zoom_out_period_for_range"
+            "inhouse.historic.structs.ViewStatus._zoom_out_period_for_range"
         )
         x_min, x_max = 1, 4
         status.timestamps = [0, 10, 20, 30, 40, 50, 60, 70, 80]
@@ -703,11 +703,11 @@ class TestWidgetsHistoricStructsViewStatus:
     ):
         status = ViewStatus(mocker.MagicMock(), mocker.MagicMock())
         mocked_is_zoom = mocker.patch(
-            "widgets.inhouse.historic.structs.ViewStatus._is_zoom_out",
+            "inhouse.historic.structs.ViewStatus._is_zoom_out",
             return_value=False,
         )
         mocked_zoom = mocker.patch(
-            "widgets.inhouse.historic.structs.ViewStatus._zoom_out_period_for_range"
+            "inhouse.historic.structs.ViewStatus._zoom_out_period_for_range"
         )
         x_min, x_max = 1715250021234.567890, 1725480051234.567890
         returned = status.period_for_range(x_min, x_max)

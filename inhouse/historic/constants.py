@@ -1,11 +1,44 @@
 """Module containing historic widget's constants."""
 
-from django.conf import settings
+from enum import IntEnum
 
-from utils.constants.charts import DISTINCT_COLORS
-from utils.constants.storage import STORAGE_LEDGER_EXPANSION_MULTIPLIER
 
-BARS_COUNT = settings.HISTORIC_WIDGET_BARS_COUNT
+class ProcessPhase(IntEnum):
+    INIT = 0
+    FETCH = 1
+    CHECK = 2
+    PROCESS = 3
+    FETCHED = 4
+    CHECKED = 5
+    PROCESSED = 6
+
+
+MICROALGOS_TO_ALGOS_RATIO = 1000000
+
+STORAGE_LEDGER_EXPANSION_MULTIPLIER = 2
+
+DISTINCT_COLORS = (
+    "#e6194B",
+    "#3cb44b",
+    "#ffe119",
+    "#4363d8",
+    "#f58231",
+    "#42d4f4",
+    "#f032e6",
+    "#fabed4",
+    "#469990",
+    "#dcbeff",
+    "#9A6324",
+    "#fffac8",
+    "#800000",
+    "#aaffc3",
+    "#000075",
+    "#a9a9a9",
+    "#ffffff",
+    "#000000",
+)
+
+BARS_COUNT = 16
 TOTAL_NUMBER_OF_CANDLES_IN_CHART = 48
 
 MAX_NUMBER_OF_ASSETS_IN_CHART = 15

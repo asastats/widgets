@@ -5,9 +5,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from utils.constants.storage import ProcessPhase
-
-from .constants import BARS_COUNT
+from .constants import BARS_COUNT, ProcessPhase
 
 
 HeaderElement = namedtuple("HeaderElement", ["icon", "label", "amount", "total"])

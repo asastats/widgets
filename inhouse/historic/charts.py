@@ -6,18 +6,17 @@ from datetime import datetime, UTC
 
 import numpy as np
 import pandas as pd
-from algosdk.constants import MICROALGOS_TO_ALGOS_RATIO
 
 from utils.charts import (
     prepare_base_charts_from_assets_data,
     prepare_consolidated_charts_from_assets_data,
 )
-
 from .constants import (
     DATE_FORMATS_FOR_TIMESTAMPS_INTERVAL,
     DISTINCT_COLORS,
     GROUPS_IN_ASSET_TAGS,
     MAX_NUMBER_OF_ASSETS_IN_CHART,
+    MICROALGOS_TO_ALGOS_RATIO,
     OTHERS_GROUP_NAME,
     STORAGE_LEDGER_EXPANSION_MULTIPLIER,
     TOTAL_NUMBER_OF_CANDLES_IN_CHART,

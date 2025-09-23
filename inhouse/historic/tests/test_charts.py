@@ -5,8 +5,8 @@ from unittest import mock
 import numpy as np
 import pandas as pd
 
-import widgets.inhouse.historic.charts
-from widgets.inhouse.historic.charts import (
+import inhouse.historic.charts
+from inhouse.historic.charts import (
     _aggregate_bar_chart_data,
     _append_linechart_to_barchart,
     _apply_extended_timestamps_to_bar_chart,
@@ -33,7 +33,7 @@ from widgets.inhouse.historic.charts import (
     charts_data_from_asset_values_and_timeline_data,
     consolidated_view_charts_from_assets_data,
 )
-from widgets.inhouse.historic.constants import (
+from inhouse.historic.constants import (
     DISTINCT_COLORS,
     GROUPS_IN_ASSET_TAGS,
     OTHERS_GROUP_NAME,
@@ -42,7 +42,7 @@ from widgets.inhouse.historic.constants import (
 
 
 class TestWidgetsHistoricChartsHelpers:
-    """Testing class for :py:mod:`widgets.inhouse.historic.charts` helpers functions."""
+    """Testing class for :py:mod:`inhouse.historic.charts` helpers functions."""
 
     # # _append_linechart_to_barchart
     def test_widgets_inhouse_historic_charts_append_linechart_to_barchart_functionality(
@@ -585,7 +585,7 @@ class TestWidgetsHistoricChartsHelpers:
 
 
 class TestWidgetsHistoricChartsExtend:
-    """Testing class for :py:mod:`widgets.inhouse.historic.charts` extend functions."""
+    """Testing class for :py:mod:`inhouse.historic.charts` extend functions."""
 
     # # _apply_extended_timestamps_to_bar_chart
     def test_widgets_inhouse_historic_apply_extended_timestamps_to_bar_chart_no_extend(
@@ -623,10 +623,10 @@ class TestWidgetsHistoricChartsExtend:
             ],
         }
         mocked_values = mocker.patch(
-            "widgets.inhouse.historic.charts._timeline_data_values_for_timestamps"
+            "inhouse.historic.charts._timeline_data_values_for_timestamps"
         )
         mocked_microalgos = mocker.patch(
-            "widgets.inhouse.historic.charts._microalgos_to_currency_algo"
+            "inhouse.historic.charts._microalgos_to_currency_algo"
         )
         _apply_extended_timestamps_to_bar_chart(
             bar_chart, timeline_data, left_timestamps, right_timestamps
@@ -706,7 +706,7 @@ class TestWidgetsHistoricChartsExtend:
             5_000_000,
         )
         mocked_values = mocker.patch(
-            "widgets.inhouse.historic.charts._timeline_data_values_for_timestamps",
+            "inhouse.historic.charts._timeline_data_values_for_timestamps",
             side_effect=[(value1, value2, value3), (value4, value5)],
         )
         _apply_extended_timestamps_to_bar_chart(
@@ -768,11 +768,11 @@ class TestWidgetsHistoricChartsExtend:
         left_timestamps = []
         right_timestamps = []
         mocked_extended = mocker.patch(
-            "widgets.inhouse.historic.charts._extended_timestamps",
+            "inhouse.historic.charts._extended_timestamps",
             return_value=(left_timestamps, right_timestamps),
         )
         mocked_apply = mocker.patch(
-            "widgets.inhouse.historic.charts._apply_extended_timestamps_to_bar_chart"
+            "inhouse.historic.charts._apply_extended_timestamps_to_bar_chart"
         )
         returned = _extend_barchart_on_both_sides(
             bar_chart, central_timestamps, timeline_data
@@ -789,11 +789,11 @@ class TestWidgetsHistoricChartsExtend:
         left_timestamps = [1639850000, 1649850000, 1659850000]
         right_timestamps = [1682850000, 1689850000, 1690850000, 1700850000]
         mocked_extended = mocker.patch(
-            "widgets.inhouse.historic.charts._extended_timestamps",
+            "inhouse.historic.charts._extended_timestamps",
             return_value=(left_timestamps, right_timestamps),
         )
         mocked_apply = mocker.patch(
-            "widgets.inhouse.historic.charts._apply_extended_timestamps_to_bar_chart"
+            "inhouse.historic.charts._apply_extended_timestamps_to_bar_chart"
         )
         returned = _extend_barchart_on_both_sides(
             bar_chart, central_timestamps, timeline_data
@@ -841,7 +841,7 @@ class TestWidgetsHistoricChartsExtend:
             1700850000,
         ]
         mocked_extended = mocker.patch(
-            "widgets.inhouse.historic.charts._extended_timestamps",
+            "inhouse.historic.charts._extended_timestamps",
             return_value=(left_timestamps, right_timestamps),
         )
         returned = _extend_candlestick_timestamps_on_both_sides(
@@ -1221,7 +1221,7 @@ class TestWidgetsHistoricChartsExtend:
 
 
 class TestWidgetsHistoricChartsProcess:
-    """Testing class for :py:mod:`widgets.inhouse.historic.charts` process functions."""
+    """Testing class for :py:mod:`inhouse.historic.charts` process functions."""
 
     # # _aggregate_bar_chart_data
     def test_widgets_inhouse_historic_charts_aggregate_bar_chart_data_functionality(
@@ -1229,7 +1229,7 @@ class TestWidgetsHistoricChartsProcess:
     ):
         asset_values, asset_tags = (mocker.MagicMock(), mocker.MagicMock())
         mocked_top = mocker.patch(
-            "widgets.inhouse.historic.charts._top_assets_and_groups"
+            "inhouse.historic.charts._top_assets_and_groups"
         )
         grouped_data = {
             "key1": mocker.MagicMock(),
@@ -1237,14 +1237,14 @@ class TestWidgetsHistoricChartsProcess:
             "key3": mocker.MagicMock(),
         }
         mocked_tags = mocker.patch(
-            "widgets.inhouse.historic.charts._tag_totals_by_timestamps",
+            "inhouse.historic.charts._tag_totals_by_timestamps",
             return_value=grouped_data,
         )
         mocked_dates = mocker.patch(
-            "widgets.inhouse.historic.charts._timestamps_formatted_to_dates"
+            "inhouse.historic.charts._timestamps_formatted_to_dates"
         )
         mocked_data = mocker.patch(
-            "widgets.inhouse.historic.charts._chart_data_unit_datasets"
+            "inhouse.historic.charts._chart_data_unit_datasets"
         )
         unit_colors = {
             "unit1": mocker.MagicMock(),
@@ -1252,10 +1252,10 @@ class TestWidgetsHistoricChartsProcess:
             "unit3": mocker.MagicMock(),
         }
         mocked_colors = mocker.patch(
-            "widgets.inhouse.historic.charts._top_assets_chart_layout",
+            "inhouse.historic.charts._top_assets_chart_layout",
             return_value=unit_colors,
         )
-        mocked_chart = mocker.patch("widgets.inhouse.historic.charts._bar_chart_config")
+        mocked_chart = mocker.patch("inhouse.historic.charts._bar_chart_config")
         returned = _aggregate_bar_chart_data(asset_values, asset_tags)
         assert returned == mocked_chart.return_value
         mocked_top.assert_called_once_with(asset_values, asset_tags)
@@ -1379,7 +1379,7 @@ class TestWidgetsHistoricChartsProcess:
         )
         bar_chart = mocker.MagicMock()
         mocked_chart = mocker.patch(
-            "widgets.inhouse.historic.charts._aggregate_bar_chart_data",
+            "inhouse.historic.charts._aggregate_bar_chart_data",
             return_value=bar_chart,
         )
         timestamps, x_min, x_max = (
@@ -1388,7 +1388,7 @@ class TestWidgetsHistoricChartsProcess:
             mocker.MagicMock(),
         )
         mocked_extend = mocker.patch(
-            "widgets.inhouse.historic.charts._extend_barchart_on_both_sides",
+            "inhouse.historic.charts._extend_barchart_on_both_sides",
             return_value=(timestamps, x_min, x_max),
         )
         interval_values = {
@@ -1398,11 +1398,11 @@ class TestWidgetsHistoricChartsProcess:
             "close": mocker.MagicMock(),
         }
         mocked_interval = mocker.patch(
-            "widgets.inhouse.historic.charts._timeline_value_boundaries_for_timestamps",
+            "inhouse.historic.charts._timeline_value_boundaries_for_timestamps",
             return_value=interval_values,
         )
         mocked_append = mocker.patch(
-            "widgets.inhouse.historic.charts._append_linechart_to_barchart"
+            "inhouse.historic.charts._append_linechart_to_barchart"
         )
         returned = _create_bar_chart(asset_values, timeline_data, asset_tags)
         assert returned == (
@@ -1494,24 +1494,24 @@ class TestWidgetsHistoricChartsProcess:
         )
         central_timestamps = [timestamp1, timestamp3, timestamp5]
         mocked_central = mocker.patch(
-            "widgets.inhouse.historic.charts._candlestick_chart_timestamps",
+            "inhouse.historic.charts._candlestick_chart_timestamps",
             return_value=central_timestamps,
         )
         timestamps = mocker.MagicMock()
         mocked_timestamps = mocker.patch(
-            "widgets.inhouse.historic.charts._extend_candlestick_timestamps_on_both_sides",
+            "inhouse.historic.charts._extend_candlestick_timestamps_on_both_sides",
             return_value=timestamps,
         )
         interval_values = mocker.MagicMock()
         mocked_interval = mocker.patch(
-            "widgets.inhouse.historic.charts._timeline_value_boundaries_for_timestamps",
+            "inhouse.historic.charts._timeline_value_boundaries_for_timestamps",
             return_value=interval_values,
         )
         mocked_data = mocker.patch(
-            "widgets.inhouse.historic.charts._candles_from_interval_values_for_timestamps"
+            "inhouse.historic.charts._candles_from_interval_values_for_timestamps"
         )
         mocked_chart = mocker.patch(
-            "widgets.inhouse.historic.charts._candlestick_chart_config"
+            "inhouse.historic.charts._candlestick_chart_config"
         )
         candles_count = 10
         returned = _create_candlestick_chart(
@@ -1565,24 +1565,24 @@ class TestWidgetsHistoricChartsProcess:
         )
         central_timestamps = [timestamp1, timestamp3, timestamp5]
         mocked_central = mocker.patch(
-            "widgets.inhouse.historic.charts._candlestick_chart_timestamps",
+            "inhouse.historic.charts._candlestick_chart_timestamps",
             return_value=central_timestamps,
         )
         timestamps = mocker.MagicMock()
         mocked_timestamps = mocker.patch(
-            "widgets.inhouse.historic.charts._extend_candlestick_timestamps_on_both_sides",
+            "inhouse.historic.charts._extend_candlestick_timestamps_on_both_sides",
             return_value=timestamps,
         )
         interval_values = mocker.MagicMock()
         mocked_interval = mocker.patch(
-            "widgets.inhouse.historic.charts._timeline_value_boundaries_for_timestamps",
+            "inhouse.historic.charts._timeline_value_boundaries_for_timestamps",
             return_value=interval_values,
         )
         mocked_data = mocker.patch(
-            "widgets.inhouse.historic.charts._candles_from_interval_values_for_timestamps"
+            "inhouse.historic.charts._candles_from_interval_values_for_timestamps"
         )
         mocked_chart = mocker.patch(
-            "widgets.inhouse.historic.charts._candlestick_chart_config"
+            "inhouse.historic.charts._candlestick_chart_config"
         )
         returned = _create_candlestick_chart(asset_values, timeline_data)
         assert returned == {
@@ -1833,7 +1833,7 @@ class TestWidgetsHistoricChartsProcess:
             asset_id7: GROUPS_IN_ASSET_TAGS[1],
         }
         with mock.patch.object(
-            widgets.inhouse.historic.charts, "MAX_NUMBER_OF_ASSETS_IN_CHART", 3
+            inhouse.historic.charts, "MAX_NUMBER_OF_ASSETS_IN_CHART", 3
         ):
             returned = _top_assets_and_groups(asset_values, asset_tags)
             assert returned == [
@@ -1953,11 +1953,11 @@ class TestWidgetsHistoricChartsProcess:
         )
         bar_chart, extended_timestamps = mocker.MagicMock(), mocker.MagicMock()
         mocked_bar = mocker.patch(
-            "widgets.inhouse.historic.charts._create_bar_chart",
+            "inhouse.historic.charts._create_bar_chart",
             return_value=(bar_chart, extended_timestamps),
         )
         mocked_candlestick = mocker.patch(
-            "widgets.inhouse.historic.charts._create_candlestick_chart"
+            "inhouse.historic.charts._create_candlestick_chart"
         )
         returned = charts_data_from_asset_values_and_timeline_data(
             asset_values, timeline_data, asset_tags
@@ -1984,7 +1984,7 @@ class TestWidgetsHistoricChartsProcess:
             mocker.MagicMock(),
         )
         mocked_base = mocker.patch(
-            "widgets.inhouse.historic.charts.prepare_base_charts_from_assets_data",
+            "inhouse.historic.charts.prepare_base_charts_from_assets_data",
             return_value=(asachart, nftchart, colors, nft_colors),
         )
         distchart, ratiochart, consolidated = (
@@ -1993,7 +1993,7 @@ class TestWidgetsHistoricChartsProcess:
             mocker.MagicMock(),
         )
         mocked_consolidated = mocker.patch(
-            "widgets.inhouse.historic.charts.prepare_consolidated_charts_from_assets_data",
+            "inhouse.historic.charts.prepare_consolidated_charts_from_assets_data",
             return_value=(distchart, ratiochart, consolidated),
         )
         returned = consolidated_view_charts_from_assets_data(assets_data)

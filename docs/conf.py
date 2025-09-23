@@ -19,7 +19,7 @@ import sys
 
 import django
 
-sys.path.insert(0, os.path.abspath("../asastats"))
+sys.path.insert(0, os.path.abspath("../"))
 
 django.setup()
 
@@ -31,7 +31,7 @@ copyright = "2025, ASA Stats DAO"
 author = "Ivica Paleka"
 
 # The full version, including alpha/beta/rc tags
-from asastats import __version__
+from .. import __version__
 
 release = __version__
 

@@ -1,7 +1,11 @@
 """Module containing historic widget's prmission functions."""
 
-from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
-
+SUBSCRIPTION_TIER_PERMISSIONS = {
+    "Intro": 2_329_968_943,
+    "Asastatser": 23_299_689_438,
+    "Professional": 258_885_438_200,
+    "Cluster": 3_236_067_977_500,
+}
 TIERS_ADDRESSES_LIMIT = {
     "Intro": 0,
     "Asastatser": 1,
@@ -12,6 +16,7 @@ ADDRESSES_LIMIT_ERROR = (
     "Your <a href='/subscriptions/' target='_blank' rel='noopener'>subscription tier"
     "</a> allows you to evaluate historic data for up to %s address(es)."
 )
+
 
 def can_access(profile, size):
     """Return True if user is allowed to access historic widget for `size`.
