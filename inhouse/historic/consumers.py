@@ -1,7 +1,7 @@
 """Module containing historic widget's websocket consumers."""
 
 import json
-from datetime import datetime
+from datetime import datetime, UTC
 
 from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
@@ -307,7 +307,7 @@ class HistoricConsumer(AsyncWebsocketConsumer):
         html = get_template("historic/assets.html").render(
             context={
                 "timestamp": timestamp,
-                "date": datetime.fromtimestamp(timestamp).strftime(
+                "date": datetime.fromtimestamp(timestamp, UTC).strftime(
                     "%-d %b %Y %H:%M:%S"
                 ),
                 "data": assets_data,
