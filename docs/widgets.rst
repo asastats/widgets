@@ -149,3 +149,12 @@
   :members:
   :undoc-members:
   :show-inheritance:
+
+
+:mod:`widgets.tests` -- ASA Stats user widgets system's unit-tests package
+--------------------------------------------------------------------------
+
+.. automodule:: tests
+  :members:
+  :undoc-members:
+  :show-inheritance:

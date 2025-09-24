@@ -16,9 +16,9 @@ pandas>=2.3.2
 # linting
 black>=25.9
 pylint>=3.3.8
-Sphinx>=8.2
-sphinx-rtd-theme>=3.0.2
 rope>=1.14
 pyflakes>=3.4
 ruff>=0.13.1
-
+# documentation
+Sphinx>=8.2
+sphinx-rtd-theme>=3.0.2

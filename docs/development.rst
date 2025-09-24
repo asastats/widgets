@@ -11,23 +11,14 @@ Create Python virtual environment:
 
 .. code-block:: bash
 
-  python3 -m venv asastats
-
-
-Set some environment variables upon activation:
-
-.. code-block:: bash
-  :caption: /home/ipaleka/dev/venvs/asa/bin/activate
-
-  export DJANGO_SETTINGS_MODULE=asastats.settings.development
-  export SECRET_KEY="xxxxxxxxxxxxxxxxxxxx"
+  python3 -m venv widgets
 
 
 Activate Python environment:
 
 .. code-block:: bash
 
-  source asa/bin/activate
+  source widgets/bin/activate
 
 
 Adding an alias can be useful:
@@ -35,44 +26,8 @@ Adding an alias can be useful:
 .. code-block:: bash
   :caption: ~/.bashrc
 
-  alias 'asa'='cd /home/ipaleka/dev/asastats_repo;source /home/ipaleka/dev/venvs/asa/bin/activate'
-
-
-Changing bash to colored:
-
-.. code-block:: bash
-
-  DEFAULT=$PS1
-  PS1="\[\033[42m\]\[\033[31m\]\u@\h:\w\\[\033[00m\]\$ "
-
-Revert back with:
-
-.. code-block:: bash
-
-  PS1=$DEFAULT
-
-Code profiling
-^^^^^^^^^^^^^^
-
-`django-cprofile-middleware` in the development is run by adding `?prof` to a url:
-
-http://127.0.0.1:8000/?prof
-
-Install SnakeViz to visualize data:
-
-.. code-block:: bash
-
-  pip install SnakeViz
-
-Save profiling file with:
-
-http://127.0.0.1:8000/?prof&download
-
-and open it with SnakeViz:
-
-.. code-block:: bash
-
-  snakeviz view.prof
+  alias 'widgets'='cd /home/ipaleka/dev/widgets; \
+    source /home/ipaleka/dev/venvs/widgets/bin/activate'
 
 
 SonarQube
@@ -109,11 +64,12 @@ To start scanning, run the scanner from the root directory of the project with:
 
   $ sonar-scanner
 
+
 Newer versions require authentication:
 
 .. code-block:: bash
 
-  $ sonar-scanner -Dsonar.login=admin -Dsonar.password=password -Dsonar.projectKey=asastats.com
+  $ sonar-scanner -Dsonar.login=admin -Dsonar.password=password -Dsonar.projectKey=user-widgets
 
 
 For additional information read the scanner `documentation`_.
@@ -129,8 +85,8 @@ Python
 
 .. code-block:: bash
 
-  cd /home/ipaleka/dev/asastats_repo/asastats
-  source /home/ipaleka/dev/venvs/asa/bin/activate
+  cd /home/ipaleka/dev/widgets
+  source /home/ipaleka/dev/venvs/widgets/bin/activate
   python -m pytest -v
 
 
@@ -148,7 +104,7 @@ Install project's Node dependencies with:
 
 .. code-block:: bash
 
-  cd /home/ipaleka/dev/asastats_repo/asastats/
+  cd /home/ipaleka/dev/widgets/
   npm install
 
 
@@ -163,6 +119,6 @@ Run project's Javascript tests with:
 
 .. code-block:: bash
 
-  cd /home/ipaleka/dev/asastats_repo/asastats/
+  cd /home/ipaleka/dev/widgets/
   jest
 

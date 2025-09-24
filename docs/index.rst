@@ -1,5 +1,5 @@
 .. ASA Stats user widgets documentation master file, created by
-   sphinx-quickstart on Sun Jul 18 22:22:48 2021.
+   sphinx-quickstart on Tue Sep 23 20:16:55 2025.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
@@ -11,8 +11,8 @@ Welcome to ASA Stats user widgets documentation!
    :caption: Contents:
 
    development
-   widgets
    howto
+   widgets
 
 
 Indices and tables
