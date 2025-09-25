@@ -56,7 +56,7 @@ class HistoricConsumerBaseTest:
             email="historic_widget_user@test.com",
             password="12345o",
         )
-        self.consumer = self._create_consumer("ws/historic/{}/".format(TEST_BUNDLE))
+        self.consumer = self._create_consumer("widgets/historic/{}/".format(TEST_BUNDLE))
 
 
 class TestWidgetsHistoricConsumerSetup(HistoricConsumerBaseTest):

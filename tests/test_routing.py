@@ -15,4 +15,4 @@ class TestWidgetsRouting:
         assert (
             url[0].lookup_str == "widgets.inhouse.historic.consumers.HistoricConsumer"
         )
-        assert str(url[0].pattern) == "ws/historic/(?P<bundle>\w{40}|\w{58})/$"
+        assert str(url[0].pattern) == "widgets/historic/(?P<bundle>\w{40}|\w{58})/$"
