@@ -31,8 +31,6 @@ class BaseUserPassesTestMixin(UserPassesTestMixin):
     def test_func(self, callback, *args):
         """Check if user has enough permission to access historic data widget.
 
-        FIXME: uncomment before deployment
-
         :param callback: callback function accepting profile and provided argument
         :type callback: object
         :param args: collection of positional arguments for the callback funtion
@@ -44,4 +42,3 @@ class BaseUserPassesTestMixin(UserPassesTestMixin):
             and self.request.user.profile
             and callback(self.request.user.profile, *args)
         )
-        # return True

@@ -4,7 +4,7 @@
 <link href="{% static 'historic/style.css' %}" type="text/css" rel="stylesheet" media="screen">
 {% endblock %}
 {% block content %}
-<div hx-ext="ws" ws-connect="/widgets/historic/{{ bundle }}/">
+<div hx-ext="ws" ws-connect="/ws/historic/{{ bundle }}/">
   <h1 class="center-align">Historic data</h1>
 
   <div class="row">
