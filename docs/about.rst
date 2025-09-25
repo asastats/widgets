@@ -11,7 +11,7 @@ The first published user widget - historic data widget - will serve as the basis
 
 The main structure represents a 
 `Django app <https://www.djangoproject.com/>`_
-that is imported into ASA Stats main repository as a 
+that is imported into ASA Stats' main repository as a
 `Git submodule <https://git-scm.com/book/en/v2/Git-Tools-Submodules>`_.
 
 
@@ -33,21 +33,21 @@ This repository contains the base code that is common to all the user widgets, a
     └── thirdparty/
 
 
-The ASA Stats community has been collecting and filtering user requests for widgets since day one
-and it is expected that all of
+The ASA Stats community has been collecting and filtering user requests for widgets since day one.
+It is expected that all of
 `those requests <https://github.com/asastats/channel/wiki/FeaturesDependentOnUserWidgets>`_
-eventually end up in a form of user widgets, with the code code that resides in this repository.
+eventually end up in a form of user widgets, with the code that resides in this repository.
 
 
 Inhouse
 ^^^^^^^
 
-Directory `inhouse` contains the user widgets developed by ASA Stats team. 
+The `inhouse` directory contains the user widgets developed by the ASA Stats team.
 
 
 Thirdparty
 ^^^^^^^^^^
 
-Directory `thirdparty` contains the user widgets developed by other developers.
+The `thirdparty` directory contains the user widgets developed by other developers.
 All the widgets from this directory have to be approved by the ASA Stats team
 before they are published on the ASA Stats website.
