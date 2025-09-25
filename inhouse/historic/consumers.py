@@ -86,7 +86,9 @@ class HistoricConsumer(AsyncWebsocketConsumer):
             message.get("HEADERS")
             and message["HEADERS"].get("HX-Trigger") == "id-process"
         ):
-            await self._initiate_update(message)
+            events = load_bundle_event_records(message.get("bundle"))
+            if not events:
+                await self._initiate_update(message)
 
         elif (
             message.get("HEADERS")
