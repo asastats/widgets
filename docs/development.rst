@@ -33,10 +33,10 @@ Adding an alias can be useful:
 SonarQube
 ^^^^^^^^^
 
-SonarQube_ is an open-source platform for inspection of code quality for detecting
-bugs, code smells, and security vulnerabilities.
-
-.. _SonarQube: https://docs.sonarqube.org/latest/setup/get-started-2-minutes/
+`SonarQube <https://docs.sonarsource.com/sonarqube-community-build>`_
+is an automated code review and static analysis tool designed to detect coding issues.
+You can find the installation instructions
+`here <https://docs.sonarsource.com/sonarqube-community-build/try-out-sonarqube>`
 
 
 Starting server
