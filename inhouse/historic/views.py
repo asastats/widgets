@@ -7,7 +7,7 @@ from django.utils.safestring import mark_safe
 from django.views.generic.base import RedirectView, TemplateView
 
 from api.widgets import bundle_and_addresses_from_path
-from storage.main import reset_bundle_historic_data
+from engine.storage.main import reset_bundle_historic_data
 
 from views import BaseUserPassesTestMixin
 
