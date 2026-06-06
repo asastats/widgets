@@ -6,7 +6,8 @@ from urllib.parse import urlsplit
 import pandas as pd
 from django.template.defaultfilters import floatformat
 
-from api.data import ASA_PROGRAMS
+# FIXME: check how this can be resolved without being imported from the engine package
+from engine.core.data import ASA_PROGRAMS
 from .constants import DUST_LIMIT, MICROALGOS_TO_ALGOS_RATIO
 from .structs import HeaderElement, BodyElement, Total
 
