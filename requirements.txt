@@ -1,24 +1,26 @@
 ## base requirements
 Django>=5.2,<6
 django-cors-headers>=4.9
-channels[daphne]>=4.2
-django-htmx>=1.26.0
-django-template-partials>=25.2
+channels[daphne]>=4.3.2
+django-htmx>=1.27.0
+django-template-partials>=25.3
 ## tests requirements
-pytest>=8.4
-pytest-cov>=7.0
-pytest-django>=4.11
-pytest-mock>=3.15
-pytest-xdist>=3.8
-pytest-asyncio>=1.2
-numpy>=2.3.3
-pandas>=2.3.2
+pytest>=9.0.3
+pytest-cov>=7.1.0
+pytest-django>=4.12.0
+pytest-mock>=3.15.1
+pytest-xdist>=3.8.0
+pytest-asyncio>=1.4.0
+factory-boy>=3.3.3
+numpy>=2.4.6
+pandas>=3.0.3
 # linting
-black>=25.9
-pylint>=3.3.8
-rope>=1.14
-pyflakes>=3.4
-ruff>=0.13.1
+black>=26.5.1
+pylint>=4.0.5
+isort>=8.0.1
+rope>=1.14.0
+pyflakes>=3.4.0
+ruff>=0.15.16
 # documentation
-Sphinx>=8.2
-sphinx-rtd-theme>=3.0.2
+Sphinx>=9.1.0
+sphinx-rtd-theme>=3.1.0
