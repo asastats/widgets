@@ -1,20 +1,8 @@
 """Module containing historic widget's data structures."""
 
-from collections import namedtuple
 from datetime import datetime, timezone
 
-import pandas as pd
-
 from .constants import BARS_COUNT, ProcessPhase
-
-
-HeaderElement = namedtuple("HeaderElement", ["icon", "label", "amount", "total"])
-BodyElement = namedtuple(
-    "BodyElement", ["asset", "name", "type", "url", "source", "amount", "value"]
-)
-Total = namedtuple(
-    "Total", ["algo", "asa", "nft", "total", "totalusdc", "priceusdc", "pricealgo"]
-)
 
 
 class UpdateStatus:
@@ -198,45 +186,30 @@ class UpdateStatus:
 
 
 class ViewStatus:
-    """Class for keeping initial charts data and calculation of changed x-axis range.
+    """Class for keeping chart x-axis range state and calculating zoom periods.
+
+    The evaluated asset values and the storage carrier live engine-side now; this
+    class keeps only the range/zoom math driven by the browser's x-axis values.
 
     :var ViewStatus.bundle: unique hash identifier made from public Algorand addresses
     :type ViewStatus.bundle: str
-    :var ViewStatus.carrier: instance with storage related methods and variables
-    :type ViewStatus.carrier: :class:`storage.main.StorageCarrier`
-    :var ViewStatus.timestamps: collection of timestamp collections to reuse on zoom-out
+    :var ViewStatus.timestamps: collection of timestamps to reuse on zoom-out
     :type ViewStatus.timestamps: list
-    :var ViewStatus.asset_values: collection of already evaluated asset values
-    :type ViewStatus.asset_values: :class:`pandas.DataFrame`
     :var ViewStatus.current_range: currently processed view's x-axis min and max
     :type ViewStatus.current_range: two-tuple
     """
 
     bundle = None
-    carrier = None
     timestamps = []
-    asset_values = None
     current_range = None
 
-    def __init__(self, bundle, carrier):
-        """Set class variables to initial values based on provided arguments.
+    def __init__(self, bundle):
+        """Set class variables to initial values based on provided argument.
 
         :param bundle: unique hash identifier made from public Algorand addresses
         :type bundle: str
-        :param carrier: instance with storage related methods and variables
-        :type carrier: :class:`storage.main.StorageCarrier`
         """
         self.bundle = bundle
-        self.carrier = carrier
-        self.asset_values = pd.DataFrame([], columns=["timestamp", "asset", "value"])
-
-    @property
-    def evaluated_timestamps(self):
-        """Return collection of already evaluated unique timestamps.
-
-        :return: set
-        """
-        return set(self.asset_values["timestamp"].unique())
 
     def _is_zoom_out(self, x_min, x_max):
         """Return True if provided x-axis boundaries is zoom-out from previous state.
@@ -293,15 +266,6 @@ class ViewStatus:
             int(central_time + BARS_COUNT / 2 * interval),
         )
 
-    def asset_values_for_timestamps(self, timestamps):
-        """Return asset values dataframe for provided timestamps.
-
-        :param timestamps: chart's collection of timestamps
-        :type timestamps: list
-        :return: :class:`pandas.DataFrame`
-        """
-        return self.asset_values[self.asset_values["timestamp"].isin(timestamps)]
-
     def is_range_changed(self, x_min, x_max):
         """Return True if provided range boundaries represent a new period.
 
@@ -332,21 +296,6 @@ class ViewStatus:
             return (int(float(x_min) / 1000), int(float(x_max) / 1000))
 
         return (self.timestamps[x_min], self.timestamps[x_max])
-
-    def record_asset_values(self, asset_values):
-        """Record and return provided asset values merged with class variable.
-
-        :param asset_values: asset values data for equally distributed timestamps
-        :type asset_values: :class:`pandas.DataFrame`
-        :var filtered_asset_values: asset values data with only new timestamps
-        :type filtered_asset_values: :class:`pandas.DataFrame`
-        """
-        filtered_asset_values = asset_values[
-            ~asset_values["timestamp"].isin(self.asset_values["timestamp"])
-        ]
-        self.asset_values = pd.concat(
-            [self.asset_values, filtered_asset_values], ignore_index=True
-        ).sort_values(by=["timestamp"])
 
     def record_timestamps(self, timestamps):
         """Save provided timestamps collection to class variable.

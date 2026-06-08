@@ -6,24 +6,27 @@ from django.shortcuts import redirect
 from django.utils.safestring import mark_safe
 from django.views.generic.base import RedirectView, TemplateView
 
+from api.client import engine_request
 from api.widgets import bundle_and_addresses_from_path
-from engine.storage.main import reset_bundle_historic_data
 
-from views import BaseUserPassesTestMixin
+from widgethost.enforcement import WidgetAccessMixin
+from widgethost.manifest import addresses_limit_for_permission
 
-from .permissions import (
-    TIERS_ADDRESSES_LIMIT,
-    ADDRESSES_LIMIT_ERROR,
-    SUBSCRIPTION_TIER_PERMISSIONS,
-    can_access,
+from .manifest import MANIFEST
+
+ADDRESSES_LIMIT_ERROR = (
+    "Your <a href='/subscriptions/' target='_blank' rel='noopener'>subscription tier"
+    "</a> allows you to evaluate historic data for up to %s address(es)."
 )
 
 
-class HistoricView(BaseUserPassesTestMixin, TemplateView):
+class HistoricView(WidgetAccessMixin, TemplateView):
     """View for presenting historic account data.
 
     :var template_name: relative path to Django template's name for view
     :type template_name: str
+    :var manifest: this widget's parsed manifest
+    :type manifest: :class:`widgethost.manifest.Manifest`
     :var bundle: hash made from public Algorand address(es)
     :type bundle: str
     :var addresses: space separated collection of public Algorand addresses
@@ -31,6 +34,7 @@ class HistoricView(BaseUserPassesTestMixin, TemplateView):
     """
 
     template_name = "historic/index.html"
+    manifest = MANIFEST
     bundle = None
     addresses = None
 
@@ -49,16 +53,20 @@ class HistoricView(BaseUserPassesTestMixin, TemplateView):
         return context
 
     def handle_no_permission(self):
-        """Calls super method and redirect to subscribe page on exception."""
+        """Calls super method and redirect to subscribe page on exception.
+
+        :var limit: number of addresses the user's permission allows
+        :type limit: int
+        """
         try:
             return super().handle_no_permission()
 
         except PermissionDenied:
-            if (
-                self.request.user.profile.permission
-                >= SUBSCRIPTION_TIER_PERMISSIONS["Asastatser"]
-            ):
-                limit = TIERS_ADDRESSES_LIMIT.get(self.request.user.profile.tier_name())
+            limit = addresses_limit_for_permission(
+                self.manifest.required_permission,
+                self.request.user.profile.permission,
+            )
+            if limit:
                 messages.error(
                     self.request, mark_safe(ADDRESSES_LIMIT_ERROR % (limit,))
                 )
@@ -77,23 +85,29 @@ class HistoricView(BaseUserPassesTestMixin, TemplateView):
         self.bundle, self.addresses = bundle_and_addresses_from_path(
             url_path, force_bundle=True
         )
-        return super().test_func(can_access, len(self.addresses.split(" ")))
+        return self.manifest_test_func(len(self.addresses.split(" ")))
 
 
-class HistoricResetView(BaseUserPassesTestMixin, RedirectView):
+class HistoricResetView(WidgetAccessMixin, RedirectView):
     """View for deleting existing bundle data.
 
     :var permanent: is redirection permanent or not
     :type permanent: Boolean
     :var pattern_name: name of the url to redirect to
     :type pattern_name: str
+    :var manifest: this widget's parsed manifest
+    :type manifest: :class:`widgethost.manifest.Manifest`
     """
 
     permanent = False
     pattern_name = "historic"
+    manifest = MANIFEST
 
-    def dispatch(self, request, *args, **kwargs):
-        """Central method responsible for deleting data and redirect.
+    def get(self, request, *args, **kwargs):
+        """Delete the bundle's engine data after the gate, then redirect.
+
+        The permission gate runs in ``dispatch`` before this method, so the
+        destructive reset only fires for an authorized request.
 
         :param request: Django request object
         :type request: :class:`django.http.HttpRequest`
@@ -101,8 +115,13 @@ class HistoricResetView(BaseUserPassesTestMixin, RedirectView):
         :type bundle: str
         """
         bundle = args[0]
-        reset_bundle_historic_data(bundle)
-        return super().dispatch(request, *args, **kwargs)
+        engine_request(
+            "historic:reset",
+            "DELETE",
+            f"/api/v2/historic/{bundle}/",
+            self.manifest.engine_endpoints,
+        )
+        return super().get(request, *args, **kwargs)
 
     def get_redirect_url(self, *args, **kwargs):
         """Return URL for bundle historic page."""
@@ -119,4 +138,4 @@ class HistoricResetView(BaseUserPassesTestMixin, RedirectView):
         self.bundle, self.addresses = bundle_and_addresses_from_path(
             url_path, force_bundle=True
         )
-        return super().test_func(can_access, len(self.addresses.split(" ")))
+        return self.manifest_test_func(len(self.addresses.split(" ")))

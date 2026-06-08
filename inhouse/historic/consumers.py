@@ -1,33 +1,38 @@
 """Module containing historic widget's websocket consumers."""
 
 import json
-from datetime import datetime, UTC
 
 from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.template.loader import get_template
 
-from engine.storage.helpers import (
-    check_chart_period,
-    group_name_from_bundle,
-    load_bundle_event_records,
-)
-from engine.storage.ledger import (
-    evaluate_bundle_ledger_data_for_period,
-    evaluate_bundle_ledger_data_for_timestamp,
-)
-from engine.storage.main import (
-    initialize_storage_carrier,
-    retrieve_bundle_historic_data,
-)
+from api.client import engine_request
 
-from .assets import assets_data_from_timestamp_data
-from .charts import (
-    asset_values_from_computed_data,
-    charts_data_from_asset_values_and_timeline_data,
-    consolidated_view_charts_from_assets_data,
-)
+from .helpers import check_chart_period, group_name_from_bundle
+from .manifest import MANIFEST
 from .structs import UpdateStatus, ViewStatus
+
+
+def _restore_event_phase_keys(events):
+    """Restore integer phase keys lost when the events endpoint serialized to JSON.
+
+    The engine builds each address record with integer phase keys, but JSON
+    transport stringifies them; this converts them back so ``UpdateStatus`` and
+    the finished-state check operate as before. Non-mapping entries (``bundle``,
+    ``addresses``) are passed through untouched.
+
+    :param events: events mapping as decoded from the engine JSON response
+    :type events: dict
+    :return: dict
+    """
+    return {
+        key: (
+            {int(phase): values for phase, values in value.items()}
+            if isinstance(value, dict)
+            else value
+        )
+        for key, value in events.items()
+    }
 
 
 class HistoricConsumer(AsyncWebsocketConsumer):
@@ -50,8 +55,6 @@ class HistoricConsumer(AsyncWebsocketConsumer):
 
         :var bundle: unique identifier of scope's addresses collection
         :type bundle: str
-        :var events: collection of bundle's phases and processing statuses
-        :type events: dict
         """
         bundle = self.scope["url_route"]["kwargs"]["bundle"]
         self.bundle_group_name = group_name_from_bundle(bundle)
@@ -127,7 +130,6 @@ class HistoricConsumer(AsyncWebsocketConsumer):
         if self.view is None:
             return True
 
-        print(f"Range received: {message.get('x-min')} - {message.get('x-max')}")
         x_min, x_max = self.view.x_axis_boundaries(
             message.get("x-min"), message.get("x-max")
         )
@@ -136,7 +138,6 @@ class HistoricConsumer(AsyncWebsocketConsumer):
             return True
 
         period = self.view.period_for_range(x_min, x_max)
-        print(f"Range processed: {x_min} - {x_max}")
 
         period = check_chart_period(period)
 
@@ -153,7 +154,13 @@ class HistoricConsumer(AsyncWebsocketConsumer):
         :type message: dict
         """
         self.update = UpdateStatus(message)
-        retrieve_bundle_historic_data(message)
+        await sync_to_async(engine_request, thread_sensitive=False)(
+            "historic:process",
+            "POST",
+            f"/api/v2/historic/{message['bundle']}/process/",
+            MANIFEST.engine_endpoints,
+            json=message,
+        )
         await self.channel_layer.group_send(
             self.bundle_group_name,
             {
@@ -167,14 +174,22 @@ class HistoricConsumer(AsyncWebsocketConsumer):
         )
 
     async def _load_statuses(self, bundle):
-        """Load processing statuses from disk for `bundle` and update UI if they exist.
+        """Load processing statuses from the engine for `bundle` and update UI.
 
         :param bundle: unique identifier of addresses collection
         :type bundle: str
+        :var response: engine events endpoint response
+        :type response: :class:`requests.Response`
         :var events: collection of bundle's phases and processing statuses
         :type events: dict
         """
-        events = load_bundle_event_records(bundle)
+        response = await sync_to_async(engine_request, thread_sensitive=False)(
+            "historic:events",
+            "GET",
+            f"/api/v2/historic/{bundle}/events/",
+            MANIFEST.engine_endpoints,
+        )
+        events = _restore_event_phase_keys(response.json())
         if events:
             self.update = UpdateStatus(events)
             await self.channel_layer.group_send(
@@ -191,59 +206,38 @@ class HistoricConsumer(AsyncWebsocketConsumer):
                 )
 
     async def _process_for_period(self, period):
-        """Calculate charts data for provided `period` and send it to client.
+        """Request charts data for provided `period` from the engine and send it.
 
         :param period: chart's minimum and maximum timestamps
         :type period: two-tuple
-        :var timestamps: chart's central/visible area timestamps collection
-        :type timestamps: list
-        :var computed_data: fully evaluated bundle ledger data for zoomed out period
-        :type computed_data: :class:`pandas.DataFrame`
-        :var timeline_data: evaluated timestamps across the whole timeline
-        :type timeline_data: :class:`pandas.DataFrame`
-        :var asset_tags: collection of assets and related unit or associated group
-        :type asset_tags: dict
-        :var asset_values: asset values data for equally distributed timestamps
-        :type asset_values: :class:`pandas.DataFrame`
-        :var charts_data: bar and candlestick chart labels and datasets collection
-        :type charts_data: dict
-        :var extended_timestamps: chart's extended timestamps collection
-        :type extended_timestamps: list
+        :var response: engine evaluate endpoint response
+        :type response: :class:`requests.Response`
+        :var data: render-ready charts payload or a show-update marker
+        :type data: dict
         """
-        print("period", period)
-
-        timestamps, computed_data, timeline_data, asset_tags = await sync_to_async(
-            evaluate_bundle_ledger_data_for_period, thread_sensitive=True
-        )(
-            self.view.bundle,
-            self.view.evaluated_timestamps,
-            self.view.carrier,
-            period=period,
+        response = await sync_to_async(engine_request, thread_sensitive=False)(
+            "historic:evaluate",
+            "POST",
+            f"/api/v2/historic/{self.view.bundle}/evaluate/",
+            MANIFEST.engine_endpoints,
+            json={"period": period},
         )
-        if timestamps is None:
+        data = response.json()
+        if data.get("type") == "show_update":
             await self.channel_layer.group_send(
                 self.bundle_group_name,
                 {"type": "historic.lock_no_blur", "message": {"locked": False}},
             )
             return await self.send(text_data=json.dumps({"type": "show_update"}))
 
-        if not computed_data.empty:
-            asset_values = asset_values_from_computed_data(computed_data)
-            self.view.record_asset_values(asset_values)
-
-        charts_data, extended_timestamps = (
-            charts_data_from_asset_values_and_timeline_data(
-                self.view.asset_values_for_timestamps(timestamps),
-                timeline_data,
-                asset_tags,
-            )
-        )
-        self.view.record_timestamps(extended_timestamps)
+        self.view.record_timestamps(data["extended_timestamps"])
         if period is None:
             self.view.reset_current_range()
 
         await self.send(
-            text_data=json.dumps({"type": "update_charts", "data": charts_data})
+            text_data=json.dumps(
+                {"type": "update_charts", "data": data["charts_data"]}
+            )
         )
         await self.channel_layer.group_send(
             self.bundle_group_name,
@@ -251,69 +245,43 @@ class HistoricConsumer(AsyncWebsocketConsumer):
         )
 
     async def _process_for_timestamp(self, message):
-        """Evaluate bundle for provided `timestamp` and send rendered HTML to client.
+        """Request timestamp evaluation from the engine and send rendered HTML.
 
         :param message: show timestamp message data sent by htmx
         :type message: dict
         :var timestamp: seconds since epoch point in time to process data for
         :type timestamp: int
-        :var timestamp_data: fully evaluated bundle ledger data for single timestamp
-        :type timestamp_data: :class:`pandas.DataFrame`
-        :var assets_data: processed asset section data ready for rendering
-        :type assets_data: dict
-        :var label: unit whose section is about to be revealed
-        :type label: str
-        :var html: rendered html of the status phase's div
+        :var response: engine timestamp endpoint response
+        :type response: :class:`requests.Response`
+        :var data: render-ready assets context or a show-update marker
+        :type data: dict
+        :var html: rendered html of the assets section
         :type html: str
         """
-        print("x-val", message.get("x-val"))
         timestamp = self.view.timestamp_for_x(message.get("x-val"))
-        print("timestamp", timestamp)
 
         await self.channel_layer.group_send(
             self.bundle_group_name,
             {"type": "historic.lock_no_blur", "message": {"locked": True}},
         )
 
-        timestamp_data = await sync_to_async(
-            evaluate_bundle_ledger_data_for_timestamp, thread_sensitive=True
-        )(
-            self.view.bundle,
-            timestamp,
-            self.view.carrier,
+        response = await sync_to_async(engine_request, thread_sensitive=False)(
+            "historic:timestamp",
+            "POST",
+            f"/api/v2/historic/{self.view.bundle}/timestamp/",
+            MANIFEST.engine_endpoints,
+            json={"timestamp": timestamp},
         )
-        if timestamp_data is None:
+        data = response.json()
+        if data.get("type") == "show_update":
             await self.channel_layer.group_send(
                 self.bundle_group_name,
                 {"type": "historic.lock_no_blur", "message": {"locked": False}},
             )
             return await self.send(text_data=json.dumps({"type": "show_update"}))
 
-        assets_data = assets_data_from_timestamp_data(
-            timestamp, timestamp_data.drop(columns="timestamp"), self.view.carrier
-        )
-        label = message.get("label")
-        print("label", label)
-
-        # path = f"/home/ipaleka/Downloads/{timestamp}-assets-data.json"
-        # with open(path, "w") as assets_data_file:
-        #     json.dump(assets_data, assets_data_file)
-        # timestamp_data.to_csv(
-        #     f"/home/ipaleka/Downloads/{timestamp}-timestamp-data.csv",
-        #     sep=";",
-        #     index=False,
-        # )
-
         html = get_template("historic/assets.html").render(
-            context={
-                "timestamp": timestamp,
-                "date": datetime.fromtimestamp(timestamp, UTC).strftime(
-                    "%-d %b %Y %H:%M:%S"
-                ),
-                "data": assets_data,
-                "label": label,
-                **consolidated_view_charts_from_assets_data(assets_data),
-            }
+            context={**data, "label": message.get("label")}
         )
         await self.send(text_data=html)
         await self.channel_layer.group_send(
@@ -329,13 +297,10 @@ class HistoricConsumer(AsyncWebsocketConsumer):
         :type event: dict
         :var bundle: unique identifier of scope's addresses collection
         :type bundle: str
-        :var carrier: instance with storage related methods and variables
-        :type carrier: :class:`storage.main.StorageCarrier`
         """
         bundle = event["message"]["bundle"]
-        carrier = initialize_storage_carrier()
 
-        self.view = ViewStatus(bundle, carrier)
+        self.view = ViewStatus(bundle)
 
         await self._process_for_period(None)
 

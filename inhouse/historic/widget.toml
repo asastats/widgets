@@ -1,0 +1,32 @@
+id = "historic"
+name = "Historic data"
+version = "0.9.0"
+origin = "inhouse"
+capability = "engine-backed"
+revenue_account = ""
+
+engine_endpoints = [
+    "historic:process",
+    "historic:evaluate",
+    "historic:timestamp",
+    "historic:events",
+    "historic:reset",
+]
+data = ["portfolio:bundle", "profile:permission"]
+hosts = []
+
+[assets]
+static = "static/"
+templates = "templates/"
+
+[[required_permission]]
+max_addresses = 1
+permission = 23299689438
+
+[[required_permission]]
+max_addresses = 5
+permission = 258885438200
+
+[[required_permission]]
+max_addresses = 10
+permission = 3236067977500

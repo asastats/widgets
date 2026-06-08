@@ -1,214 +1,118 @@
-"""Testing module for historic widget views module."""
-
-from unittest import mock
+"""Testing module for :py:mod:`widgets.inhouse.historic.views` module."""
 
 from django.core.exceptions import PermissionDenied
-from django.test import RequestFactory
-from django.views.generic.base import RedirectView, TemplateView
 
-from inhouse.historic.permissions import (
-    ADDRESSES_LIMIT_ERROR,
-    SUBSCRIPTION_TIER_PERMISSIONS,
-    can_access,
-)
-from inhouse.historic.views import HistoricResetView, HistoricView
-from views import BaseUserPassesTestMixin
+from widgets.inhouse.historic.views import HistoricResetView, HistoricView
 
 
-class BaseView:
-    """Base helper class for testing views."""
+class TestHistoricViewsHistoricView:
+    """Testing class for :py:class:`...historic.views.HistoricView`."""
 
-    def setup_view(self, view, request, *args, **kwargs):
-        """Mimic as_view() returned callable, but returns view instance.
-
-        args and kwargs are the same as those passed to ``reverse()``
-
-        """
-        view.request = request
-        view.args = args
-        view.kwargs = kwargs
-        return view
-
-    # # helper methods
-    def setup_method(self):
-        # Setup request
-        self.request = RequestFactory().get("/fake-path")
-
-
-class TestWidgetsHistoricView(BaseView):
-    """Testing class for :class:`inhouse.historic.HistoricView`."""
-
-    def test_widgets_historicview_is_subclass_of_baseuserpassestestmixin(self):
-        assert issubclass(HistoricView, BaseUserPassesTestMixin)
-
-    def test_widgets_historicview_is_subclass_of_templateview(self):
-        assert issubclass(HistoricView, TemplateView)
-
-    # # get_context_data
-    def test_widgets_historicview_get_context_data_functionality(self, mocker):
-        # Setup view
+    def test_historic_views_historic_view_test_func(self, mocker):
         view = HistoricView()
-        url_path = "url_path"
-        view = self.setup_view(view, self.request, url_path)
-        bundle, addresses = "bundle", "addresses"
-        mocker.patch(
-            "inhouse.historic.views.bundle_and_addresses_from_path",
-            return_value=(bundle, addresses),
+        view.args = ("abcd",)
+        resolver = mocker.patch(
+            "widgets.inhouse.historic.views.bundle_and_addresses_from_path",
+            return_value=("BUNDLE", "A1 A2"),
         )
-        mocker.patch("inhouse.historic.views.BaseUserPassesTestMixin.test_func")
-        # Run.
-        view.test_func()
+        gate = mocker.patch.object(HistoricView, "manifest_test_func", return_value=True)
+        assert view.test_func() is True
+        assert view.bundle == "BUNDLE"
+        assert view.addresses == "A1 A2"
+        resolver.assert_called_once_with("ABCD", force_bundle=True)
+        gate.assert_called_once_with(2)
+
+    def test_historic_views_historic_view_get_context_data(self, mocker):
+        view = HistoricView()
+        view.bundle = "BUNDLE"
+        view.addresses = "A1 A2"
+        mocker.patch(
+            "django.views.generic.base.ContextMixin.get_context_data",
+            return_value={},
+        )
         context = view.get_context_data()
-        # Check.
-        assert context == {"view": view, "bundle": bundle, "addresses": addresses}
+        assert context["bundle"] == "BUNDLE"
+        assert context["addresses"] == "A1 A2"
 
-    # # handle_no_permission
-    def test_widgets_historicview_handle_no_permission_calls_and_returns_super(
+    def test_historic_views_historic_view_handle_no_permission_address_limit(
         self, mocker
     ):
         view = HistoricView()
-        self.request.user = mocker.MagicMock()
-        self.request.user.profile.permission = SUBSCRIPTION_TIER_PERMISSIONS["Intro"]
-        view = self.setup_view(view, self.request)
-        with mock.patch(
-            "inhouse.historic.views.BaseUserPassesTestMixin.handle_no_permission"
-        ) as mocked_super:
-            returned = view.handle_no_permission()
-            assert returned == mocked_super.return_value
-            mocked_super.assert_called_once_with()
-
-    def test_widgets_historicview_handle_no_permission_redirects_on_exception(
-        self, mocker
-    ):
-        mocked_redirect = mocker.patch("inhouse.historic.views.redirect")
-        view = HistoricView()
-        self.request.user = mocker.MagicMock()
-        self.request.user.profile.permission = (
-            SUBSCRIPTION_TIER_PERMISSIONS["Intro"] - 1
-        )
-        view = self.setup_view(view, self.request)
-        with mock.patch(
-            "inhouse.historic.views.BaseUserPassesTestMixin.handle_no_permission"
-        ) as mocked_super, mock.patch(
-            "inhouse.historic.views.messages"
-        ) as mocked_messages, mock.patch(
-            "inhouse.historic.views.mark_safe"
-        ) as mocked_safe:
-            mocked_super.side_effect = PermissionDenied("", "", 0)
-            returned = view.handle_no_permission()
-            mocked_safe.assert_not_called()
-            mocked_messages.error.assert_not_called()
-        assert returned == mocked_redirect.return_value
-        mocked_redirect.assert_called_once_with("subscriptions")
-
-    def test_widgets_historicview_handle_no_permission_redirects_for_asastatser_limit(
-        self, mocker
-    ):
-        mocked_redirect = mocker.patch("inhouse.historic.views.redirect")
-        view = HistoricView()
-        self.request.user = mocker.MagicMock()
-        self.request.user.profile.tier_name.return_value = "Asastatser"
-        self.request.user.profile.permission = SUBSCRIPTION_TIER_PERMISSIONS[
-            "Asastatser"
-        ]
-        view = self.setup_view(view, self.request)
-        with mock.patch(
-            "inhouse.historic.views.BaseUserPassesTestMixin.handle_no_permission"
-        ) as mocked_super, mock.patch(
-            "inhouse.historic.views.messages"
-        ) as mocked_messages, mock.patch(
-            "inhouse.historic.views.mark_safe"
-        ) as mocked_safe:
-            mocked_super.side_effect = PermissionDenied("", "", 0)
-            returned = view.handle_no_permission()
-            mocked_safe.assert_called_once_with(ADDRESSES_LIMIT_ERROR % (1,))
-            mocked_messages.error.assert_called_once_with(
-                self.request, mocked_safe.return_value
-            )
-        assert returned == mocked_redirect.return_value
-        mocked_redirect.assert_called_once_with("home")
-
-    # # test_func
-    def test_widgets_historicview_test_func_functionality(self, mocker):
-        # Setup view
-        view = HistoricView()
-        view = self.setup_view(view, self.request)
-        view.args = ["url-path"]
-        bundle, addresses = "bundle", "address1 address2"
-        mocked_bundle = mocker.patch(
-            "inhouse.historic.views.bundle_and_addresses_from_path",
-            return_value=(bundle, addresses),
-        )
-        mocked_test_func = mocker.patch(
-            "inhouse.historic.views.BaseUserPassesTestMixin.test_func"
-        )
-        # Run.
-        test_func = view.test_func()
-        # Check.
-        assert test_func == mocked_test_func.return_value
-        mocked_bundle.assert_called_once_with("URL-PATH", force_bundle=True)
-        mocked_test_func.assert_called_once_with(can_access, len(addresses.split(" ")))
-
-
-class TestWidgetsHistoricResetView(BaseView):
-    """Testing class for :class:`inhouse.historic.HistoricResetView`."""
-
-    def test_widgets_historicresetview_is_subclass_of_baseuserpassestestmixin(self):
-        assert issubclass(HistoricResetView, BaseUserPassesTestMixin)
-
-    def test_widgets_historicresetview_is_subclass_of_redirectview(self):
-        assert issubclass(HistoricResetView, RedirectView)
-
-    # # dispatch
-    def test_widgets_historicresetview_dispatch_functionality(self, mocker):
-        # Setup view
-        view = HistoricResetView()
-        view = self.setup_view(view, self.request)
-        view.args = ["bundle"]
-        mocked_reset = mocker.patch("inhouse.historic.views.reset_bundle_historic_data")
-        mocked_dispatch = mocker.patch("inhouse.historic.views.RedirectView.dispatch")
+        view.manifest = mocker.MagicMock()
+        view.request = mocker.MagicMock()
         mocker.patch(
-            "inhouse.historic.views.HistoricResetView.test_func",
+            "django.contrib.auth.mixins.AccessMixin.handle_no_permission",
+            side_effect=PermissionDenied,
         )
-        # Run.
-        dispatch = view.dispatch(self.request, "bundle")
-        # Check.
-        assert dispatch == mocked_dispatch.return_value
-        mocked_reset.assert_called_once_with("bundle")
-        mocked_dispatch.assert_called_once_with(self.request, "bundle")
+        mocker.patch(
+            "widgets.inhouse.historic.views.addresses_limit_for_permission",
+            return_value=5,
+        )
+        messages = mocker.patch("widgets.inhouse.historic.views.messages")
+        redirect = mocker.patch(
+            "widgets.inhouse.historic.views.redirect", return_value="home"
+        )
+        assert view.handle_no_permission() == "home"
+        redirect.assert_called_once_with("home")
+        assert messages.error.called
 
-    # # get_redirect_url
-    def test_widgets_historicresetview_get_redirect_url_functionality(self, mocker):
-        # Setup view
-        view = HistoricResetView()
-        view = self.setup_view(view, self.request)
-        view.args = ["bundle"]
-        mocked_url = mocker.patch(
-            "inhouse.historic.views.RedirectView.get_redirect_url"
+    def test_historic_views_historic_view_handle_no_permission_subscribe(self, mocker):
+        view = HistoricView()
+        view.manifest = mocker.MagicMock()
+        view.request = mocker.MagicMock()
+        mocker.patch(
+            "django.contrib.auth.mixins.AccessMixin.handle_no_permission",
+            side_effect=PermissionDenied,
         )
-        # Run.
-        url = view.get_redirect_url("bundle")
-        # Check.
-        assert url == mocked_url.return_value
-        mocked_url.assert_called_once_with("bundle")
+        mocker.patch(
+            "widgets.inhouse.historic.views.addresses_limit_for_permission",
+            return_value=0,
+        )
+        redirect = mocker.patch(
+            "widgets.inhouse.historic.views.redirect", return_value="subscriptions"
+        )
+        assert view.handle_no_permission() == "subscriptions"
+        redirect.assert_called_once_with("subscriptions")
 
-    # # test_func
-    def test_widgets_historicresetview_test_func_functionality(self, mocker):
-        # Setup view
+    def test_historic_views_historic_view_handle_no_permission_passthrough(
+        self, mocker
+    ):
+        view = HistoricView()
+        mocker.patch(
+            "django.contrib.auth.mixins.AccessMixin.handle_no_permission",
+            return_value="login",
+        )
+        assert view.handle_no_permission() == "login"
+
+
+class TestHistoricViewsHistoricResetView:
+    """Testing class for :py:class:`...historic.views.HistoricResetView`."""
+
+    def test_historic_views_historic_reset_view_get(self, mocker):
         view = HistoricResetView()
-        view = self.setup_view(view, self.request)
-        view.args = ["url-path"]
-        bundle, addresses = "bundle", "addresses"
-        mocked_bundle = mocker.patch(
-            "inhouse.historic.views.bundle_and_addresses_from_path",
-            return_value=(bundle, addresses),
+        view.manifest = mocker.MagicMock(engine_endpoints=["historic:reset"])
+        engine = mocker.patch("widgets.inhouse.historic.views.engine_request")
+        parent = mocker.patch(
+            "django.views.generic.base.RedirectView.get", return_value="redirect"
         )
-        mocked_test_func = mocker.patch(
-            "inhouse.historic.views.BaseUserPassesTestMixin.test_func"
+        assert view.get(mocker.MagicMock(), "BUNDLE") == "redirect"
+        engine.assert_called_once_with(
+            "historic:reset",
+            "DELETE",
+            "/api/v2/historic/BUNDLE/",
+            ["historic:reset"],
         )
-        # Run.
-        test_func = view.test_func()
-        # Check.
-        assert test_func == mocked_test_func.return_value
-        mocked_bundle.assert_called_once_with("URL-PATH", force_bundle=True)
-        mocked_test_func.assert_called_once_with(can_access, len(addresses.split(" ")))
+        assert parent.called
+
+    def test_historic_views_historic_reset_view_test_func(self, mocker):
+        view = HistoricResetView()
+        view.args = ("abcd",)
+        mocker.patch(
+            "widgets.inhouse.historic.views.bundle_and_addresses_from_path",
+            return_value=("BUNDLE", "A1"),
+        )
+        gate = mocker.patch.object(
+            HistoricResetView, "manifest_test_func", return_value=True
+        )
+        assert view.test_func() is True
+        gate.assert_called_once_with(1)
