@@ -8,6 +8,7 @@ from django.template.loader import get_template
 
 from api.client import engine_request
 
+from .charts import consolidated_view_charts_from_assets_data
 from .helpers import check_chart_period, group_name_from_bundle
 from .manifest import MANIFEST
 from .structs import UpdateStatus, ViewStatus
@@ -280,8 +281,9 @@ class HistoricConsumer(AsyncWebsocketConsumer):
             )
             return await self.send(text_data=json.dumps({"type": "show_update"}))
 
+        consolidated = consolidated_view_charts_from_assets_data(data["data"])
         html = get_template("historic/assets.html").render(
-            context={**data, "label": message.get("label")}
+            context={**data, **consolidated, "label": message.get("label")}
         )
         await self.send(text_data=html)
         await self.channel_layer.group_send(
