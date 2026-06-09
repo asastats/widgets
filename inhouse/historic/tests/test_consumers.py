@@ -65,7 +65,10 @@ class TestHistoricConsumersReceive:
 
     def test_historic_consumers_receive_routes_show(self, mocker):
         target = self._route(
-            mocker, {"HX-Trigger": "id-show"}, "_process_for_timestamp", {"type": "show"}
+            mocker,
+            {"HX-Trigger": "id-show"},
+            "_process_for_timestamp",
+            {"type": "show"},
         )
         assert target.called
 
@@ -129,15 +132,21 @@ class TestHistoricConsumersProcessForTimestamp:
         consumer.view.timestamp_for_x.return_value = 100
         engine = mocker.patch("widgets.inhouse.historic.consumers.engine_request")
         engine.return_value.json.return_value = {"data": {}, "date": "x"}
-        template = mocker.patch(
-            "widgets.inhouse.historic.consumers.get_template"
+        consolidated = mocker.patch(
+            "widgets.inhouse.historic.consumers."
+            "consolidated_view_charts_from_assets_data",
+            return_value={"asachart": {}},
         )
+        template = mocker.patch("widgets.inhouse.historic.consumers.get_template")
         template.return_value.render.return_value = "<div></div>"
         async_to_sync(consumer._process_for_timestamp)(
             {"x-val": "100", "label": "ALGO"}
         )
+        consolidated.assert_called_once_with({})
+        context = template.return_value.render.call_args.kwargs["context"]
+        assert context["label"] == "ALGO"
+        assert context["asachart"] == {}
         consumer.send.assert_awaited_once_with(text_data="<div></div>")
-        assert template.return_value.render.call_args.kwargs["context"]["label"] == "ALGO"
 
 
 class TestHistoricConsumersBroadcasting:
@@ -145,18 +154,14 @@ class TestHistoricConsumersBroadcasting:
 
     def test_historic_consumers_lock_interaction_sends(self, mocker):
         consumer = _consumer(mocker)
-        async_to_sync(consumer.historic_lock_interaction)(
-            {"message": {"locked": True}}
-        )
+        async_to_sync(consumer.historic_lock_interaction)({"message": {"locked": True}})
         consumer.send.assert_awaited_once_with(
             text_data=json.dumps({"type": "lock_interaction", "locked": True})
         )
 
     def test_historic_consumers_lock_no_blur_sends(self, mocker):
         consumer = _consumer(mocker)
-        async_to_sync(consumer.historic_lock_no_blur)(
-            {"message": {"locked": False}}
-        )
+        async_to_sync(consumer.historic_lock_no_blur)({"message": {"locked": False}})
         consumer.send.assert_awaited_once_with(
             text_data=json.dumps({"type": "lock_no_blur", "locked": False})
         )

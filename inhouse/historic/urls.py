@@ -2,7 +2,7 @@
 
 from django.urls import re_path
 
-from .views import HistoricView, HistoricResetView
+from .views import HistoricResetView, HistoricView
 
 urlpatterns = [
     re_path(r"^(\w{40}|\w{58})$", HistoricView.as_view(), name="historic"),

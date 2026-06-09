@@ -1,9 +1,6 @@
 """Testing module for :py:mod:`widgets.inhouse.historic.helpers` module."""
 
-from widgets.inhouse.historic.helpers import (
-    check_chart_period,
-    group_name_from_bundle,
-)
+from widgets.inhouse.historic.helpers import check_chart_period, group_name_from_bundle
 
 
 class TestHistoricHelpersGroupNameFromBundle:

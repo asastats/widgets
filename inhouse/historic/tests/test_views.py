@@ -15,7 +15,9 @@ class TestHistoricViewsHistoricView:
             "widgets.inhouse.historic.views.bundle_and_addresses_from_path",
             return_value=("BUNDLE", "A1 A2"),
         )
-        gate = mocker.patch.object(HistoricView, "manifest_test_func", return_value=True)
+        gate = mocker.patch.object(
+            HistoricView, "manifest_test_func", return_value=True
+        )
         assert view.test_func() is True
         assert view.bundle == "BUNDLE"
         assert view.addresses == "A1 A2"

@@ -1,7 +1,7 @@
 """Testing module for :py:mod:`asastats.widgets.views` module."""
 
-from unittest import mock
 import time
+from unittest import mock
 
 import pytest
 from django.contrib.auth import get_user_model

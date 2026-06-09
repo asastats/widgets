@@ -2,11 +2,10 @@
 
 import json
 
+from api.client import engine_request
 from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.template.loader import get_template
-
-from api.client import engine_request
 
 from .charts import consolidated_view_charts_from_assets_data
 from .helpers import check_chart_period, group_name_from_bundle
@@ -236,9 +235,7 @@ class HistoricConsumer(AsyncWebsocketConsumer):
             self.view.reset_current_range()
 
         await self.send(
-            text_data=json.dumps(
-                {"type": "update_charts", "data": data["charts_data"]}
-            )
+            text_data=json.dumps({"type": "update_charts", "data": data["charts_data"]})
         )
         await self.channel_layer.group_send(
             self.bundle_group_name,

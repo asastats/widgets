@@ -1,14 +1,12 @@
 """Module containing historic widget's views."""
 
+from api.client import engine_request
+from api.widgets import bundle_and_addresses_from_path
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
 from django.utils.safestring import mark_safe
 from django.views.generic.base import RedirectView, TemplateView
-
-from api.client import engine_request
-from api.widgets import bundle_and_addresses_from_path
-
 from widgethost.enforcement import WidgetAccessMixin
 from widgethost.manifest import addresses_limit_for_permission
 
