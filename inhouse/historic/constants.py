@@ -1,5 +1,18 @@
-"""Module containing widgets' constants."""
+"""Module containing historic widget's constants."""
 
-from widgethost.registry import discover_widgets
+from enum import IntEnum
 
-INHOUSE_WIDGETS, THIRDPARTY_WIDGETS = discover_widgets()
+
+class ProcessPhase(IntEnum):
+    """Processing phases reported by the engine over the progress bus."""
+
+    INIT = 0
+    FETCH = 1
+    CHECK = 2
+    PROCESS = 3
+    FETCHED = 4
+    CHECKED = 5
+    PROCESSED = 6
+
+
+BARS_COUNT = 16
