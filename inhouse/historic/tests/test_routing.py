@@ -2,15 +2,15 @@
 
 from django.urls import URLPattern
 
-from inhouse.historic import routing
+from widgets.inhouse.historic import routing
 
 
 class TestWidgetsHistoricRouting:
-    """Testing class for :py:mod:`inhouse.historic.routing` module."""
+    """Testing class for :py:mod:`widgets.inhouse.historic.routing` module."""
 
     def test_widgets_inhouse_historic_routing_websocket_urlpatterns(self):
         url = routing.websocket_urlpatterns
         assert len(url) == 1
         assert isinstance(url[0], URLPattern)
-        assert url[0].lookup_str == "inhouse.historic.consumers.HistoricConsumer"
+        assert url[0].lookup_str == "widgets.inhouse.historic.consumers.HistoricConsumer"
         assert str(url[0].pattern) == "widgets/historic/(?P<bundle>\w{40}|\w{58})/$"

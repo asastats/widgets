@@ -2,7 +2,6 @@
 
 import json
 
-import pytest
 from asgiref.sync import async_to_sync
 
 from widgets.inhouse.historic.consumers import (
