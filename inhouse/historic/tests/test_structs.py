@@ -95,3 +95,29 @@ class TestHistoricStructsUpdateStatus:
         context = self._status().template_context()
         assert context["bundle"] == "B"
         assert context["statuses"] == [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
+
+    def test_historic_structs_update_status_evaluate_in_progress_phase(self):
+        status = self._status()
+        phase, value = status.evaluate(
+            {"address": "A1", "phase": 1, "state": 50, "end": 100}
+        )
+        assert (phase, value) == (1, 50)
+
+    def test_historic_structs_update_status_evaluate_checked_phase(self):
+        phase, value = self._status().evaluate({"address": "A1", "phase": 5})
+        assert (phase, value) == (2, 100)
+
+    def test_historic_structs_update_status_evaluate_processed_phase(self):
+        phase, value = self._status().evaluate({"address": "A1", "phase": 6})
+        assert (phase, value) == (3, 100)
+
+    def test_historic_structs_update_status_template_context_from_events(self):
+        status = self._status()
+        events = {
+            "A1": {4: {"state": 1}},
+            "A2": {1: {"state": 50, "end": 100}, 0: {"state": 0}},
+        }
+        context = status.template_context(events=events)
+        assert context["statuses"][0] == [100, 0, 0]
+        assert context["statuses"][1] == [50, 0, 0]
+        assert context["statuses"][2] == [0, 0, 0]

@@ -1,5 +1,7 @@
 """Testing module for widgets app synchronous url dispatcher module."""
 
+import importlib
+
 from django.urls import URLResolver
 
 from widgets import urls
@@ -18,3 +20,22 @@ class TestWidgetsUrls:
 
     def test_widgets_urls_patterns_count(self):
         assert len(urls.urlpatterns) == 1
+
+
+class TestWidgetsUrlsFallback:
+    """Testing the bare-import fallback in :py:mod:`widgets.urls`."""
+
+    def test_widgets_urls_falls_back_to_bare_imports(self, mocker):
+        def fake_include(arg):
+            if arg.startswith("widgets."):
+                raise ModuleNotFoundError(arg)
+            return ("include", arg)
+
+        mocker.patch("django.urls.include", side_effect=fake_include)
+        mocker.patch("django.urls.re_path", side_effect=lambda pat, inc: ("re", inc))
+        try:
+            importlib.reload(urls)
+            assert urls.urlpatterns == [("re", ("include", "inhouse.historic.urls"))]
+        finally:
+            mocker.stopall()
+            importlib.reload(urls)

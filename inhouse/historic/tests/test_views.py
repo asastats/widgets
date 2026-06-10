@@ -118,3 +118,12 @@ class TestHistoricViewsHistoricResetView:
         )
         assert view.test_func() is True
         gate.assert_called_once_with(1)
+
+    def test_historic_views_historic_reset_view_get_redirect_url(self, mocker):
+        view = HistoricResetView()
+        parent = mocker.patch(
+            "django.views.generic.base.RedirectView.get_redirect_url",
+            return_value="/url/",
+        )
+        assert view.get_redirect_url("BUNDLE") == "/url/"
+        parent.assert_called_once_with("BUNDLE")

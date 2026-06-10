@@ -1,0 +1,10 @@
+[run]
+source = widgets
+omit =
+    */tests/*
+    */__init__.py
+    */migrations/*
+
+[report]
+exclude_lines =
+    if __name__ == .__main__.:
