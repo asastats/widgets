@@ -63,7 +63,6 @@ class TestBaseUserPassesTestMixin(BaseView):
         assert issubclass(BaseUserPassesTestMixin, UserPassesTestMixin)
 
     # # test_func
-    # @pytest.mark.skip(reason="Skipped before deployment")
     def test_widgets_baseuserpassestestmixin_test_func_for_anonymouns_user(
         self, mocker
     ):
@@ -84,13 +83,13 @@ class TestBaseUserPassesTestMixinDb(BaseUserCreatedView):
 
     # # test_func
     @pytest.mark.django_db
-    # @pytest.mark.skip(reason="Skipped before deployment")
     def test_widgets_baseuserpassestestmixin_test_func_functionality(self, mocker):
         # Setup view
         view = BaseUserPassesTestMixin()
         view = self.setup_view(view, self.request)
         callback = mocker.MagicMock()
         callback.return_value = True
+        self.user.profile = mocker.MagicMock()
         arg1, arg2 = 1, 2
         # Run.
         test_func = view.test_func(callback, arg1, arg2)
