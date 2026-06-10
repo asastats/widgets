@@ -35,27 +35,6 @@ class BaseView:
         self.request.user = self.user
 
 
-class BaseUserCreatedView(BaseView):
-    def setup_method(self):
-        # # Setup user
-        username = "user{}".format(str(time.time())[5:])
-        self.user = get_user_model().objects.create(
-            email="{}@testuser.com".format(username),
-            username=username,
-        )
-        self.user.set_password("12345o")
-        self.user.save()
-        # self.set_permission()
-
-        # Setup request
-        self.request = RequestFactory().get("/fake-path")
-        self.request.user = self.user
-
-    # def set_permission(self, permission=258_885_438_201):
-    #     self.user.profile.permission = permission
-    #     self.user.profile.save()
-
-
 class TestBaseUserPassesTestMixin(BaseView):
     """Testing class for :class:`widgets.views.BaseUserPassesTestMixin`."""
 
@@ -77,22 +56,18 @@ class TestBaseUserPassesTestMixin(BaseView):
         assert test_func is False
         callback.assert_not_called()
 
-
-class TestBaseUserPassesTestMixinDb(BaseUserCreatedView):
-    """Testing class for :class:`widgets.views.BaseUserPassesTestMixin` for database."""
-
-    # # test_func
-    @pytest.mark.django_db
     def test_widgets_baseuserpassestestmixin_test_func_functionality(self, mocker):
         # Setup view
         view = BaseUserPassesTestMixin()
         view = self.setup_view(view, self.request)
         callback = mocker.MagicMock()
         callback.return_value = True
-        self.user.profile = mocker.MagicMock()
+        mock_user = mocker.MagicMock()
+        self.request.user = mock_user
         arg1, arg2 = 1, 2
         # Run.
         test_func = view.test_func(callback, arg1, arg2)
         # Check.
         assert test_func is True
-        callback.assert_called_once_with(self.request.user.profile, arg1, arg2)
+        # Assert against the mock_user's profile attribute
+        callback.assert_called_once_with(mock_user.profile, arg1, arg2)
