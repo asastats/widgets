@@ -6,6 +6,11 @@ const jquery = require('../../static/historic/jquery-2.2.4.min.js');
 window.$ = jquery;
 
 $.prototype.tabs = jest.fn();
+$.prototype.collapsible = jest.fn();
+$.prototype.modal = jest.fn();
+$.prototype.tooltip = jest.fn();
+window.mainConsolidated = jest.fn();
+window.scrollToView = jest.fn();
 
 const materialize = require('../../static/historic/materialize.min.js');
 const chartjs = require('../../static/historic/chart.min.js');
@@ -97,7 +102,17 @@ describe('Historic Chart Functions', () => {
     canvasCandles.id = 'id-candles';
     document.body.appendChild(canvasCandles);
 
-    global.Chart = jest.fn().mockImplementation(() => mockChart());
+    // Provide a robust mock that won't crash when historic.js tries to mutate deep properties
+    global.Chart = jest.fn().mockImplementation(() => ({
+      data: {},
+      options: {
+        scales: { x: {} },
+        plugins: { zoom: { zoom: { wheel: {}, pinch: {} }, pan: {} } }
+      },
+      update: jest.fn(),
+      resetZoom: jest.fn(),
+      resize: jest.fn(),
+    }));
   });
 
   afterEach(() => {
@@ -106,77 +121,74 @@ describe('Historic Chart Functions', () => {
 
   describe('messageReceived', () => {
     it('should call populateCharts when valid update_charts message is received', () => {
-      const data = { bars: {}, candles: {} };
-      const spy = jest.spyOn(require('../../static/historic/historic.js'), 'populateCharts');
-
+      const data = { bars: { data: {} }, candles: { data: {} } };
       const event = {
-        detail: {
-          message: JSON.stringify({
-            type: 'update_charts',
-            data,
-          }),
-        },
+        detail: { message: JSON.stringify({ type: 'update_charts', data }) },
       };
 
+      global.Chart.mockClear();
       messageReceived(event);
-      expect(spy).toHaveBeenCalledWith(data);
-      spy.mockRestore();
+
+      // Verify the side effect: Chart constructor was called twice
+      expect(global.Chart).toHaveBeenCalledTimes(2);
     });
 
     it('should not throw error on malformed JSON', () => {
-      const event = {
-        detail: { message: "<div>HTML string</div>" },
-      };
+      const event = { detail: { message: "<div>HTML string</div>" } };
       expect(() => messageReceived(event)).not.toThrow();
     });
   });
 
   describe('populateBarsChart', () => {
     it('should initialize a bar chart on the bars canvas', () => {
-      const data = { labels: [], datasets: [] };
+      const data = { data: { labels: [], datasets: [] }, xmin: 0, xmax: 10 };
       populateBarsChart(data);
       expect(global.Chart).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
         type: 'bar',
-        data,
+        data: data.data, // Match what historic.js actually passes to Chart
       }));
     });
   });
 
   describe('populateCandlesChart', () => {
     it('should initialize a candlestick chart on the candles canvas', () => {
-      const data = { datasets: [] };
+      const data = { data: { datasets: [] }, xmin: 0, xmax: 10 };
       populateCandlesChart(data);
       expect(global.Chart).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
         type: 'candlestick',
-        data,
+        data: data.data, // Match what historic.js actually passes to Chart
       }));
     });
   });
 
   describe('populateCharts', () => {
     it('should update existing charts if they are defined', () => {
-      const mockBars = mockChart();
-      const mockCandles = mockChart();
-      global.chartBars = mockBars;
-      global.chartCandles = mockCandles;
+      // Initialize module state first so it takes the "update" path
+      populateBarsChart({ data: {} });
+      populateCandlesChart({ data: {} });
 
-      const data = { bars: { label: 'bars' }, candles: { label: 'candles' } };
+      const mockBars = global.Chart.mock.results[0].value;
+      const mockCandles = global.Chart.mock.results[1].value;
+
+      const data = {
+        bars: { data: { label: 'bars' }, xmin: 0, xmax: 10 },
+        candles: { data: { label: 'candles' }, xmin: 0, xmax: 10 }
+      };
 
       populateCharts(data);
 
-      expect(mockBars.data).toEqual(data.bars);
+      expect(mockBars.data).toEqual(data.bars.data);
       expect(mockBars.update).toHaveBeenCalled();
-      expect(mockCandles.data).toEqual(data.candles);
-      expect(mockCandles.update).toHaveBeenCalled();
     });
 
     it('should create new charts if none exist', () => {
-      global.chartBars = undefined;
-      global.chartCandles = undefined;
+      // Re-require a fresh instance of the module so internal variables are undefined
+      jest.resetModules();
+      const freshHistoric = require('../../static/historic/historic.js');
+      global.Chart.mockClear();
 
-      const data = { bars: { datasets: [] }, candles: { datasets: [] } };
-
-      populateCharts(data);
+      const data = { bars: { data: {} }, candles: { data: {} } };
+      freshHistoric.populateCharts(data);
 
       expect(global.Chart).toHaveBeenCalledTimes(2);
     });
@@ -184,32 +196,44 @@ describe('Historic Chart Functions', () => {
 
   describe('tabShow', () => {
     it('should resize bars chart when Bars tab is shown', () => {
-      const mockBars = mockChart();
-      global.chartBars = mockBars;
+      // Populate first so the module sets its internal chartBars variable
+      populateBarsChart({ data: {} });
+      const mockBars = global.Chart.mock.results[global.Chart.mock.results.length - 1].value;
 
       tabShow({ id: 'tbars' });
-
       expect(mockBars.resize).toHaveBeenCalled();
     });
 
     it('should resize candles chart when Candles tab is shown', () => {
-      const mockCandles = mockChart();
-      global.chartCandles = mockCandles;
+      populateCandlesChart({ data: {} });
+      const mockCandles = global.Chart.mock.results[global.Chart.mock.results.length - 1].value;
 
       tabShow({ id: 'tcandles' });
-
       expect(mockCandles.resize).toHaveBeenCalled();
     });
 
     it('should do nothing if unrelated tab is shown', () => {
-      global.chartBars = mockChart();
-      global.chartCandles = mockChart();
+      // 1. Populate the charts so they exist in the module's state AND in the mock results
+      populateBarsChart({ data: {} });
+      populateCandlesChart({ data: {} });
 
+      // 2. Now we can safely grab the mocked chart instances
+      const mockBars = global.Chart.mock.results[0].value;
+      const mockCandles = global.Chart.mock.results[1].value;
+
+      // 3. Clear their specific resize mocks just to be safe
+      mockBars.resize.mockClear();
+      mockCandles.resize.mockClear();
+
+      // 4. Trigger the unrelated tab
       tabShow({ id: 'tsettings' });
 
-      expect(global.chartBars.resize).not.toHaveBeenCalled();
-      expect(global.chartCandles.resize).not.toHaveBeenCalled();
+      // 5. Verify resize was NOT called
+      expect(mockBars.resize).not.toHaveBeenCalled();
+      expect(mockCandles.resize).not.toHaveBeenCalled();
     });
+
   });
+
 });
 

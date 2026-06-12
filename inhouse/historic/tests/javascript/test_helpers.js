@@ -29,7 +29,13 @@ global.getEvents = (element) => {
 function mockChart() {
   return {
     data: {},
+    options: {
+      scales: {
+        x: {}
+      }
+    },
     update: jest.fn(),
+    resetZoom: jest.fn(),
     resize: jest.fn(),
   };
 }
