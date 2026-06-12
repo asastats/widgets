@@ -204,7 +204,7 @@ function findNearest(dataset, xValue) {
 
 /**
  * Send message to the consumer to fetch timestamp data if a candle is clicked
- * @function candlesChartClicked
+ * @function handleCandleClick
  *
  * @param {object} evt click event object
  * @param {object} xValue x-axis value of clicked point
@@ -888,7 +888,7 @@ if (typeof exports !== "undefined") {
     submitView,
     // * SECTION: Charts helper functions
     barChartClicked,
-    candlesChartClicked,
+    handleCandleClick,
     setUILocked,
     setUILockedBlur,
     viewChanged,
