@@ -1,0 +1,44 @@
+{% load core_extras %}
+{# Swap panel for one linked address. The JSON island is the controller's source #}
+{# of truth for SDK calls; the visible form mirrors it for the user. #}
+<script type="application/json" class="id-folks-holdings">{{ holdings|to_json }}</script>
+<div class="id-folks-form" data-address="{{ address }}">
+  <div class="row">
+    <div class="input-field col s12 m6">
+      <select class="browser-default id-folks-from">
+        {% for asset in holdings %}{% if asset.amount > 0 %}
+        <option value="{{ asset.id }}"
+                data-decimals="{{ asset.decimals }}"
+                data-unit="{{ asset.unit }}"
+                data-amount="{{ asset.amount }}">{{ asset.unit|default:asset.id }}</option>
+        {% endif %}{% endfor %}
+      </select>
+      <span class="helper-text">From</span>
+    </div>
+    <div class="input-field col s12 m6">
+      <input type="text" class="id-folks-to-search" placeholder="To asset: name, unit, or ID"
+             hx-get="{% url 'folks_assets' %}"
+             hx-trigger="keyup changed delay:300ms"
+             hx-target="next .id-folks-to-results"
+             name="q" autocomplete="off">
+      <div class="id-folks-to-results"></div>
+      <input type="hidden" class="id-folks-to"
+             data-decimals="" data-unit="" data-opted-in="">
+    </div>
+  </div>
+  <div class="row">
+    <div class="input-field col s12 m6">
+      <input type="text" class="id-folks-amount" inputmode="decimal" placeholder="0.0">
+      <span class="helper-text">Amount</span>
+    </div>
+    <div class="input-field col s12 m6">
+      <input type="text" class="id-folks-slippage" inputmode="decimal" value="0.5">
+      <span class="helper-text">Slippage %</span>
+    </div>
+  </div>
+  <div class="id-folks-quote" aria-live="polite"></div>
+  <div class="id-folks-optin-notice" style="display:none;">
+    Opting into the target asset locks 0.1 ALGO and needs one extra approval.
+  </div>
+  <button class="btn waves-effect id-folks-swap-btn" type="button" disabled>Swap</button>
+</div>
