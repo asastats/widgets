@@ -6,3 +6,5 @@ docs/_build
 .vscode
 .VSCodeCounter
 *.code-workspace
+node_modules/
+coverage/
