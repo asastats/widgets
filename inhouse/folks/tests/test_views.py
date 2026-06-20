@@ -1,8 +1,6 @@
 """Testing module for :py:mod:`widgets.inhouse.folks.views` module."""
 
 from widgets.inhouse.folks.views import (
-    ASSETS_PATH,
-    HOLDINGS_PATH,
     FolksAssetsView,
     FolksHoldingsView,
     FolksSwapView,
@@ -86,21 +84,31 @@ class TestInhouseFolksViewsFolksHoldingsView:
         linked.assert_not_called()
 
     def test_inhouse_folks_views_folks_holdings_view_get_context_data(self, mocker):
+        import json
+
         view = FolksHoldingsView()
         view.request = mocker.MagicMock()
         view.address = "ADDR_ONE"
-        holdings = [{"id": 0, "unit": "ALGO", "decimals": 6, "amount": 5}]
-        engine = mocker.patch("widgets.inhouse.folks.views.engine_request")
-        engine.return_value.json.return_value = {"holdings": holdings}
-        context = view.get_context_data()
-        engine.assert_called_once_with(
-            "account:holdings",
-            "GET",
-            HOLDINGS_PATH % "ADDR_ONE",
-            FolksHoldingsView.manifest.engine_endpoints,
+        # Backend returns {asset_id: {name, unit, decimals, amount}} (id 0 = ALGO).
+        data = {
+            "31566704": {"name": "USD Coin", "unit": "USDC", "decimals": 6, "amount": 7},
+            "0": {"name": "Algorand", "unit": "ALGO", "decimals": 6, "amount": 5},
+        }
+        fetch = mocker.patch(
+            "widgets.inhouse.folks.views.fetch_account_holdings", return_value=data
         )
+        context = view.get_context_data()
+        fetch.assert_called_once_with(
+            "ADDR_ONE", FolksHoldingsView.manifest.engine_endpoints
+        )
+        # Flattened, id-sorted, with the id folded in (ALGO first).
+        expected = [
+            {"name": "Algorand", "unit": "ALGO", "decimals": 6, "amount": 5, "id": 0},
+            {"name": "USD Coin", "unit": "USDC", "decimals": 6, "amount": 7, "id": 31566704},
+        ]
         assert context["address"] == "ADDR_ONE"
-        assert context["holdings"] == holdings
+        assert context["holdings"] == expected
+        assert json.loads(context["holdings_json"]) == expected
         assert context["router_id"] == FolksHoldingsView.manifest.id
 
 
@@ -118,15 +126,12 @@ class TestInhouseFolksViewsFolksAssetsView:
         view.request = mocker.MagicMock()
         view.request.GET.get.return_value = "usdc"
         assets = [{"id": 31566704, "unit": "USDC", "name": "USD Coin", "decimals": 6}]
-        engine = mocker.patch("widgets.inhouse.folks.views.engine_request")
-        engine.return_value.json.return_value = {"assets": assets}
+        fetch = mocker.patch(
+            "widgets.inhouse.folks.views.fetch_asset_matches", return_value=assets
+        )
         context = view.get_context_data()
-        engine.assert_called_once_with(
-            "assets:lookup",
-            "GET",
-            ASSETS_PATH,
-            FolksAssetsView.manifest.engine_endpoints,
-            params={"q": "usdc"},
+        fetch.assert_called_once_with(
+            "usdc", FolksAssetsView.manifest.engine_endpoints
         )
         assert context["query"] == "usdc"
         assert context["assets"] == assets
@@ -135,8 +140,8 @@ class TestInhouseFolksViewsFolksAssetsView:
         view = FolksAssetsView()
         view.request = mocker.MagicMock()
         view.request.GET.get.return_value = "  "
-        engine = mocker.patch("widgets.inhouse.folks.views.engine_request")
+        fetch = mocker.patch("widgets.inhouse.folks.views.fetch_asset_matches")
         context = view.get_context_data()
-        engine.assert_not_called()
+        fetch.assert_not_called()
         assert context["query"] == ""
         assert context["assets"] == []

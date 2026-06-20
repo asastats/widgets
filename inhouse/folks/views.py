@@ -1,6 +1,8 @@
 """Module containing Folks smart router widget's views."""
 
-from api.client import engine_request
+import json
+
+from api.client import fetch_account_holdings, fetch_asset_matches
 from api.widgets import bundle_and_addresses_from_path
 from django.conf import settings
 from django.views.generic.base import TemplateView
@@ -9,16 +11,12 @@ from widgethost.enforcement import WidgetAccessMixin
 
 from .manifest import MANIFEST
 
-# Generic, data-named engine endpoints (shared by every router widget).
-HOLDINGS_PATH = "/api/v2/internal/accounts/%s/holdings/"
-ASSETS_PATH = "/api/v2/internal/assets/"
-
 
 class FolksSwapView(WidgetAccessMixin, TemplateView):
     """Render the Folks swap widget shell for an address or bundle page.
 
     Engine-backed: holdings and asset metadata are fetched on demand by the htmx
-    partial views below (via ``engine_request``), not injected here. The host
+    partial views below (via ``api.client``), not injected here. The host
     permission gate (``WidgetAccessMixin`` -> ``manifest_test_func``) runs in
     ``dispatch``; the shell renders the per-address disclosure and the non-secret
     router config. Executable swapping additionally requires that a viewed address
@@ -74,8 +72,11 @@ class FolksHoldingsView(WidgetAccessMixin, TemplateView):
     """htmx partial: fresh holdings for one linked address via ``account:holdings``.
 
     Gated to the user's own (linked) address so the engine call is both bounded
-    and meaningful -- you only swap from an address you control. Renders the swap
-    panel plus a JSON data island the controller reads for the SDK.
+    and meaningful -- you only swap from an address you control. The backend
+    returns ``{asset_id: {name, unit, decimals, amount}}``; this flattens it to a
+    list (ALGO/id 0 first) for the template, and emits a JSON island the
+    controller reads for the SDK. Every returned asset is, by being present,
+    opted in -- the controller derives opt-in from membership.
 
     :var template_name: relative path to the partial template
     :type template_name: str
@@ -90,21 +91,23 @@ class FolksHoldingsView(WidgetAccessMixin, TemplateView):
     address = None
 
     def get_context_data(self, *args, **kwargs):
-        """Fetch the address' holdings via the generic account:holdings endpoint.
+        """Fetch and flatten the address' holdings for the panel.
 
-        :var response: engine response carrying the holdings payload
-        :type response: :class:`requests.Response`
+        :var data: backend holdings mapping keyed by asset id
+        :type data: dict
+        :var holdings: flattened, id-sorted holdings list
+        :type holdings: list
         :return: dict
         """
         context = super().get_context_data(*args, **kwargs)
-        response = engine_request(
-            "account:holdings",
-            "GET",
-            HOLDINGS_PATH % self.address,
-            self.manifest.engine_endpoints,
-        )
+        data = fetch_account_holdings(self.address, self.manifest.engine_endpoints)
+        holdings = [
+            dict(meta, id=int(asset_id))
+            for asset_id, meta in sorted(data.items(), key=lambda kv: int(kv[0]))
+        ]
         context["address"] = self.address
-        context["holdings"] = response.json().get("holdings", [])
+        context["holdings"] = holdings
+        context["holdings_json"] = json.dumps(holdings)
         context["router_id"] = self.manifest.id
         return context
 
@@ -139,23 +142,16 @@ class FolksAssetsView(WidgetAccessMixin, TemplateView):
 
         :var query: trimmed search query from the request
         :type query: str
-        :var response: engine response carrying the matched assets
-        :type response: :class:`requests.Response`
         :return: dict
         """
         context = super().get_context_data(*args, **kwargs)
         query = self.request.GET.get("q", "").strip()
         context["query"] = query
-        context["assets"] = []
-        if query:
-            response = engine_request(
-                "assets:lookup",
-                "GET",
-                ASSETS_PATH,
-                self.manifest.engine_endpoints,
-                params={"q": query},
-            )
-            context["assets"] = response.json().get("assets", [])
+        context["assets"] = (
+            fetch_asset_matches(query, self.manifest.engine_endpoints)
+            if query
+            else []
+        )
         return context
 
     def test_func(self):

@@ -1,7 +1,7 @@
 {% load core_extras %}
 {# Swap panel for one linked address. The JSON island is the controller's source #}
 {# of truth for SDK calls; the visible form mirrors it for the user. #}
-<script type="application/json" class="id-folks-holdings">{{ holdings|to_json }}</script>
+<script type="application/json" class="id-folks-holdings">{{ holdings_json|safe }}</script>
 <div class="id-folks-form" data-address="{{ address }}">
   <div class="row">
     <div class="input-field col s12 m6">
