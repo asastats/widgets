@@ -2,40 +2,31 @@ id = "folks"
 name = "Folks Smart Router"
 version = "0.1.0"
 
-# Written by the ASA Stats team; fees are 100% ours -> inhouse.
-# (A router widget written by an outside team would be thirdparty with a
-# revenue_account and shared fees. Pact/LiquiHog/Hay are inhouse if WE write them.)
+# Written by the ASA Stats team -> inhouse (fees 100% ours, empty revenue_account).
 origin = "inhouse"
-capability = "public"            # no engine needed; public => no engine_endpoints
-revenue_account = ""             # empty for inhouse, per the contract
 
-engine_endpoints = []            # required empty for public (validate_manifest enforces)
+# CHANGED v1->v2: was "public". The widget now fetches fresh holdings and asset
+# metadata via api.client.engine_request, which is only permitted for engine-backed
+# widgets (validate_manifest forbids public + engine_endpoints).
+capability = "engine-backed"
+revenue_account = ""
 
-# Host-injected/consumed context keys (declarative, for audit):
-#  - portfolio:bundle / profile:permission: same as historic, drive the page + gate
-#  - walletauth:linked_addresses: the subset of the page's addresses linked to the
-#    current user (source: walletauth.gating.linked_addresses_for_user). The widget
-#    swaps only from whichever linked address is the wallet's active account.
-#  - portfolio:asas: per-address ASA holdings injected server-side (the public
-#    /api/v2 API is JWT-only, so the browser cannot fetch them with the session).
-data = [
-    "portfolio:bundle",
-    "profile:permission",
-    "walletauth:linked_addresses",
-    "portfolio:asas",
-]
+# Engine scopes this widget calls. MUST be a subset of the deployment token's scopes
+# (ASA Stats grants these at the engine; unforkable). The engine implements:
+#   account:holdings -> GET /api/v2/internal/accounts/{address}/holdings/  (one Node call)
+#   assets:lookup    -> GET /api/v2/internal/assets/{id}/ | ?q=...          (ASA-index lookup)
+# Generic, data-named scopes: every router widget declares these identical ones.
+engine_endpoints = ["account:holdings", "assets:lookup"]
 
-# External hosts the widget's browser code may reach (audit + CSP connect-src).
-# VERIFY the real Folks quote/router API host before publication.
+# Host-injected context (unchanged); portfolio:asas dropped — holdings are now fetched
+# fresh via engine_request, not injected.
+data = ["portfolio:bundle", "profile:permission", "walletauth:linked_addresses"]
+
+# Browser still calls Folks directly for quote + prepare (the JS SDK).
 hosts = ["https://api.folksrouter.io"]
 
-# NOTE: `category` is NOT yet read by widgethost.manifest.Manifest. To drive the
-# settings page by discovery, add `self.category = data.get("category")` to the
-# Manifest class (host change). Until then this line is inert; the settings page
-# would need a host-side list of swap-widget ids instead.
 category = "swap"
 
-# A swap is a single-user action, not address-count-scaled like historic, so a
-# bare integer bar fits. 0 = any authenticated profile; ownership is gated
-# separately via walletauth:linked_addresses + the live signature.
+# A swap is a single-user action, not address-count-scaled; ownership is gated by
+# walletauth:linked_addresses + the live signature. 0 = any authenticated profile.
 required_permission = 0

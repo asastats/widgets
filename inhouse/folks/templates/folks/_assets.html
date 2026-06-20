@@ -1,0 +1,16 @@
+{% load core_extras %}
+<ul class="collection id-folks-asset-options">
+  {% for asset in assets %}
+  <li class="collection-item id-folks-asset-option" style="cursor:pointer;"
+      data-id="{{ asset.id }}"
+      data-unit="{{ asset.unit }}"
+      data-name="{{ asset.name }}"
+      data-decimals="{{ asset.decimals }}">
+    <span>{{ asset.unit }}</span> &middot; <span>{{ asset.name }}</span>
+    {% if asset.verified %}<span class="badge">verified</span>{% endif %}
+    <span class="secondary-content">#{{ asset.id }}</span>
+  </li>
+  {% empty %}
+  {% if query %}<li class="collection-item">No assets match "{{ query }}".</li>{% endif %}
+  {% endfor %}
+</ul>

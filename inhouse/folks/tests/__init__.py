@@ -1,1 +1,1 @@
-"""Initialization module for widgets.inhouse.folks.tests package."""
+"""Test package for the Folks smart router widget."""

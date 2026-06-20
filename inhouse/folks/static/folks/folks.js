@@ -1,65 +1,28 @@
 /**
- * @file ASA Stats Folks Smart Router widget — browser controller.
+ * @file ASA Stats Folks Smart Router widget — browser controller (engine-backed).
  * @author ASA Stats
  *
  * Router-agnostic swap flow + the Folks adapter (wired against
  * @folks-router/js-sdk). Sibling router widgets reuse the RouterAdapter shape;
  * only the adapter implementation differs.
  *
- * TWO SEAMS:
- *
- *  1. Folks SDK (vendored bundle). The SDK is an npm ESM package; bundle it to
- *     static/folks/folks-sdk.bundle.js exposing the global `FolksRouter`
- *     (FolksRouterClient, Network, SwapMode). See this widget's package.json
- *     `build:sdk` script (esbuild --format=iife --global-name=FolksRouter).
- *     The client talks to api.folksrouter.io over HTTPS (declared in
- *     widget.toml `hosts`); the free endpoint is browser-direct, so no secret
- *     key is exposed. A /pro apiKey would have to be proxied via the backend.
- *
- *  2. Wallet swap bridge (frontend/wallet repo). Provides
- *     `window.asastatsSwap.{activeAddress(), signAndSend(group)}` and dispatches
- *     `asastats:swap-ready` once the wallet manager has resumed. See swapBridge.
+ * DATA FLOW (engine-backed):
+ *  - The shell renders one collapsible per linked address. Opening a section
+ *    lazy-loads its swap panel via htmx from `account:holdings` (the widget's
+ *    FolksHoldingsView -> engine_request). The panel embeds a JSON island
+ *    (`.id-folks-holdings`) that is this controller's source of truth for the SDK.
+ *  - The target search box is htmx-wired in the template to `assets:lookup`; this
+ *    controller only handles selecting a returned `.id-folks-asset-option`.
+ *  - Opt-in is detected client-side (target id present in the holdings island).
+ *    On Swap the controller re-reads fresh holdings, and if the target is not
+ *    opted in it runs `window.asastatsSwap.optIn` as a separate pre-flight txn
+ *    before building and signing the Folks group.
  *
  * The ASA Stats fee is taken natively by Folks via `feeBps` + `referrer` on the
- * quote (the fee accrues to a referrer logicsig). No fee transaction is appended
- * here, so the returned group is signed as-is — preserving the atomic,
- * non-custodial guarantee.
+ * quote; no fee txn is appended here, so the returned group is signed as-is.
  */
 
-/**
- * @typedef {Object} Quote
- * @property {bigint} amountOut        expected output (base units)
- * @property {bigint} minimumReceived  display floor after slippage (base units)
- * @property {number} priceImpactPct
- * @property {string} routeLabel
- * @property {number} feesTotal        network txn fee (microALGO)
- * @property {Object} raw              { swapQuote, params, slippageBps } for buildSwapGroup
- */
-
-/**
- * @typedef {Object} QuoteParams
- * @property {number} fromAssetId
- * @property {number} toAssetId
- * @property {bigint} amount        input amount (base units)
- * @property {number} slippagePct
- * @property {string} fromAddress
- */
-
-/**
- * @typedef {Object} FolksConfig
- * @property {string} network    "mainnet" | "testnet"
- * @property {string} referrer   ASA Stats fee-collecting address ("" disables the fee)
- * @property {number} feeBps     ASA Stats fee in basis points
- */
-
-/**
- * RouterAdapter — the interface every router widget implements.
- * @typedef {Object} RouterAdapter
- * @property {(p: QuoteParams, cfg: FolksConfig) => Promise<Quote>} getQuote
- * @property {(q: Quote, fromAddress: string, cfg: FolksConfig) => Promise<Uint8Array[]>} buildSwapGroup
- */
-
-/** @type {RouterAdapter} */
+/** @type {Object} The Folks RouterAdapter (getQuote / buildSwapGroup). */
 var FolksAdapter = {
   _client: null,
 
@@ -78,10 +41,9 @@ var FolksAdapter = {
     var params = {
       fromAssetId: p.fromAssetId,
       toAssetId: p.toAssetId,
-      amount: p.amount, // bigint base units
+      amount: p.amount,
       swapMode: SwapMode.FIXED_INPUT,
     };
-    // feeBps + referrer => Folks bakes the ASA Stats fee into the quote/txns.
     var sq = await client.fetchSwapQuote(
       params,
       undefined,
@@ -90,7 +52,6 @@ var FolksAdapter = {
       cfg.referrer || undefined
     );
     var slippageBps = Math.round((p.slippagePct || 0) * 100);
-    // Display floor; the real min-output is enforced inside the prepared txns.
     var minOut =
       sq.quoteAmount - (sq.quoteAmount * BigInt(slippageBps)) / BigInt(10000);
     return {
@@ -111,26 +72,16 @@ var FolksAdapter = {
       quote.raw.slippageBps,
       quote.raw.swapQuote
     );
-    // Already grouped and fee-bearing; decode base64 -> bytes for the bridge.
     return base64Txns.map(b64ToBytes);
   },
 };
 
 /** Router registry — one entry per swap widget. */
-var ROUTERS = {
-  folks: FolksAdapter,
-};
-
-/** Curated swap targets with known decimals (extend as needed). ALGO id is 0. */
-var KNOWN_ASSETS = [
-  { id: 0, unit: "ALGO", decimals: 6 },
-  { id: 31566704, unit: "USDC", decimals: 6 },
-];
+var ROUTERS = { folks: FolksAdapter };
 
 var QUOTE_DEBOUNCE_MS = 400;
-var quoteTimer = null;
 
-/** Read host-injected, non-secret router config from the root element. */
+/** Read non-secret router config from the shell root element. */
 function folksConfig(root) {
   return {
     network: root.dataset.network || "mainnet",
@@ -139,179 +90,161 @@ function folksConfig(root) {
   };
 }
 
-/** Entry point: gate on linked ∩ active address, then bind the flow. */
-function mainFolks() {
-  var root = document.getElementById("id-folks-swap");
-  if (!root) return;
+/** Parse a panel's holdings JSON island into an array of holdings. */
+function readPanelHoldings(panel) {
+  var el = panel.querySelector(".id-folks-holdings");
+  if (!el) return [];
+  try {
+    return JSON.parse(el.textContent || "[]");
+  } catch (e) {
+    return [];
+  }
+}
 
-  var ctx = {
-    routerId: root.dataset.router,
-    linked: (root.dataset.linkedAddresses || "").split(" ").filter(Boolean),
-    cfg: folksConfig(root),
+/** True when `assetId` is among the address' opted-in holdings. */
+function isOptedIn(holdings, assetId) {
+  var id = Number(assetId);
+  return holdings.some(function (h) {
+    return Number(h.id) === id;
+  });
+}
+
+/** Fetch fresh holdings for a re-check without disturbing the visible form. */
+async function fetchHoldings(url) {
+  var resp = await fetch(url, { headers: { "HX-Request": "true" } });
+  var html = await resp.text();
+  var doc = new DOMParser().parseFromString(html, "text/html");
+  var island = doc.querySelector(".id-folks-holdings");
+  if (!island) return [];
+  try {
+    return JSON.parse(island.textContent || "[]");
+  } catch (e) {
+    return [];
+  }
+}
+
+/** Set the chosen target on the panel and toggle the opt-in notice. */
+function selectTarget(panel, optionEl, ctx) {
+  var toHidden = panel.querySelector(".id-folks-to");
+  toHidden.value = optionEl.dataset.id;
+  toHidden.dataset.decimals = optionEl.dataset.decimals || "0";
+  toHidden.dataset.unit = optionEl.dataset.unit || "";
+  var opted = isOptedIn(readPanelHoldings(panel), optionEl.dataset.id);
+  toHidden.dataset.optedIn = opted ? "1" : "0";
+  panel.querySelector(".id-folks-optin-notice").style.display = opted
+    ? "none"
+    : "block";
+  panel.querySelector(".id-folks-to-search").value =
+    (optionEl.dataset.unit || "ASA") + " (#" + optionEl.dataset.id + ")";
+  var results = panel.querySelector(".id-folks-to-results");
+  if (results) results.innerHTML = "";
+  scheduleQuote(panel, ctx);
+}
+
+/** Assemble QuoteParams from a panel; null until from/to/amount are complete. */
+function readQuoteParams(panel, fromAddress) {
+  var fromSel = panel.querySelector(".id-folks-from");
+  var toHidden = panel.querySelector(".id-folks-to");
+  var amountEl = panel.querySelector(".id-folks-amount");
+  var slipEl = panel.querySelector(".id-folks-slippage");
+  if (!fromSel || !fromSel.value || !toHidden.value || !amountEl.value) {
+    return null;
+  }
+  var fromOpt = fromSel.options[fromSel.selectedIndex];
+  var decimals = Number(fromOpt.dataset.decimals || "0");
+  var amount = decimalToBaseUnits(amountEl.value, decimals);
+  if (amount <= BigInt(0)) return null;
+  return {
+    fromAssetId: Number(fromSel.value),
+    toAssetId: Number(toHidden.value),
+    amount: amount,
+    slippagePct: Number(slipEl.value || "0.5"),
+    fromAddress: fromAddress,
   };
-  var adapter = ROUTERS[ctx.routerId];
+}
 
-  var active =
-    window.asastatsSwap && window.asastatsSwap.activeAddress
-      ? window.asastatsSwap.activeAddress()
-      : null;
-  var owns = active && ctx.linked.indexOf(active) !== -1;
+function scheduleQuote(panel, ctx) {
+  clearTimeout(ctx.quoteTimer);
+  ctx.quoteTimer = setTimeout(function () {
+    refreshQuote(panel, ctx);
+  }, QUOTE_DEBOUNCE_MS);
+}
 
-  if (!adapter || !owns) {
-    document.getElementById("id-folks-locked").style.display = "block";
+async function refreshQuote(panel, ctx) {
+  var params = readQuoteParams(panel, ctx.fromAddress);
+  var btn = panel.querySelector(".id-folks-swap-btn");
+  if (!params) {
+    if (btn) btn.disabled = true;
     return;
   }
-
-  ctx.adapter = adapter;
-  ctx.fromAddress = active;
-  document.getElementById("id-folks-form").style.display = "block";
-
-  // Holdings are injected server-side (portfolio:asas), keyed by address, because
-  // the public /api/v2 API is JWT-only and unreachable from the browser session.
-  var holdings = readHoldings()[active] || [];
-  var opts = buildAssetOptions(holdings);
-  populateSelect(document.getElementById("id-from-asset"), opts.from);
-  populateSelect(document.getElementById("id-to-asset"), opts.to);
-  bindFolksEvents(ctx);
-}
-
-function bindFolksEvents(ctx) {
-  ["id-from-asset", "id-to-asset", "id-amount", "id-slippage"].forEach(function (id) {
-    var el = document.getElementById(id);
-    if (el) el.addEventListener("input", function () { scheduleQuote(ctx); });
-  });
-  document
-    .getElementById("id-swap-btn")
-    .addEventListener("click", function () { executeSwap(ctx); });
-}
-
-function scheduleQuote(ctx) {
-  clearTimeout(quoteTimer);
-  quoteTimer = setTimeout(function () { refreshQuote(ctx); }, QUOTE_DEBOUNCE_MS);
-}
-
-async function refreshQuote(ctx) {
-  var params = readQuoteParams(ctx);
-  if (!params) return;
-  setStatus("Fetching best route…");
+  setPanelStatus(panel, "Fetching best route…");
   try {
     ctx.lastQuote = await ctx.adapter.getQuote(params, ctx.cfg);
-    renderQuote(ctx.lastQuote);
-    setStatus("");
-    document.getElementById("id-swap-btn").disabled = false;
+    renderQuote(panel, ctx.lastQuote);
+    setPanelStatus(panel, "");
+    if (btn) btn.disabled = !ctx.owns;
   } catch (e) {
-    setStatus("Could not fetch a quote: " + e.message);
-    document.getElementById("id-swap-btn").disabled = true;
+    setPanelStatus(panel, "Could not fetch a quote: " + (e && e.message));
+    if (btn) btn.disabled = true;
   }
 }
 
-async function executeSwap(ctx) {
-  if (!ctx.lastQuote) return;
-  setStatus("Building transaction…");
+async function executeSwap(panel, ctx) {
+  var params = readQuoteParams(panel, ctx.fromAddress);
+  if (!params || !ctx.lastQuote) return;
+  var btn = panel.querySelector(".id-folks-swap-btn");
+  if (btn) btn.disabled = true;
+  setPanelStatus(panel, "Re-checking balance…");
   try {
+    var fresh = await fetchHoldings(ctx.holdingsUrl);
+    var from = fresh.filter(function (h) {
+      return Number(h.id) === params.fromAssetId;
+    })[0];
+    if (!from || BigInt(from.amount) < params.amount) {
+      setPanelStatus(panel, "Insufficient balance — it may have changed.");
+      return;
+    }
+    if (!isOptedIn(fresh, params.toAssetId)) {
+      setPanelStatus(panel, "Opting into the target asset (one approval)…");
+      await window.asastatsSwap.optIn(params.toAssetId);
+    }
+    setPanelStatus(panel, "Building transaction…");
     var group = await ctx.adapter.buildSwapGroup(
       ctx.lastQuote,
       ctx.fromAddress,
       ctx.cfg
     );
-    setStatus("Awaiting signature…");
+    setPanelStatus(panel, "Awaiting signature…");
     var txid = await window.asastatsSwap.signAndSend(group);
-    setStatus("Swap submitted: " + txid);
-    // TODO(host): POST the confirmed txid (router, from/to, amounts) to a
-    // backend log endpoint for accounting.
+    setPanelStatus(panel, "Swap submitted: " + txid);
   } catch (e) {
-    setStatus("Swap failed or cancelled: " + e.message);
+    setPanelStatus(panel, "Swap failed or cancelled: " + (e && e.message));
+  } finally {
+    if (btn) btn.disabled = !ctx.owns;
   }
 }
 
-/** Parse the host-injected per-address holdings map: { address: AsaHolding[] }. */
-function readHoldings() {
-  var el = document.getElementById("id-folks-holdings");
-  if (!el) return {};
-  try {
-    return JSON.parse(el.textContent || "{}");
-  } catch (e) {
-    return {};
-  }
+function renderQuote(panel, q) {
+  var toHidden = panel.querySelector(".id-folks-to");
+  var toDec = Number((toHidden && toHidden.dataset.decimals) || "0");
+  var out = panel.querySelector(".id-folks-quote");
+  if (!out) return;
+  out.textContent =
+    "≈ " +
+    baseUnitsToDecimal(q.amountOut, toDec) +
+    " (min " +
+    baseUnitsToDecimal(q.minimumReceived, toDec) +
+    ", impact " +
+    q.priceImpactPct +
+    "%, " +
+    baseUnitsToDecimal(BigInt(q.feesTotal), 6) +
+    " ALGO fee) via " +
+    q.routeLabel;
 }
 
-/**
- * Compose the from/to asset option lists.
- *  - from: ALGO plus held assets with a positive balance.
- *  - to:   curated known targets unioned with held assets (so decimals are known).
- * @param {Array<{id:number,unit:string,decimals:number,amount:number}>} holdings
- */
-function buildAssetOptions(holdings) {
-  var held = holdings
-    .filter(function (h) { return Number(h.amount) > 0; })
-    .map(function (h) {
-      return { id: Number(h.id), unit: h.unit, decimals: Number(h.decimals) };
-    });
-  var algo = { id: 0, unit: "ALGO", decimals: 6 };
-  return { from: unionById([algo], held), to: unionById(KNOWN_ASSETS, held) };
-}
-
-/** Concatenate asset lists, de-duplicating by id (first occurrence wins). */
-function unionById(primary, extra) {
-  var seen = {};
-  var out = [];
-  primary.concat(extra).forEach(function (a) {
-    if (seen[a.id]) return;
-    seen[a.id] = true;
-    out.push(a);
-  });
-  return out;
-}
-
-/** Render asset <option>s carrying data-decimals for base-unit conversion. */
-function populateSelect(sel, assets) {
-  sel.innerHTML = "";
-  assets.forEach(function (a) {
-    var o = document.createElement("option");
-    o.value = String(a.id);
-    o.textContent = a.unit || "ASA " + a.id;
-    o.dataset.decimals = String(a.decimals);
-    sel.appendChild(o);
-  });
-}
-
-/** Assemble QuoteParams from the form; null until it is complete. */
-function readQuoteParams(ctx) {
-  var fromSel = document.getElementById("id-from-asset");
-  var toSel = document.getElementById("id-to-asset");
-  var amountEl = document.getElementById("id-amount");
-  var slipEl = document.getElementById("id-slippage");
-  if (!fromSel.value || !toSel.value || !amountEl.value) return null;
-
-  var decimals = Number(
-    fromSel.options[fromSel.selectedIndex].dataset.decimals || "0"
-  );
-  var amount = decimalToBaseUnits(amountEl.value, decimals);
-  if (amount <= BigInt(0)) return null;
-
-  return {
-    fromAssetId: Number(fromSel.value),
-    toAssetId: Number(toSel.value),
-    amount: amount,
-    slippagePct: Number(slipEl.value || "0.5"),
-    fromAddress: ctx.fromAddress,
-  };
-}
-
-function renderQuote(q) {
-  var toSel = document.getElementById("id-to-asset");
-  var toDec = Number(toSel.options[toSel.selectedIndex].dataset.decimals || "0");
-  document.getElementById("id-quote").style.display = "block";
-  document.getElementById("id-quote-out").textContent = baseUnitsToDecimal(q.amountOut, toDec);
-  document.getElementById("id-quote-min").textContent = baseUnitsToDecimal(q.minimumReceived, toDec);
-  document.getElementById("id-quote-impact").textContent = q.priceImpactPct + "%";
-  document.getElementById("id-quote-route").textContent = q.routeLabel;
-  document.getElementById("id-quote-fees").textContent =
-    baseUnitsToDecimal(BigInt(q.feesTotal), 6) + " ALGO network fee";
-}
-
-function setStatus(msg) {
-  document.getElementById("id-folks-status").textContent = msg;
+function setPanelStatus(panel, msg) {
+  var el = panel.querySelector(".id-folks-status");
+  if (el) el.textContent = msg;
 }
 
 /** Parse a decimal string into integer base units (bigint), truncating extra dp. */
@@ -340,11 +273,76 @@ function b64ToBytes(b64) {
   return out;
 }
 
-/**
- * Run the render gate once the wallet bridge is ready. The bridge resumes
- * sessions asynchronously and dispatches `asastats:swap-ready`; if it is already
- * present (loaded first) run immediately, otherwise wait for the event once.
- */
+/* istanbul ignore next -- DOM/htmx wiring; the unit-tested core is the helpers above */
+function bindPanel(panelEl, ctx) {
+  ["id-folks-from", "id-folks-amount", "id-folks-slippage"].forEach(function (cls) {
+    var el = panelEl.querySelector("." + cls);
+    if (el) el.addEventListener("input", function () { scheduleQuote(panelEl, ctx); });
+  });
+  panelEl.addEventListener("click", function (ev) {
+    var opt = ev.target.closest && ev.target.closest(".id-folks-asset-option");
+    if (opt) selectTarget(panelEl, opt, ctx);
+  });
+  var btn = panelEl.querySelector(".id-folks-swap-btn");
+  if (btn) {
+    btn.disabled = !ctx.owns;
+    btn.addEventListener("click", function () { executeSwap(panelEl, ctx); });
+  }
+}
+
+/* istanbul ignore next -- htmx glue */
+function loadPanel(panelEl, ctx) {
+  var done = function () { bindPanel(panelEl, ctx); };
+  if (window.htmx && window.htmx.ajax) {
+    window.htmx
+      .ajax("GET", ctx.holdingsUrl, { target: panelEl, swap: "innerHTML" })
+      .then(done);
+  } else {
+    fetch(ctx.holdingsUrl)
+      .then(function (r) { return r.text(); })
+      .then(function (h) { panelEl.innerHTML = h; done(); });
+  }
+}
+
+/* istanbul ignore next -- per-section wiring */
+function wireSection(li, adapter, cfg, active) {
+  var address = li.dataset.address;
+  var header = li.querySelector(".collapsible-header");
+  var panelEl = li.querySelector(".id-folks-panel");
+  if (!header || !panelEl) return;
+  var loaded = false;
+  header.addEventListener("click", function () {
+    if (loaded) return;
+    loaded = true;
+    loadPanel(panelEl, {
+      adapter: adapter,
+      cfg: cfg,
+      fromAddress: address,
+      owns: address === active,
+      holdingsUrl: panelEl.dataset.holdingsUrl,
+      quoteTimer: null,
+    });
+  });
+}
+
+/* istanbul ignore next -- entry-point wiring */
+function mainFolks() {
+  var root = document.getElementById("id-folks-swap");
+  if (!root) return;
+  var adapter = ROUTERS[root.dataset.router];
+  if (!adapter) return;
+  var cfg = folksConfig(root);
+  var active =
+    window.asastatsSwap && window.asastatsSwap.activeAddress
+      ? window.asastatsSwap.activeAddress()
+      : null;
+  var items = root.querySelectorAll("#id-folks-addresses > li");
+  Array.prototype.forEach.call(items, function (li) {
+    wireSection(li, adapter, cfg, active);
+  });
+}
+
+/* istanbul ignore next -- bridge-readiness gate */
 function startFolks() {
   if (window.asastatsSwap) {
     mainFolks();
@@ -353,16 +351,29 @@ function startFolks() {
   }
 }
 
-document.addEventListener("DOMContentLoaded", startFolks);
-
 /* istanbul ignore else -- export hook for unit tests; no effect in the browser */
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    buildAssetOptions: buildAssetOptions,
-    unionById: unionById,
-    populateSelect: populateSelect,
+    FolksAdapter: FolksAdapter,
+    ROUTERS: ROUTERS,
+    folksConfig: folksConfig,
+    readPanelHoldings: readPanelHoldings,
+    isOptedIn: isOptedIn,
+    fetchHoldings: fetchHoldings,
+    selectTarget: selectTarget,
+    readQuoteParams: readQuoteParams,
+    scheduleQuote: scheduleQuote,
+    refreshQuote: refreshQuote,
+    executeSwap: executeSwap,
+    renderQuote: renderQuote,
+    setPanelStatus: setPanelStatus,
     decimalToBaseUnits: decimalToBaseUnits,
     baseUnitsToDecimal: baseUnitsToDecimal,
     b64ToBytes: b64ToBytes,
+    bindPanel: bindPanel,
+    loadPanel: loadPanel,
+    wireSection: wireSection,
+    mainFolks: mainFolks,
+    startFolks: startFolks,
   };
 }

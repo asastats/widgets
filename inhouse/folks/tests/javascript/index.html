@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>ASA Stats</title></head>
+<body>
+<div id="id-folks-swap"
+     data-router="folks"
+     data-bundle="BUNDLE"
+     data-addresses="AAAA BBBB"
+     data-linked-addresses="AAAA"
+     data-network="mainnet"
+     data-referrer="REFERRER"
+     data-fee-bps="10">
+  <h1 class="center-align">Swap</h1>
+  <script type="application/json" id="id-folks-holdings">{"AAAA": [{"id": 31566704, "unit": "USDC", "decimals": 6, "amount": 5000000}, {"id": 888, "unit": "BAR", "decimals": 3, "amount": 10}, {"id": 999, "unit": "ZERO", "decimals": 2, "amount": 0}]}</script>
+  <div id="id-folks-locked" class="col s12 center-align" style="display:none;">
+    <blockquote>Connect the wallet that owns this address to swap from it.</blockquote>
+  </div>
+  <div id="id-folks-form" class="row" style="display:none;">
+    <select id="id-from-asset"></select>
+    <select id="id-to-asset"></select>
+    <input id="id-amount" type="text" inputmode="decimal" placeholder="0.0">
+    <input id="id-slippage" type="text" inputmode="decimal" value="0.5">
+    <div id="id-quote" class="col s12" style="display:none;">
+      <span id="id-quote-out"></span>
+      <span id="id-quote-min"></span>
+      <span id="id-quote-impact"></span>
+      <span id="id-quote-route"></span>
+      <span id="id-quote-fees"></span>
+    </div>
+    <button id="id-swap-btn" disabled>Swap</button>
+    <div id="id-folks-status"></div>
+  </div>
+</div>
+<script src="/static/folks/folks.js"></script>
+</body>
+</html>

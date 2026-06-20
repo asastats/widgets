@@ -4,51 +4,39 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * *
  */
 
-global.getEvents = (element) => {
-  var elemEvents = $._data(element, "events");
-  var allDocEvnts = $._data(document, "events");
-  for (var evntType in allDocEvnts) {
-    if (allDocEvnts.hasOwnProperty(evntType)) {
-      var evts = allDocEvnts[evntType];
-      for (var i = 0; i < evts.length; i++) {
-        if ($(element).is(evts[i].selector)) {
-          if (elemEvents == null) {
-            elemEvents = {};
-          }
-          if (!elemEvents.hasOwnProperty(evntType)) {
-            elemEvents[evntType] = [];
-          }
-          elemEvents[evntType].push(evts[i]);
-        }
-      }
-    }
-  }
-  return elemEvents;
-}
+const fs = require("fs");
+const path = require("path");
 
-function mockChart() {
-  return {
-    data: {},
-    options: {
-      scales: {
-        x: {}
-      }
-    },
-    update: jest.fn(),
-    resetZoom: jest.fn(),
-    resize: jest.fn(),
-  };
-}
-
-function resetDom() {
-  document.body.innerHTML = '';
-  delete global.chartBars;
-  delete global.chartCandles;
-}
-
-module.exports = {
-  mockChart,
-  resetDom,
+global.loadFolksHtml = () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "./index.html"), "utf8");
+  document.documentElement.innerHTML = html.toString();
 };
 
+global.mockFolksRouter = (overrides = {}) => {
+  const quote = overrides.quote || {
+    quoteAmount: 2000000n,
+    priceImpact: 0.12,
+    microalgoTxnsFee: 3000,
+    txnPayload: "PAYLOAD",
+  };
+  const client = {
+    fetchSwapQuote: jest.fn().mockResolvedValue(quote),
+    prepareSwapTransactions: jest
+      .fn()
+      .mockResolvedValue(overrides.txns || ["QUJD", "REVG"]),
+  };
+  window.FolksRouter = {
+    FolksRouterClient: jest.fn().mockImplementation(() => client),
+    Network: { MAINNET: "mainnet", TESTNET: "testnet" },
+    SwapMode: { FIXED_INPUT: "FIXED_INPUT", FIXED_OUTPUT: "FIXED_OUTPUT" },
+  };
+  return client;
+};
 
+global.mockSwapBridge = (overrides = {}) => {
+  window.asastatsSwap = {
+    activeAddress: jest.fn(() => (overrides.active === undefined ? "AAAA" : overrides.active)),
+    signAndSend: overrides.signAndSend || jest.fn().mockResolvedValue("TXID9"),
+  };
+  return window.asastatsSwap;
+};

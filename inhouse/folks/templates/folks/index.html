@@ -1,67 +1,37 @@
 {% extends 'base.html' %}{% load static %}{% load core_extras %}
 {% block title %}Swap (Folks Smart Router) - ASA Stats{% endblock %}
-{% block otherheader %}
-<link href="{% static 'folks/style.css' %}" type="text/css" rel="stylesheet" media="screen">
-{% endblock %}
 {% block content %}
 {# Page context + non-secret router config handed to the controller via data-*. #}
 <div id="id-folks-swap"
      data-router="{{ router_id }}"
      data-bundle="{{ bundle }}"
      data-addresses="{{ addresses }}"
-     data-linked-addresses="{{ linked_addresses }}"
      data-network="{{ folks_network }}"
      data-referrer="{{ folks_referrer }}"
      data-fee-bps="{{ folks_fee_bps }}">
 
   <h1 class="center-align">Swap</h1>
 
-  {# Host-injected per-address ASA holdings ({address: AsaHolding[]}); read by folks.js. #}
-  <script type="application/json" id="id-folks-holdings">{{ holdings_json|safe }}</script>
-
-  {# Shown when no linked address is the wallet's active account. #}
-  <div id="id-folks-locked" class="col s12 center-align" style="display:none;">
-    <blockquote>Connect the wallet that owns this address to swap from it.</blockquote>
-  </div>
-
-  <div id="id-folks-form" class="row" style="display:none;">
-    <div class="col s12 m6">
-      <label>From asset</label>
-      <select id="id-from-asset"></select>
-    </div>
-    <div class="col s12 m6">
-      <label>To asset</label>
-      <select id="id-to-asset"></select>
-    </div>
-    <div class="col s12 m6">
-      <label>Amount</label>
-      <input id="id-amount" type="text" inputmode="decimal" placeholder="0.0">
-    </div>
-    <div class="col s12 m6">
-      <label>Max slippage (%)</label>
-      <input id="id-slippage" type="text" inputmode="decimal" value="0.5">
-    </div>
-
-    {# Populated by the controller from adapter.getQuote(...) #}
-    <div id="id-quote" class="col s12" style="display:none;">
-      <p>Expected out: <span id="id-quote-out"></span></p>
-      <p>Minimum received: <span id="id-quote-min"></span></p>
-      <p>Price impact: <span id="id-quote-impact"></span></p>
-      <p>Route: <span id="id-quote-route"></span></p>
-      <p>Network fee: <span id="id-quote-fees"></span></p>
-    </div>
-
-    <div class="col s12 center-align">
-      <button id="id-swap-btn" class="waves-effect waves-mydark btn whenmoon" disabled>Swap</button>
-    </div>
-    <div id="id-folks-status" class="col s12 center-align"></div>
-  </div>
+  {% if linked_addresses %}
+  <ul class="collapsible" id="id-folks-addresses">
+    {% for address in linked_addresses %}
+    <li data-address="{{ address }}">
+      <div class="collapsible-header">{{ address|short_address }}</div>
+      <div class="collapsible-body">
+        {# Holdings panel is lazy-loaded on first open; folks.js triggers the load. #}
+        <div class="id-folks-panel" id="id-folks-panel-{{ forloop.counter }}"
+             data-holdings-url="{% url 'folks_holdings' address %}"></div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <blockquote id="id-folks-locked">
+    Connect the wallet that owns an address on this page to swap from it.
+  </blockquote>
+  {% endif %}
 </div>
-{% endblock %}
 
-{% block otherfooter %}
-{# Vendored, pre-bundled Folks SDK exposing the `FolksRouter` global. Built by #}
-{# this widget's package.json `build:sdk` script from folks-sdk-entry.js. #}
 <script src="{% static 'folks/folks-sdk.bundle.js' %}"></script>
 <script src="{% static 'folks/folks.js' %}"></script>
 {% endblock %}
