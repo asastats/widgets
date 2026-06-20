@@ -351,7 +351,7 @@ function startFolks() {
   }
 }
 
-/* istanbul ignore else -- export hook for unit tests; no effect in the browser */
+/* istanbul ignore else -- in the browser we self-start; under jest we export */
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     FolksAdapter: FolksAdapter,
@@ -376,4 +376,7 @@ if (typeof module !== "undefined" && module.exports) {
     mainFolks: mainFolks,
     startFolks: startFolks,
   };
+} else {
+  /* istanbul ignore next -- browser entry point */
+  startFolks();
 }
