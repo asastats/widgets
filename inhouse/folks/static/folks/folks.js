@@ -289,6 +289,7 @@ function applyImpliedSource(panel, fromAsset) {
   return true;
 }
 
+/* istanbul ignore next -- DOM event wiring; logic is covered via applyImpliedSource and the scheduleQuote/selectTarget/executeSwap tests */
 function bindPanel(panelEl, ctx) {
   ["id-folks-from", "id-folks-amount", "id-folks-slippage"].forEach(function (cls) {
     var el = panelEl.querySelector("." + cls);

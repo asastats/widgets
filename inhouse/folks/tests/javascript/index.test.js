@@ -332,3 +332,35 @@ describe("debounce + fetch edge", () => {
     await expect(F.fetchHoldings("/u")).resolves.toEqual([]);
   });
 });
+
+describe("applyImpliedSource", () => {
+  function panelWith(ids) {
+    document.body.innerHTML =
+      '<div class="id-folks-panel"><select class="id-folks-from">' +
+      ids.map((i) => `<option value="${i}">u</option>`).join("") +
+      "</select></div>";
+    return document.querySelector(".id-folks-panel");
+  }
+
+  test("selects the source option when the asset is held", () => {
+    const panel = panelWith(["0", "31566704"]);
+    expect(F.applyImpliedSource(panel, "31566704")).toBe(true);
+    expect(panel.querySelector(".id-folks-from").value).toBe("31566704");
+  });
+
+  test("is a no-op when the asset is not in the from-options", () => {
+    const panel = panelWith(["0"]);
+    expect(F.applyImpliedSource(panel, "31566704")).toBe(false);
+  });
+
+  test("is a no-op when no source is provided", () => {
+    const panel = panelWith(["0"]);
+    expect(F.applyImpliedSource(panel, null)).toBe(false);
+  });
+
+  test("is a no-op when the panel has no from-select", () => {
+    document.body.innerHTML = '<div class="id-folks-panel"></div>';
+    const panel = document.querySelector(".id-folks-panel");
+    expect(F.applyImpliedSource(panel, "1")).toBe(false);
+  });
+});
