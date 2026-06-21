@@ -83,11 +83,8 @@ Tests
 Python
 ^^^^^^
 
-.. code-block:: bash
-
-  cd /home/ipaleka/dev/widgets
-  source /home/ipaleka/dev/venvs/widgets/bin/activate
-  python -m pytest -v
+The Python tests for this repository are executed directly by the parent "frontend"
+repository's CI/CD workflow, where this code is included as a submodule.
 
 
 Javascript
