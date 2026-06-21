@@ -364,3 +364,83 @@ describe("applyImpliedSource", () => {
     expect(F.applyImpliedSource(panel, "1")).toBe(false);
   });
 });
+
+describe("branch coverage", () => {
+  function panel(html) {
+    document.body.innerHTML = '<div class="id-folks-panel">' + html + "</div>";
+    return document.querySelector(".id-folks-panel");
+  }
+  afterEach(() => { F.FolksAdapter._client = null; });
+
+  test("_clientFor: testnet network + client caching", () => {
+    mockFolksRouter();
+    F.FolksAdapter._client = null;
+    const a = F.FolksAdapter._clientFor({ network: "testnet" });
+    const b = F.FolksAdapter._clientFor({ network: "testnet" });
+    expect(a).toBe(b);
+    expect(window.FolksRouter.FolksRouterClient).toHaveBeenCalledWith("testnet");
+  });
+
+  test("readPanelHoldings: empty island -> []", () => {
+    expect(F.readPanelHoldings(panel('<script class="id-folks-holdings"></script>'))).toEqual([]);
+  });
+
+  test("fetchHoldings: empty island -> []", async () => {
+    global.fetch = jest.fn(async () => ({ text: async () => '<script class="id-folks-holdings"></script>' }));
+    await expect(F.fetchHoldings("/u")).resolves.toEqual([]);
+  });
+
+  test("selectTarget: missing decimals/unit defaults, no results node", () => {
+    const p = panel('<input class="id-folks-to" type="hidden">' +
+      '<span class="id-folks-optin-notice"></span><input class="id-folks-to-search">');
+    const opt = document.createElement("div"); opt.dataset.id = "31566704";
+    F.selectTarget(p, opt, { quoteTimer: null });
+    expect(p.querySelector(".id-folks-to").dataset.decimals).toBe("0");
+    expect(p.querySelector(".id-folks-to").dataset.unit).toBe("");
+    expect(p.querySelector(".id-folks-to-search").value).toBe("ASA (#31566704)");
+  });
+
+  test("readQuoteParams: default decimals + empty slippage", () => {
+    const p = panel('<select class="id-folks-from"><option value="0" data-amount="5000000">A</option></select>' +
+      '<input class="id-folks-to" value="31566704"><input class="id-folks-amount" value="1">' +
+      '<input class="id-folks-slippage" value="">');
+    expect(F.readQuoteParams(p, "ADDR").slippagePct).toBe(0.5);
+  });
+
+  test("refreshQuote: incomplete form, no button", async () => {
+    const p = panel('<select class="id-folks-from"></select><input class="id-folks-to" value="">' +
+      '<input class="id-folks-amount" value=""><input class="id-folks-slippage" value="0.5">');
+    await F.refreshQuote(p, { owns: true });
+  });
+
+  test("refreshQuote: success, no button", async () => {
+    const p = panel('<select class="id-folks-from"><option value="0" data-decimals="6">A</option></select>' +
+      '<input class="id-folks-to" value="31566704"><input class="id-folks-amount" value="1">' +
+      '<input class="id-folks-slippage" value="0.5"><div class="id-folks-status"></div>');
+    const adapter = { getQuote: jest.fn().mockResolvedValue({ amountOut: 1n, minimumReceived: 1n, priceImpactPct: 0, feesTotal: 0, routeLabel: "X" }) };
+    await F.refreshQuote(p, { adapter, cfg: {}, owns: true });
+    expect(adapter.getQuote).toHaveBeenCalled();
+  });
+
+  test("refreshQuote: error, no button", async () => {
+    const p = panel('<select class="id-folks-from"><option value="0" data-decimals="6">A</option></select>' +
+      '<input class="id-folks-to" value="31566704"><input class="id-folks-amount" value="1">' +
+      '<input class="id-folks-slippage" value="0.5"><div class="id-folks-status"></div>');
+    await F.refreshQuote(p, { adapter: { getQuote: jest.fn().mockRejectedValue(new Error("boom")) }, cfg: {}, owns: true });
+    expect(p.querySelector(".id-folks-status").textContent).toContain("boom");
+  });
+
+  test("executeSwap: no button, insufficient balance hits finally", async () => {
+    global.fetch = jest.fn(async () => ({ text: async () => '<script class="id-folks-holdings">[{"id":0,"amount":"1"}]</script>' }));
+    const p = panel('<select class="id-folks-from"><option value="0" data-decimals="6">A</option></select>' +
+      '<input class="id-folks-to" value="31566704"><input class="id-folks-amount" value="1">' +
+      '<input class="id-folks-slippage" value="0.5"><div class="id-folks-status"></div>');
+    await F.executeSwap(p, { adapter: {}, cfg: {}, fromAddress: "ADDR", owns: true, lastQuote: {}, holdingsUrl: "/u" });
+    expect(p.querySelector(".id-folks-status").textContent).toContain("Insufficient");
+  });
+
+  test("decimalToBaseUnits: leading dot + zero decimals", () => {
+    expect(F.decimalToBaseUnits(".5", 6)).toBe(500000n);
+    expect(F.decimalToBaseUnits("5", 0)).toBe(5n);
+  });
+});
