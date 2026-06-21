@@ -375,48 +375,41 @@ function wireSection(li, adapter, cfg, active) {
   });
 }
 
-/* istanbul ignore next -- inline reveal wiring */
-function wireInlineSwap(btn, marker, active) {
-  var wrap = document.getElementById(btn.dataset.distid);
+/* istanbul ignore next -- delegated DOM glue; toggle/url logic is unit-tested */
+function handleInlineSwapClick(ev) {
+  var btn =
+    ev.target.closest && ev.target.closest(".id-folks-swap-toggle");
+  if (!btn) return;
+  // Inline reveal owns the click; never navigate to the fallback href.
+  ev.preventDefault();
+  var wrap = document.getElementById(btn.dataset.folksTarget);
   if (!wrap) return;
   var panelEl = wrap.querySelector(".id-folks-panel");
   var labelEl = btn.querySelector(".swap-label");
-  var labels = {
+  var shown = toggleInlineSwap(wrap, labelEl, {
     show: btn.dataset.labelShow || "Swap",
     hide: btn.dataset.labelHide || "Hide",
-  };
-  var loaded = false;
-  btn.addEventListener("click", function (ev) {
-    ev.preventDefault();
-    var shown = toggleInlineSwap(wrap, labelEl, labels);
-    if (shown && !loaded && panelEl) {
-      loaded = true;
-      var from = btn.dataset.from || panelEl.dataset.from;
-      loadPanel(panelEl, {
-        fromAddress: active,
-        owns: !!active,
-        holdingsUrl: inlineHoldingsUrl(marker.dataset.holdingsTmpl, active, from),
-        from: from,
-        quoteTimer: null,
-      });
-    }
   });
-}
+  if (!shown || !panelEl || btn.dataset.folksLoaded) return;
 
-/* istanbul ignore next -- inline entry-point wiring */
-function mainInlineSwap() {
   var marker = document.getElementById("id-swap-enabled");
-  if (!marker) return;
-  var btns = document.querySelectorAll(".id-folks-swap-toggle");
-  if (!btns.length) return;
-  var active =
-    window.asastatsSwap && window.asastatsSwap.activeAddress
-      ? window.asastatsSwap.activeAddress()
-      : null;
-  Array.prototype.forEach.call(btns, function (btn) {
-    if (btn.dataset.folksWired) return;
-    btn.dataset.folksWired = "1";
-    wireInlineSwap(btn, marker, active);
+  // Swap from the LINKED address the marker carries (the wallet-authenticated
+  // account). Holdings + quote need no live wallet connection -- only the final
+  // signature does -- so we never ask the user to reconnect just to look.
+  var address = marker ? marker.dataset.address : "";
+  if (!marker || !address) {
+    panelEl.innerHTML =
+      '<div class="id-folks-status">Swap is not available for this address.</div>';
+    return;
+  }
+  btn.dataset.folksLoaded = "1";
+  var from = btn.dataset.from || panelEl.dataset.from;
+  loadPanel(panelEl, {
+    fromAddress: address,
+    owns: true,
+    holdingsUrl: inlineHoldingsUrl(marker.dataset.holdingsTmpl, address, from),
+    from: from,
+    quoteTimer: null,
   });
 }
 
@@ -439,19 +432,16 @@ function mainFolks() {
 
 /* istanbul ignore next -- bridge-readiness gate */
 function startFolks() {
-  var run = function () {
-    mainFolks();
-    mainInlineSwap();
-  };
+  // Inline reveal: one delegated listener, attached as soon as this script runs.
+  // It does not depend on the bridge being ready or on htmx swap timing -- the
+  // marker and the connected address are read at click time.
+  document.addEventListener("click", handleInlineSwapClick);
+  // Shell page (accordion of addresses) still binds per-section after bridge.
   if (window.asastatsSwap) {
-    run();
+    mainFolks();
   } else {
-    window.addEventListener("asastats:swap-ready", run, { once: true });
+    window.addEventListener("asastats:swap-ready", mainFolks, { once: true });
   }
-  // The per-user #id-swap-enabled marker arrives via the htmx swap-entry load,
-  // so (re-)wire inline toggles after htmx settles content too.
-  document.addEventListener("htmx:afterSwap", mainInlineSwap);
-  document.addEventListener("htmx:load", mainInlineSwap);
 }
 
 /* istanbul ignore else -- in the browser we self-start; under jest we export */
@@ -480,8 +470,7 @@ if (typeof module !== "undefined" && module.exports) {
     toggleInlineSwap: toggleInlineSwap,
     bindPanel: bindPanel,
     loadPanel: loadPanel,
-    wireInlineSwap: wireInlineSwap,
-    mainInlineSwap: mainInlineSwap,
+    handleInlineSwapClick: handleInlineSwapClick,
     wireSection: wireSection,
     mainFolks: mainFolks,
     startFolks: startFolks,
