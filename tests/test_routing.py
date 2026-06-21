@@ -33,7 +33,10 @@ class TestWidgetsRouting:
         )
         try:
             importlib.reload(routing)
-            assert routing.websocket_urlpatterns == [("inhouse.historic.routing",)]
+            assert routing.websocket_urlpatterns == [
+                ("inhouse.historic.routing",),
+                ("inhouse.folks.routing",),
+            ]
         finally:
             mocker.stopall()
             importlib.reload(routing)

@@ -1,7 +1,6 @@
 """Testing module for :py:mod:`widgets.inhouse.folks.urls` module."""
 
 from django.urls import URLPattern
-
 from widgets.inhouse.folks import urls
 
 

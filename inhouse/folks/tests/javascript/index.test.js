@@ -373,12 +373,17 @@ describe("branch coverage", () => {
   afterEach(() => { F.FolksAdapter._client = null; });
 
   test("_clientFor: testnet network + client caching", () => {
-    mockFolksRouter();
     F.FolksAdapter._client = null;
+    const ClientCtor = jest.fn(function (net) { this.net = net; });
+    window.FolksRouter = {
+      FolksRouterClient: ClientCtor,
+      Network: { MAINNET: "mainnet", TESTNET: "testnet" },
+    };
     const a = F.FolksAdapter._clientFor({ network: "testnet" });
     const b = F.FolksAdapter._clientFor({ network: "testnet" });
     expect(a).toBe(b);
-    expect(window.FolksRouter.FolksRouterClient).toHaveBeenCalledWith("testnet");
+    expect(ClientCtor).toHaveBeenCalledTimes(1);
+    expect(ClientCtor).toHaveBeenCalledWith("testnet");
   });
 
   test("readPanelHoldings: empty island -> []", () => {
@@ -442,5 +447,56 @@ describe("branch coverage", () => {
   test("decimalToBaseUnits: leading dot + zero decimals", () => {
     expect(F.decimalToBaseUnits(".5", 6)).toBe(500000n);
     expect(F.decimalToBaseUnits("5", 0)).toBe(5n);
+  });
+});
+
+describe("inline reveal helpers", () => {
+  test("readPanelCfg: reads the cfg island", () => {
+    document.body.innerHTML =
+      '<div class="id-folks-panel"><span class="id-folks-cfg" data-router="folks"' +
+      ' data-network="testnet" data-referrer="REF" data-fee-bps="25"></span></div>';
+    const cfg = F.readPanelCfg(document.querySelector(".id-folks-panel"));
+    expect(cfg).toEqual({ router: "folks", network: "testnet", referrer: "REF", feeBps: 25 });
+  });
+  test("readPanelCfg: defaults when attrs missing", () => {
+    document.body.innerHTML = '<div class="id-folks-panel"><span class="id-folks-cfg"></span></div>';
+    expect(F.readPanelCfg(document.querySelector(".id-folks-panel"))).toEqual({
+      router: "", network: "mainnet", referrer: "", feeBps: 0 });
+  });
+  test("readPanelCfg: null when no island", () => {
+    document.body.innerHTML = '<div class="id-folks-panel"></div>';
+    expect(F.readPanelCfg(document.querySelector(".id-folks-panel"))).toBeNull();
+  });
+
+  test("inlineHoldingsUrl: fills address + from", () => {
+    expect(F.inlineHoldingsUrl("/widgets/folks/ADDRESS/holdings", "AAAA", "31566704"))
+      .toBe("/widgets/folks/AAAA/holdings?from=31566704");
+  });
+  test("inlineHoldingsUrl: omits from when absent", () => {
+    expect(F.inlineHoldingsUrl("/widgets/folks/ADDRESS/holdings", "AAAA", null))
+      .toBe("/widgets/folks/AAAA/holdings");
+  });
+  test("inlineHoldingsUrl: empty without tmpl or address", () => {
+    expect(F.inlineHoldingsUrl("", "AAAA", "1")).toBe("");
+    expect(F.inlineHoldingsUrl("/x/ADDRESS", "", "1")).toBe("");
+  });
+
+  test("toggleInlineSwap: reveals then hides, swapping the label", () => {
+    document.body.innerHTML = '<div id="w" class="hidden"></div><a><span class="swap-label">Swap</span></a>';
+    const wrap = document.getElementById("w");
+    const label = document.querySelector(".swap-label");
+    const labels = { show: "Swap", hide: "Hide" };
+    const shown = F.toggleInlineSwap(wrap, label, labels);
+    expect(shown).toBe(true);
+    expect(wrap.classList.contains("hidden")).toBe(false);
+    expect(label.textContent).toBe("Hide");
+    const shownAgain = F.toggleInlineSwap(wrap, label, labels);
+    expect(shownAgain).toBe(false);
+    expect(wrap.classList.contains("hidden")).toBe(true);
+    expect(label.textContent).toBe("Swap");
+  });
+  test("toggleInlineSwap: tolerates a missing label element", () => {
+    document.body.innerHTML = '<div id="w" class="hidden"></div>';
+    expect(F.toggleInlineSwap(document.getElementById("w"), null, { show: "Swap", hide: "Hide" })).toBe(true);
   });
 });

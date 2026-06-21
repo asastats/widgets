@@ -91,7 +91,12 @@ class TestInhouseFolksViewsFolksHoldingsView:
         view.address = "ADDR_ONE"
         # Backend returns {asset_id: {name, unit, decimals, amount}} (id 0 = ALGO).
         data = {
-            "31566704": {"name": "USD Coin", "unit": "USDC", "decimals": 6, "amount": 7},
+            "31566704": {
+                "name": "USD Coin",
+                "unit": "USDC",
+                "decimals": 6,
+                "amount": 7,
+            },
             "0": {"name": "Algorand", "unit": "ALGO", "decimals": 6, "amount": 5},
         }
         fetch = mocker.patch(
@@ -104,7 +109,13 @@ class TestInhouseFolksViewsFolksHoldingsView:
         # Flattened, id-sorted, with the id folded in (ALGO first).
         expected = [
             {"name": "Algorand", "unit": "ALGO", "decimals": 6, "amount": 5, "id": 0},
-            {"name": "USD Coin", "unit": "USDC", "decimals": 6, "amount": 7, "id": 31566704},
+            {
+                "name": "USD Coin",
+                "unit": "USDC",
+                "decimals": 6,
+                "amount": 7,
+                "id": 31566704,
+            },
         ]
         assert context["address"] == "ADDR_ONE"
         assert context["holdings"] == expected
@@ -130,9 +141,7 @@ class TestInhouseFolksViewsFolksAssetsView:
             "widgets.inhouse.folks.views.fetch_asset_matches", return_value=assets
         )
         context = view.get_context_data()
-        fetch.assert_called_once_with(
-            "usdc", FolksAssetsView.manifest.engine_endpoints
-        )
+        fetch.assert_called_once_with("usdc", FolksAssetsView.manifest.engine_endpoints)
         assert context["query"] == "usdc"
         assert context["assets"] == assets
 

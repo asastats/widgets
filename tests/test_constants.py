@@ -7,7 +7,7 @@ class TestWidgetsConstants:
     """Testing class for :py:mod:`widgets.constants` module."""
 
     def test_widgets_constants_inhouse_widgets(self):
-        assert constants.INHOUSE_WIDGETS == ["historic"]
+        assert constants.INHOUSE_WIDGETS == ["historic", "folks"]
 
     def test_widgets_constants_thirdparty_widgets(self):
         assert constants.THIRDPARTY_WIDGETS == []

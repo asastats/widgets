@@ -19,7 +19,7 @@ class TestWidgetsUrls:
         assert "widgets.inhouse.historic.urls" in str(url.urlconf_name)
 
     def test_widgets_urls_patterns_count(self):
-        assert len(urls.urlpatterns) == 1
+        assert len(urls.urlpatterns) == 2
 
 
 class TestWidgetsUrlsFallback:
@@ -35,7 +35,10 @@ class TestWidgetsUrlsFallback:
         mocker.patch("django.urls.re_path", side_effect=lambda pat, inc: ("re", inc))
         try:
             importlib.reload(urls)
-            assert urls.urlpatterns == [("re", ("include", "inhouse.historic.urls"))]
+            assert urls.urlpatterns == [
+                ("re", ("include", "inhouse.historic.urls")),
+                ("re", ("include", "inhouse.folks.urls")),
+            ]
         finally:
             mocker.stopall()
             importlib.reload(urls)

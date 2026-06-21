@@ -289,13 +289,46 @@ function applyImpliedSource(panel, fromAsset) {
   return true;
 }
 
+/** Read the router cfg island the holdings partial embeds (`.id-folks-cfg`). */
+function readPanelCfg(panelEl) {
+  var el = panelEl.querySelector(".id-folks-cfg");
+  if (!el) return null;
+  return {
+    router: el.dataset.router || "",
+    network: el.dataset.network || "mainnet",
+    referrer: el.dataset.referrer || "",
+    feeBps: Number(el.dataset.feeBps || "0"),
+  };
+}
+
+/** Build a holdings URL from the per-user marker template + connected address. */
+function inlineHoldingsUrl(tmpl, address, fromAsset) {
+  if (!tmpl || !address) return "";
+  var url = tmpl.replace("ADDRESS", address);
+  return fromAsset ? url + "?from=" + fromAsset : url;
+}
+
+/** Toggle an inline swap panel + its button label; returns true when now shown. */
+function toggleInlineSwap(wrap, labelEl, labels) {
+  var nowHidden = wrap.classList.toggle("hidden");
+  if (labelEl) labelEl.textContent = nowHidden ? labels.show : labels.hide;
+  return !nowHidden;
+}
+
 /* istanbul ignore next -- DOM event wiring; logic is covered via applyImpliedSource and the scheduleQuote/selectTarget/executeSwap tests */
 function bindPanel(panelEl, ctx) {
   ["id-folks-from", "id-folks-amount", "id-folks-slippage"].forEach(function (cls) {
     var el = panelEl.querySelector("." + cls);
     if (el) el.addEventListener("input", function () { scheduleQuote(panelEl, ctx); });
   });
-  applyImpliedSource(panelEl, impliedSource());
+  if (!ctx.cfg) {
+    var pc = readPanelCfg(panelEl);
+    if (pc) {
+      ctx.cfg = pc;
+      ctx.adapter = ctx.adapter || ROUTERS[pc.router];
+    }
+  }
+  applyImpliedSource(panelEl, ctx.from || impliedSource());
   panelEl.addEventListener("click", function (ev) {
     var opt = ev.target.closest && ev.target.closest(".id-folks-asset-option");
     if (opt) selectTarget(panelEl, opt, ctx);
@@ -342,6 +375,51 @@ function wireSection(li, adapter, cfg, active) {
   });
 }
 
+/* istanbul ignore next -- inline reveal wiring */
+function wireInlineSwap(btn, marker, active) {
+  var wrap = document.getElementById(btn.dataset.distid);
+  if (!wrap) return;
+  var panelEl = wrap.querySelector(".id-folks-panel");
+  var labelEl = btn.querySelector(".swap-label");
+  var labels = {
+    show: btn.dataset.labelShow || "Swap",
+    hide: btn.dataset.labelHide || "Hide",
+  };
+  var loaded = false;
+  btn.addEventListener("click", function (ev) {
+    ev.preventDefault();
+    var shown = toggleInlineSwap(wrap, labelEl, labels);
+    if (shown && !loaded && panelEl) {
+      loaded = true;
+      var from = btn.dataset.from || panelEl.dataset.from;
+      loadPanel(panelEl, {
+        fromAddress: active,
+        owns: !!active,
+        holdingsUrl: inlineHoldingsUrl(marker.dataset.holdingsTmpl, active, from),
+        from: from,
+        quoteTimer: null,
+      });
+    }
+  });
+}
+
+/* istanbul ignore next -- inline entry-point wiring */
+function mainInlineSwap() {
+  var marker = document.getElementById("id-swap-enabled");
+  if (!marker) return;
+  var btns = document.querySelectorAll(".id-folks-swap-toggle");
+  if (!btns.length) return;
+  var active =
+    window.asastatsSwap && window.asastatsSwap.activeAddress
+      ? window.asastatsSwap.activeAddress()
+      : null;
+  Array.prototype.forEach.call(btns, function (btn) {
+    if (btn.dataset.folksWired) return;
+    btn.dataset.folksWired = "1";
+    wireInlineSwap(btn, marker, active);
+  });
+}
+
 /* istanbul ignore next -- entry-point wiring */
 function mainFolks() {
   var root = document.getElementById("id-folks-swap");
@@ -361,11 +439,19 @@ function mainFolks() {
 
 /* istanbul ignore next -- bridge-readiness gate */
 function startFolks() {
-  if (window.asastatsSwap) {
+  var run = function () {
     mainFolks();
+    mainInlineSwap();
+  };
+  if (window.asastatsSwap) {
+    run();
   } else {
-    window.addEventListener("asastats:swap-ready", mainFolks, { once: true });
+    window.addEventListener("asastats:swap-ready", run, { once: true });
   }
+  // The per-user #id-swap-enabled marker arrives via the htmx swap-entry load,
+  // so (re-)wire inline toggles after htmx settles content too.
+  document.addEventListener("htmx:afterSwap", mainInlineSwap);
+  document.addEventListener("htmx:load", mainInlineSwap);
 }
 
 /* istanbul ignore else -- in the browser we self-start; under jest we export */
@@ -389,8 +475,13 @@ if (typeof module !== "undefined" && module.exports) {
     decimalToBaseUnits: decimalToBaseUnits,
     baseUnitsToDecimal: baseUnitsToDecimal,
     b64ToBytes: b64ToBytes,
+    readPanelCfg: readPanelCfg,
+    inlineHoldingsUrl: inlineHoldingsUrl,
+    toggleInlineSwap: toggleInlineSwap,
     bindPanel: bindPanel,
     loadPanel: loadPanel,
+    wireInlineSwap: wireInlineSwap,
+    mainInlineSwap: mainInlineSwap,
     wireSection: wireSection,
     mainFolks: mainFolks,
     startFolks: startFolks,

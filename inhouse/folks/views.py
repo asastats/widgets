@@ -46,9 +46,7 @@ class FolksSwapView(WidgetAccessMixin, TemplateView):
         context = super().get_context_data(*args, **kwargs)
         context["bundle"] = self.bundle
         context["addresses"] = self.addresses
-        linked = linked_addresses_for_user(
-            self.request.user, self.addresses.split(" ")
-        )
+        linked = linked_addresses_for_user(self.request.user, self.addresses.split(" "))
         context["linked_addresses"] = sorted(linked)
         context["router_id"] = self.manifest.id
         context["folks_network"] = getattr(settings, "FOLKS_NETWORK", "mainnet")
@@ -109,6 +107,9 @@ class FolksHoldingsView(WidgetAccessMixin, TemplateView):
         context["holdings"] = holdings
         context["holdings_json"] = json.dumps(holdings)
         context["router_id"] = self.manifest.id
+        context["folks_network"] = getattr(settings, "FOLKS_NETWORK", "mainnet")
+        context["folks_referrer"] = getattr(settings, "FOLKS_REFERRER_ADDRESS", "")
+        context["folks_fee_bps"] = getattr(settings, "FOLKS_FEE_BPS", 0)
         return context
 
     def test_func(self):
@@ -148,9 +149,7 @@ class FolksAssetsView(WidgetAccessMixin, TemplateView):
         query = self.request.GET.get("q", "").strip()
         context["query"] = query
         context["assets"] = (
-            fetch_asset_matches(query, self.manifest.engine_endpoints)
-            if query
-            else []
+            fetch_asset_matches(query, self.manifest.engine_endpoints) if query else []
         )
         return context
 
