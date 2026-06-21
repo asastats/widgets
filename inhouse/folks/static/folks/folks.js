@@ -274,11 +274,27 @@ function b64ToBytes(b64) {
 }
 
 /* istanbul ignore next -- DOM/htmx wiring; the unit-tested core is the helpers above */
+function impliedSource() {
+  /* istanbul ignore next -- thin URL read; behaviour covered via applyImpliedSource */
+  return new URLSearchParams(window.location.search).get("from");
+}
+
+function applyImpliedSource(panel, fromAsset) {
+  if (!fromAsset) return false;
+  var sel = panel.querySelector(".id-folks-from");
+  if (!sel) return false;
+  var match = sel.querySelector('option[value="' + fromAsset + '"]');
+  if (!match) return false;
+  sel.value = fromAsset;
+  return true;
+}
+
 function bindPanel(panelEl, ctx) {
   ["id-folks-from", "id-folks-amount", "id-folks-slippage"].forEach(function (cls) {
     var el = panelEl.querySelector("." + cls);
     if (el) el.addEventListener("input", function () { scheduleQuote(panelEl, ctx); });
   });
+  applyImpliedSource(panelEl, impliedSource());
   panelEl.addEventListener("click", function (ev) {
     var opt = ev.target.closest && ev.target.closest(".id-folks-asset-option");
     if (opt) selectTarget(panelEl, opt, ctx);
@@ -362,6 +378,8 @@ if (typeof module !== "undefined" && module.exports) {
     fetchHoldings: fetchHoldings,
     selectTarget: selectTarget,
     readQuoteParams: readQuoteParams,
+    impliedSource: impliedSource,
+    applyImpliedSource: applyImpliedSource,
     scheduleQuote: scheduleQuote,
     refreshQuote: refreshQuote,
     executeSwap: executeSwap,
