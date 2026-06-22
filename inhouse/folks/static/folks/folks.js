@@ -308,14 +308,63 @@ function inlineHoldingsUrl(tmpl, address, fromAsset) {
   return fromAsset ? url + "?from=" + fromAsset : url;
 }
 
-/** Toggle an inline swap panel + its button label; returns true when now shown. */
-function toggleInlineSwap(wrap, labelEl, labels) {
-  var nowHidden = wrap.classList.toggle("hidden");
-  if (labelEl) labelEl.textContent = nowHidden ? labels.show : labels.hide;
-  return !nowHidden;
+/**
+ * Read the per-user marker's router config. The marker is non-cached, so it can
+ * safely carry the viewer's chosen router + that router's public client config
+ * (network / referrer / fee). Resolving the adapter + cfg here means a quote
+ * never depends on an island inside the (separately fetched) holdings partial.
+ */
+function markerCfg(marker) {
+  if (!marker) return null;
+  return {
+    router: marker.dataset.router || "",
+    network: marker.dataset.network || "mainnet",
+    referrer: marker.dataset.referrer || "",
+    feeBps: Number(marker.dataset.feeBps || "0"),
+  };
 }
 
-/* istanbul ignore next -- DOM event wiring; logic is covered via applyImpliedSource and the scheduleQuote/selectTarget/executeSwap tests */
+/** Decimal-string amount that `pct`% of `base` holding base units represents. */
+function applyPercent(base, decimals, pct) {
+  var b = BigInt(base);
+  var p = Math.max(0, Math.min(100, Number(pct) || 0));
+  // Scale by 1e4 so a fractional percent (e.g. 33.33) keeps precision before
+  // integer truncation back down to the asset's own decimals.
+  var scaled = (b * BigInt(Math.round(p * 100))) / BigInt(10000);
+  return baseUnitsToDecimal(scaled, decimals);
+}
+
+/** Holding base units (bigint) of the currently selected source asset, or null. */
+function sourceHoldingsBaseUnits(panel) {
+  var sel = panel.querySelector(".id-folks-from");
+  if (!sel || !sel.value) return null;
+  var opt = sel.options[sel.selectedIndex];
+  if (!opt || opt.dataset.amount === undefined) return null;
+  return BigInt(opt.dataset.amount || "0");
+}
+
+/** Set the amount field to `pct`% of the selected source holding; returns it. */
+function setAmountFromPercent(panel, pct) {
+  var sel = panel.querySelector(".id-folks-from");
+  var amountEl = panel.querySelector(".id-folks-amount");
+  var base = sourceHoldingsBaseUnits(panel);
+  if (!sel || !amountEl || base === null) return "";
+  var opt = sel.options[sel.selectedIndex];
+  var decimals = Number((opt && opt.dataset.decimals) || "0");
+  var value = applyPercent(base, decimals, pct);
+  amountEl.value = value;
+  return value;
+}
+
+/** Flip the source/target columns between "sell" (default) and "buy". */
+function applySwapMode(formEl, mode) {
+  if (!formEl) return "sell";
+  var buy = mode === "buy";
+  formEl.classList.toggle("folks-mode-buy", buy);
+  return buy ? "buy" : "sell";
+}
+
+/* istanbul ignore next -- DOM event wiring; logic is covered via applyImpliedSource, applyPercent/setAmountFromPercent, and the scheduleQuote/selectTarget/executeSwap tests */
 function bindPanel(panelEl, ctx) {
   ["id-folks-from", "id-folks-amount", "id-folks-slippage"].forEach(function (cls) {
     var el = panelEl.querySelector("." + cls);
@@ -331,8 +380,20 @@ function bindPanel(panelEl, ctx) {
   applyImpliedSource(panelEl, ctx.from || impliedSource());
   panelEl.addEventListener("click", function (ev) {
     var opt = ev.target.closest && ev.target.closest(".id-folks-asset-option");
-    if (opt) selectTarget(panelEl, opt, ctx);
+    if (opt) { selectTarget(panelEl, opt, ctx); return; }
+    var pb = ev.target.closest && ev.target.closest(".id-folks-pct-btn");
+    if (pb) {
+      setAmountFromPercent(panelEl, Number(pb.dataset.pct || "0"));
+      scheduleQuote(panelEl, ctx);
+    }
   });
+  var pctInput = panelEl.querySelector(".id-folks-pct");
+  if (pctInput) {
+    pctInput.addEventListener("input", function () {
+      setAmountFromPercent(panelEl, Number(pctInput.value || "0"));
+      scheduleQuote(panelEl, ctx);
+    });
+  }
   var btn = panelEl.querySelector(".id-folks-swap-btn");
   if (btn) {
     btn.disabled = !ctx.owns;
@@ -375,41 +436,57 @@ function wireSection(li, adapter, cfg, active) {
   });
 }
 
-/* istanbul ignore next -- delegated DOM glue; toggle/url logic is unit-tested */
-function handleInlineSwapClick(ev) {
-  var btn =
-    ev.target.closest && ev.target.closest(".id-folks-swap-toggle");
-  if (!btn) return;
-  // Inline reveal owns the click; never navigate to the fallback href.
-  ev.preventDefault();
-  var wrap = document.getElementById(btn.dataset.folksTarget);
-  if (!wrap) return;
-  var panelEl = wrap.querySelector(".id-folks-panel");
-  var labelEl = btn.querySelector(".swap-label");
-  var shown = toggleInlineSwap(wrap, labelEl, {
-    show: btn.dataset.labelShow || "Swap",
-    hide: btn.dataset.labelHide || "Hide",
-  });
-  if (!shown || !panelEl || btn.dataset.folksLoaded) return;
-
+/* istanbul ignore next -- DOM/modal glue; the quote + percent + mode logic is unit-tested */
+function openSwapModal(fromAsset) {
+  var modal = document.getElementById("folks-swap-modal");
   var marker = document.getElementById("id-swap-enabled");
-  // Swap from the LINKED address the marker carries (the wallet-authenticated
-  // account). Holdings + quote need no live wallet connection -- only the final
-  // signature does -- so we never ask the user to reconnect just to look.
-  var address = marker ? marker.dataset.address : "";
-  if (!marker || !address) {
+  if (!modal) return;
+  if (window.M && window.M.Modal) {
+    (window.M.Modal.getInstance(modal) || window.M.Modal.init(modal)).open();
+  }
+  var cfg = markerCfg(marker);
+  var address = marker ? marker.dataset.address || "" : "";
+  var panelEl = modal.querySelector(".id-folks-panel");
+  if (!panelEl) return;
+  // Resolve the adapter + cfg from the marker, NOT from the loaded partial: a
+  // quote must never fail just because the holdings island lacks router config.
+  if (!cfg || !cfg.router || !ROUTERS[cfg.router] || !address) {
     panelEl.innerHTML =
       '<div class="id-folks-status">Swap is not available for this address.</div>';
     return;
   }
-  btn.dataset.folksLoaded = "1";
-  var from = btn.dataset.from || panelEl.dataset.from;
+  if (panelEl.dataset.folksFrom === String(fromAsset) && panelEl.dataset.folksLoaded) {
+    return;
+  }
+  panelEl.dataset.folksFrom = String(fromAsset || "");
+  panelEl.dataset.folksLoaded = "1";
   loadPanel(panelEl, {
+    adapter: ROUTERS[cfg.router],
+    cfg: cfg,
     fromAddress: address,
     owns: true,
-    holdingsUrl: inlineHoldingsUrl(marker.dataset.holdingsTmpl, address, from),
-    from: from,
+    holdingsUrl: inlineHoldingsUrl(marker.dataset.holdingsTmpl, address, fromAsset),
+    from: fromAsset,
     quoteTimer: null,
+  });
+}
+
+/* istanbul ignore next -- delegated DOM glue; opens the modal for the clicked row */
+function handleSwapModalClick(ev) {
+  var btn = ev.target.closest && ev.target.closest(".id-folks-swap-toggle");
+  if (!btn) return;
+  ev.preventDefault(); // the href is a no-JS fallback only
+  openSwapModal(btn.dataset.from || "");
+}
+
+/* istanbul ignore next -- tab glue; the layout flip itself is unit-tested via applySwapMode */
+function wireSwapTabs() {
+  var modal = document.getElementById("folks-swap-modal");
+  if (!modal) return;
+  modal.addEventListener("click", function (ev) {
+    var tab = ev.target.closest && ev.target.closest("[data-folks-mode]");
+    if (!tab) return;
+    applySwapMode(modal.querySelector(".id-folks-form"), tab.dataset.folksMode);
   });
 }
 
@@ -432,10 +509,17 @@ function mainFolks() {
 
 /* istanbul ignore next -- bridge-readiness gate */
 function startFolks() {
-  // Inline reveal: one delegated listener, attached as soon as this script runs.
-  // It does not depend on the bridge being ready or on htmx swap timing -- the
-  // marker and the connected address are read at click time.
-  document.addEventListener("click", handleInlineSwapClick);
+  // Swap buttons open a modal. One delegated listener, attached as soon as this
+  // script runs; the marker (router + cfg + linked address) is read at click
+  // time, so this needs neither the bridge nor htmx swap timing to be ready.
+  document.addEventListener("click", handleSwapModalClick);
+  var modal = document.getElementById("folks-swap-modal");
+  if (modal && window.M) {
+    if (window.M.Modal) window.M.Modal.init(modal);
+    var tabs = modal.querySelector(".tabs");
+    if (tabs && window.M.Tabs) window.M.Tabs.init(tabs);
+  }
+  wireSwapTabs();
   // Shell page (accordion of addresses) still binds per-section after bridge.
   if (window.asastatsSwap) {
     mainFolks();
@@ -466,11 +550,17 @@ if (typeof module !== "undefined" && module.exports) {
     baseUnitsToDecimal: baseUnitsToDecimal,
     b64ToBytes: b64ToBytes,
     readPanelCfg: readPanelCfg,
+    markerCfg: markerCfg,
+    applyPercent: applyPercent,
+    sourceHoldingsBaseUnits: sourceHoldingsBaseUnits,
+    setAmountFromPercent: setAmountFromPercent,
+    applySwapMode: applySwapMode,
     inlineHoldingsUrl: inlineHoldingsUrl,
-    toggleInlineSwap: toggleInlineSwap,
     bindPanel: bindPanel,
     loadPanel: loadPanel,
-    handleInlineSwapClick: handleInlineSwapClick,
+    openSwapModal: openSwapModal,
+    handleSwapModalClick: handleSwapModalClick,
+    wireSwapTabs: wireSwapTabs,
     wireSection: wireSection,
     mainFolks: mainFolks,
     startFolks: startFolks,

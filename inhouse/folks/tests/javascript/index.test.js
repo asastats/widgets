@@ -480,23 +480,129 @@ describe("inline reveal helpers", () => {
     expect(F.inlineHoldingsUrl("", "AAAA", "1")).toBe("");
     expect(F.inlineHoldingsUrl("/x/ADDRESS", "", "1")).toBe("");
   });
+});
 
-  test("toggleInlineSwap: reveals then hides, swapping the label", () => {
-    document.body.innerHTML = '<div id="w" class="hidden"></div><a><span class="swap-label">Swap</span></a>';
-    const wrap = document.getElementById("w");
-    const label = document.querySelector(".swap-label");
-    const labels = { show: "Swap", hide: "Hide" };
-    const shown = F.toggleInlineSwap(wrap, label, labels);
-    expect(shown).toBe(true);
-    expect(wrap.classList.contains("hidden")).toBe(false);
-    expect(label.textContent).toBe("Hide");
-    const shownAgain = F.toggleInlineSwap(wrap, label, labels);
-    expect(shownAgain).toBe(false);
-    expect(wrap.classList.contains("hidden")).toBe(true);
-    expect(label.textContent).toBe("Swap");
+// ---- modal swap helpers (markerCfg / applyPercent / percentage row / mode) ----
+describe("modal swap helpers", () => {
+  function makePanel(opts) {
+    opts = opts || {};
+    const wrap = document.createElement("div");
+    wrap.className = "id-folks-form";
+    const sel = document.createElement("select");
+    sel.className = "id-folks-from";
+    if (opts.withOption !== false) {
+      const o = document.createElement("option");
+      o.value = "31566704";
+      o.dataset.decimals = String(opts.decimals != null ? opts.decimals : 6);
+      if (opts.amount !== null) o.dataset.amount = opts.amount || "1000000000";
+      o.textContent = "USDC";
+      sel.appendChild(o);
+    }
+    wrap.appendChild(sel);
+    const amount = document.createElement("input");
+    amount.className = "id-folks-amount";
+    wrap.appendChild(amount);
+    return wrap;
+  }
+
+  test("markerCfg: null -> null", () => {
+    expect(F.markerCfg(null)).toBeNull();
   });
-  test("toggleInlineSwap: tolerates a missing label element", () => {
-    document.body.innerHTML = '<div id="w" class="hidden"></div>';
-    expect(F.toggleInlineSwap(document.getElementById("w"), null, { show: "Swap", hide: "Hide" })).toBe(true);
+  test("markerCfg: defaults when only router set", () => {
+    const m = document.createElement("span");
+    m.dataset.router = "folks";
+    expect(F.markerCfg(m)).toEqual({ router: "folks", network: "mainnet", referrer: "", feeBps: 0 });
+  });
+  test("markerCfg: explicit network/referrer/feeBps", () => {
+    const m = document.createElement("span");
+    m.dataset.router = "folks";
+    m.dataset.network = "testnet";
+    m.dataset.referrer = "ADDR";
+    m.dataset.feeBps = "30";
+    expect(F.markerCfg(m)).toEqual({ router: "folks", network: "testnet", referrer: "ADDR", feeBps: 30 });
+  });
+
+  test("applyPercent: 50/25/100 of 1000.0 @ 6dp", () => {
+    expect(F.applyPercent("1000000000", 6, 50)).toBe("500");
+    expect(F.applyPercent("1000000000", 6, 25)).toBe("250");
+    expect(F.applyPercent("1000000000", 6, 100)).toBe("1000");
+  });
+  test("applyPercent: fractional percent keeps precision", () => {
+    expect(F.applyPercent("1000000000", 6, 33.33)).toBe("333.3");
+  });
+  test("applyPercent: clamps range and NaN", () => {
+    expect(F.applyPercent("1000000000", 6, 150)).toBe("1000");
+    expect(F.applyPercent("1000000000", 6, -5)).toBe("0");
+    expect(F.applyPercent("1000000000", 6, "abc")).toBe("0");
+  });
+
+  test("sourceHoldingsBaseUnits: selected amount as bigint", () => {
+    expect(F.sourceHoldingsBaseUnits(makePanel())).toBe(BigInt("1000000000"));
+  });
+  test("sourceHoldingsBaseUnits: null without select", () => {
+    expect(F.sourceHoldingsBaseUnits(document.createElement("div"))).toBeNull();
+  });
+  test("sourceHoldingsBaseUnits: null with no value", () => {
+    expect(F.sourceHoldingsBaseUnits(makePanel({ withOption: false }))).toBeNull();
+  });
+  test("sourceHoldingsBaseUnits: null when option lacks data-amount", () => {
+    expect(F.sourceHoldingsBaseUnits(makePanel({ amount: null }))).toBeNull();
+  });
+
+  test("setAmountFromPercent: writes field, returns value", () => {
+    const p = makePanel();
+    expect(F.setAmountFromPercent(p, 75)).toBe("750");
+    expect(p.querySelector(".id-folks-amount").value).toBe("750");
+  });
+  test("setAmountFromPercent: '' when holdings unresolved", () => {
+    expect(F.setAmountFromPercent(makePanel({ amount: null }), 50)).toBe("");
+  });
+  test("setAmountFromPercent: '' when amount field missing", () => {
+    const p = makePanel();
+    p.querySelector(".id-folks-amount").remove();
+    expect(F.setAmountFromPercent(p, 50)).toBe("");
+  });
+
+  test("applySwapMode: null form -> 'sell'", () => {
+    expect(F.applySwapMode(null, "buy")).toBe("sell");
+  });
+  test("applySwapMode: buy adds class, sell removes it", () => {
+    const f = document.createElement("div");
+    expect(F.applySwapMode(f, "buy")).toBe("buy");
+    expect(f.classList.contains("folks-mode-buy")).toBe(true);
+    expect(F.applySwapMode(f, "sell")).toBe("sell");
+    expect(f.classList.contains("folks-mode-buy")).toBe(false);
+  });
+});
+
+describe("modal swap helpers — defensive branches", () => {
+  test("markerCfg: router defaults to '' when absent", () => {
+    const m = document.createElement("span"); // no data-router
+    expect(F.markerCfg(m).router).toBe("");
+  });
+  test("sourceHoldingsBaseUnits: empty data-amount -> 0n", () => {
+    const wrap = document.createElement("div");
+    const sel = document.createElement("select");
+    sel.className = "id-folks-from";
+    const o = document.createElement("option");
+    o.value = "1";
+    o.dataset.amount = ""; // defined but empty -> hits `|| "0"`
+    sel.appendChild(o);
+    wrap.appendChild(sel);
+    expect(F.sourceHoldingsBaseUnits(wrap)).toBe(BigInt(0));
+  });
+  test("setAmountFromPercent: missing decimals -> treated as 0dp", () => {
+    const wrap = document.createElement("div");
+    const sel = document.createElement("select");
+    sel.className = "id-folks-from";
+    const o = document.createElement("option");
+    o.value = "1";
+    o.dataset.amount = "250"; // no data-decimals -> `|| "0"`
+    sel.appendChild(o);
+    wrap.appendChild(sel);
+    const amount = document.createElement("input");
+    amount.className = "id-folks-amount";
+    wrap.appendChild(amount);
+    expect(F.setAmountFromPercent(wrap, 50)).toBe("125"); // 0dp
   });
 });

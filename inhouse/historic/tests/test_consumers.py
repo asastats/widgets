@@ -3,7 +3,6 @@
 import json
 
 from asgiref.sync import async_to_sync
-
 from widgets.inhouse.historic.consumers import (
     HistoricConsumer,
     _restore_event_phase_keys,
