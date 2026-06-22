@@ -213,7 +213,7 @@ describe("executeSwap", () => {
 
 describe("FolksAdapter", () => {
   beforeEach(() => {
-    F.FolksAdapter._client = null;
+    F.FolksAdapter._clients = {};
     window.FolksRouter = {
       Network: { MAINNET: "MAIN", TESTNET: "TEST" },
       SwapMode: { FIXED_INPUT: "FI" },
@@ -226,7 +226,7 @@ describe("FolksAdapter", () => {
       }),
     };
   });
-  afterEach(() => { delete window.FolksRouter; F.FolksAdapter._client = null; });
+  afterEach(() => { delete window.FolksRouter; F.FolksAdapter._clients = {}; });
 
   test("getQuote passes fee+referrer and computes minimumReceived", async () => {
     const q = await F.FolksAdapter.getQuote(
@@ -236,7 +236,7 @@ describe("FolksAdapter", () => {
     expect(q.amountOut).toBe(BigInt(2000000));
     expect(q.minimumReceived).toBe(BigInt(1990000)); // 0.5% slippage = 50 bps
     expect(q.routeLabel).toBe("Folks Router");
-    const client = F.FolksAdapter._client;
+    const client = F.FolksAdapter._clients.mainnet;
     expect(client.fetchSwapQuote).toHaveBeenCalledWith(
       expect.objectContaining({ fromAssetId: 0, toAssetId: 5, swapMode: "FI" }),
       undefined, 25, undefined, "REF"
@@ -370,10 +370,10 @@ describe("branch coverage", () => {
     document.body.innerHTML = '<div class="id-folks-panel">' + html + "</div>";
     return document.querySelector(".id-folks-panel");
   }
-  afterEach(() => { F.FolksAdapter._client = null; });
+  afterEach(() => { F.FolksAdapter._clients = {}; });
 
   test("_clientFor: testnet network + client caching", () => {
-    F.FolksAdapter._client = null;
+    delete F.FolksAdapter._clients;
     const ClientCtor = jest.fn(function (net) { this.net = net; });
     window.FolksRouter = {
       FolksRouterClient: ClientCtor,
@@ -604,5 +604,48 @@ describe("modal swap helpers — defensive branches", () => {
     amount.className = "id-folks-amount";
     wrap.appendChild(amount);
     expect(F.setAmountFromPercent(wrap, 50)).toBe("125"); // 0dp
+  });
+});
+
+describe("toggleInlineSwap — additional cases", () => {
+  const labels = { show: "Swap", hide: "Hide" };
+
+  test("round-trips both label directions with a label present", () => {
+    document.body.innerHTML =
+      '<div id="w"></div><a><span class="swap-label">Hide</span></a>';
+    const wrap = document.getElementById("w");
+    const label = document.querySelector(".swap-label");
+
+    // visible -> hidden: nowHidden === true -> labels.show
+    expect(F.toggleInlineSwap(wrap, label, labels)).toBe(false);
+    expect(wrap.classList.contains("hidden")).toBe(true);
+    expect(label.textContent).toBe("Swap");
+
+    // hidden -> visible: nowHidden === false -> labels.hide
+    expect(F.toggleInlineSwap(wrap, label, labels)).toBe(true);
+    expect(wrap.classList.contains("hidden")).toBe(false);
+    expect(label.textContent).toBe("Hide");
+  });
+
+  test("tolerates a missing label element on the hide direction", () => {
+    document.body.innerHTML = '<div id="w"></div>'; // starts visible
+    const wrap = document.getElementById("w");
+    expect(F.toggleInlineSwap(wrap, null, labels)).toBe(false);
+    expect(wrap.classList.contains("hidden")).toBe(true);
+  });
+
+  test("round-trips deterministically across repeated toggles", () => {
+    document.body.innerHTML = '<div id="w" class="hidden"></div>';
+    const wrap = document.getElementById("w");
+    expect(F.toggleInlineSwap(wrap, null, labels)).toBe(true);  // reveal
+    expect(F.toggleInlineSwap(wrap, null, labels)).toBe(false); // hide
+    expect(F.toggleInlineSwap(wrap, null, labels)).toBe(true);  // reveal
+    expect(wrap.classList.contains("hidden")).toBe(false);
+  });
+
+  test("returns a strict boolean", () => {
+    document.body.innerHTML = '<div id="w" class="hidden"></div>';
+    expect(typeof F.toggleInlineSwap(document.getElementById("w"), null, labels))
+      .toBe("boolean");
   });
 });

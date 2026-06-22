@@ -27,12 +27,14 @@ var FolksAdapter = {
   _client: null,
 
   _clientFor: function (cfg) {
-    if (!FolksAdapter._client) {
-      var Network = window.FolksRouter.Network;
-      var network = cfg.network === "testnet" ? Network.TESTNET : Network.MAINNET;
-      FolksAdapter._client = new window.FolksRouter.FolksRouterClient(network);
+    var Network = window.FolksRouter.Network;
+    var key = cfg.network === "testnet" ? "testnet" : "mainnet";
+    FolksAdapter._clients = FolksAdapter._clients || {};
+    if (!FolksAdapter._clients[key]) {
+      var network = key === "testnet" ? Network.TESTNET : Network.MAINNET;
+      FolksAdapter._clients[key] = new window.FolksRouter.FolksRouterClient(network);
     }
-    return FolksAdapter._client;
+    return FolksAdapter._clients[key];
   },
 
   getQuote: async function (p, cfg) {
@@ -308,6 +310,13 @@ function inlineHoldingsUrl(tmpl, address, fromAsset) {
   return fromAsset ? url + "?from=" + fromAsset : url;
 }
 
+/** Toggle an inline swap panel + its button label; returns true when now shown. */
+function toggleInlineSwap(wrap, labelEl, labels) {
+  var nowHidden = wrap.classList.toggle("hidden");
+  if (labelEl) labelEl.textContent = nowHidden ? labels.show : labels.hide;
+  return !nowHidden;
+}
+
 /**
  * Read the per-user marker's router config. The marker is non-cached, so it can
  * safely carry the viewer's chosen router + that router's public client config
@@ -436,6 +445,44 @@ function wireSection(li, adapter, cfg, active) {
   });
 }
 
+/* istanbul ignore next -- delegated DOM glue; toggle/url logic is unit-tested */
+function handleInlineSwapClick(ev) {
+  var btn =
+    ev.target.closest && ev.target.closest(".id-folks-swap-toggle");
+  if (!btn) return;
+  // Inline reveal owns the click; never navigate to the fallback href.
+  ev.preventDefault();
+  var wrap = document.getElementById(btn.dataset.folksTarget);
+  if (!wrap) return;
+  var panelEl = wrap.querySelector(".id-folks-panel");
+  var labelEl = btn.querySelector(".swap-label");
+  var shown = toggleInlineSwap(wrap, labelEl, {
+    show: btn.dataset.labelShow || "Swap",
+    hide: btn.dataset.labelHide || "Hide",
+  });
+  if (!shown || !panelEl || btn.dataset.folksLoaded) return;
+
+  var marker = document.getElementById("id-swap-enabled");
+  // Swap from the LINKED address the marker carries (the wallet-authenticated
+  // account). Holdings + quote need no live wallet connection -- only the final
+  // signature does -- so we never ask the user to reconnect just to look.
+  var address = marker ? marker.dataset.address : "";
+  if (!marker || !address) {
+    panelEl.innerHTML =
+      '<div class="id-folks-status">Swap is not available for this address.</div>';
+    return;
+  }
+  btn.dataset.folksLoaded = "1";
+  var from = btn.dataset.from || panelEl.dataset.from;
+  loadPanel(panelEl, {
+    fromAddress: address,
+    owns: true,
+    holdingsUrl: inlineHoldingsUrl(marker.dataset.holdingsTmpl, address, from),
+    from: from,
+    quoteTimer: null,
+  });
+}
+
 /* istanbul ignore next -- DOM/modal glue; the quote + percent + mode logic is unit-tested */
 function openSwapModal(fromAsset) {
   var modal = document.getElementById("folks-swap-modal");
@@ -515,9 +562,18 @@ function startFolks() {
   document.addEventListener("click", handleSwapModalClick);
   var modal = document.getElementById("folks-swap-modal");
   if (modal && window.M) {
-    if (window.M.Modal) window.M.Modal.init(modal);
-    var tabs = modal.querySelector(".tabs");
-    if (tabs && window.M.Tabs) window.M.Tabs.init(tabs);
+    var modalInst = window.M.Modal ? window.M.Modal.init(modal) : null;
+    var tabsEl = modal.querySelector(".tabs");
+    if (tabsEl && window.M.Tabs) {
+      var tabs = window.M.Tabs.getInstance(tabsEl) || window.M.Tabs.init(tabsEl);
+      // Tabs initialised while the modal is display:none compute a zero-width
+      // indicator and don't mark the active tab. Recompute once it's visible.
+      if (modalInst) {
+        modalInst.options.onOpenEnd = function () {
+          tabs.updateTabIndicator();
+        };
+      }
+    }
   }
   wireSwapTabs();
   // Shell page (accordion of addresses) still binds per-section after bridge.
@@ -556,8 +612,10 @@ if (typeof module !== "undefined" && module.exports) {
     setAmountFromPercent: setAmountFromPercent,
     applySwapMode: applySwapMode,
     inlineHoldingsUrl: inlineHoldingsUrl,
+    toggleInlineSwap: toggleInlineSwap,
     bindPanel: bindPanel,
     loadPanel: loadPanel,
+    handleInlineSwapClick: handleInlineSwapClick,
     openSwapModal: openSwapModal,
     handleSwapModalClick: handleSwapModalClick,
     wireSwapTabs: wireSwapTabs,
