@@ -137,10 +137,14 @@ describe("refreshQuote", () => {
     panel.querySelector(".id-folks-to").value = "31566704";
     panel.querySelector(".id-folks-to").dataset.decimals = "6";
     panel.querySelector(".id-folks-amount").value = "1";
-    const quote = { amountOut: BigInt(2000000), minimumReceived: BigInt(1990000),
-      priceImpactPct: 0.1, routeLabel: "Folks Router", feesTotal: 2000 };
-    const ctx = { fromAddress: "ADDR", owns: true, cfg: {},
-      adapter: { getQuote: jest.fn(async () => quote) }, quoteTimer: null };
+    const quote = {
+      amountOut: BigInt(2000000), minimumReceived: BigInt(1990000),
+      priceImpactPct: 0.1, routeLabel: "Folks Router", feesTotal: 2000
+    };
+    const ctx = {
+      fromAddress: "ADDR", owns: true, cfg: {},
+      adapter: { getQuote: jest.fn(async () => quote) }, quoteTimer: null
+    };
     await F.refreshQuote(panel, ctx);
     expect(ctx.adapter.getQuote).toHaveBeenCalled();
     expect(ctx.lastQuote).toBe(quote);
@@ -149,8 +153,10 @@ describe("refreshQuote", () => {
   });
   test("disables the button and does not quote when params incomplete", async () => {
     const panel = mountPanel([]);
-    const ctx = { fromAddress: "ADDR", owns: true, cfg: {},
-      adapter: { getQuote: jest.fn() }, quoteTimer: null };
+    const ctx = {
+      fromAddress: "ADDR", owns: true, cfg: {},
+      adapter: { getQuote: jest.fn() }, quoteTimer: null
+    };
     await F.refreshQuote(panel, ctx);
     expect(ctx.adapter.getQuote).not.toHaveBeenCalled();
     expect(panel.querySelector(".id-folks-swap-btn").disabled).toBe(true);
@@ -167,31 +173,44 @@ describe("executeSwap", () => {
   test("opted-in target: no opt-in, builds and signs", async () => {
     const panel = mountPanel([]);
     ready(panel);
-    global.fetch = jest.fn(async () => ({ text: async () =>
-      panelHTML([{ id: 0, amount: 5000000 }, { id: 31566704, amount: 0 }]) }));
+    global.fetch = jest.fn(async () => ({
+      text: async () =>
+        panelHTML([{ id: 0, amount: 5000000 }, { id: 31566704, amount: 0 }])
+    }));
     window.asastatsSwap = { optIn: jest.fn(), signAndSend: jest.fn(async () => "TXID") };
-    const ctx = { fromAddress: "ADDR", owns: true, cfg: {}, holdingsUrl: "/u",
+    const ctx = {
+      fromAddress: "ADDR", owns: true, cfg: {}, holdingsUrl: "/u",
       lastQuote: { raw: {} },
-      adapter: { buildSwapGroup: jest.fn(async () => [new Uint8Array([1])]) } };
+      adapter: { buildSwapGroup: jest.fn(async () => [new Uint8Array([1])]) }
+    };
     await F.executeSwap(panel, ctx);
     expect(window.asastatsSwap.optIn).not.toHaveBeenCalled();
     expect(ctx.adapter.buildSwapGroup).toHaveBeenCalled();
     expect(window.asastatsSwap.signAndSend).toHaveBeenCalled();
     expect(panel.querySelector(".id-folks-status").textContent).toContain("TXID");
+    const link = panel.querySelector(".id-folks-tx-link");
+    expect(link).not.toBeNull();
+    expect(link.getAttribute("href")).toBe("https://allo.info/tx/TXID");
+    expect(panel.querySelector(".id-folks-amount").value).toBe("");
+    expect(panel.querySelector(".id-folks-swap-btn").disabled).toBe(true);
   });
   test("non-opted-in target: pre-flight opt-in before signing", async () => {
     const panel = mountPanel([]);
     ready(panel);
-    global.fetch = jest.fn(async () => ({ text: async () =>
-      panelHTML([{ id: 0, amount: 5000000 }]) }));  // target 31566704 absent => not opted in
+    global.fetch = jest.fn(async () => ({
+      text: async () =>
+        panelHTML([{ id: 0, amount: 5000000 }])
+    }));  // target 31566704 absent => not opted in
     const order = [];
     window.asastatsSwap = {
       optIn: jest.fn(async () => { order.push("optIn"); return "OPTTX"; }),
       signAndSend: jest.fn(async () => { order.push("sign"); return "TXID"; }),
     };
-    const ctx = { fromAddress: "ADDR", owns: true, cfg: {}, holdingsUrl: "/u",
+    const ctx = {
+      fromAddress: "ADDR", owns: true, cfg: {}, holdingsUrl: "/u",
       lastQuote: { raw: {} },
-      adapter: { buildSwapGroup: jest.fn(async () => { order.push("build"); return []; }) } };
+      adapter: { buildSwapGroup: jest.fn(async () => { order.push("build"); return []; }) }
+    };
     await F.executeSwap(panel, ctx);
     expect(window.asastatsSwap.optIn).toHaveBeenCalledWith(31566704);
     expect(order).toEqual(["optIn", "build", "sign"]);
@@ -199,11 +218,15 @@ describe("executeSwap", () => {
   test("insufficient balance aborts before building", async () => {
     const panel = mountPanel([]);
     ready(panel);
-    global.fetch = jest.fn(async () => ({ text: async () =>
-      panelHTML([{ id: 0, amount: 100 }]) }));  // less than 1 ALGO
+    global.fetch = jest.fn(async () => ({
+      text: async () =>
+        panelHTML([{ id: 0, amount: 100 }])
+    }));  // less than 1 ALGO
     window.asastatsSwap = { optIn: jest.fn(), signAndSend: jest.fn() };
-    const ctx = { fromAddress: "ADDR", owns: true, cfg: {}, holdingsUrl: "/u",
-      lastQuote: { raw: {} }, adapter: { buildSwapGroup: jest.fn() } };
+    const ctx = {
+      fromAddress: "ADDR", owns: true, cfg: {}, holdingsUrl: "/u",
+      lastQuote: { raw: {} }, adapter: { buildSwapGroup: jest.fn() }
+    };
     await F.executeSwap(panel, ctx);
     expect(ctx.adapter.buildSwapGroup).not.toHaveBeenCalled();
     expect(window.asastatsSwap.signAndSend).not.toHaveBeenCalled();
@@ -270,9 +293,11 @@ describe("error branches", () => {
     panel.querySelector(".id-folks-from").value = "0";
     panel.querySelector(".id-folks-to").value = "5";
     panel.querySelector(".id-folks-amount").value = "1";
-    const ctx = { fromAddress: "ADDR", owns: true, cfg: {},
+    const ctx = {
+      fromAddress: "ADDR", owns: true, cfg: {},
       adapter: { getQuote: jest.fn(async () => { throw new Error("no route"); }) },
-      quoteTimer: null };
+      quoteTimer: null
+    };
     await F.refreshQuote(panel, ctx);
     expect(panel.querySelector(".id-folks-status").textContent).toContain("no route");
     expect(panel.querySelector(".id-folks-swap-btn").disabled).toBe(true);
@@ -282,12 +307,18 @@ describe("error branches", () => {
     panel.querySelector(".id-folks-from").value = "0";
     panel.querySelector(".id-folks-to").value = "31566704";
     panel.querySelector(".id-folks-amount").value = "1";
-    global.fetch = jest.fn(async () => ({ text: async () =>
-      panelHTML([{ id: 0, amount: 5000000 }, { id: 31566704, amount: 0 }]) }));
-    window.asastatsSwap = { optIn: jest.fn(),
-      signAndSend: jest.fn(async () => { throw new Error("user rejected"); }) };
-    const ctx = { fromAddress: "ADDR", owns: true, cfg: {}, holdingsUrl: "/u",
-      lastQuote: { raw: {} }, adapter: { buildSwapGroup: jest.fn(async () => []) } };
+    global.fetch = jest.fn(async () => ({
+      text: async () =>
+        panelHTML([{ id: 0, amount: 5000000 }, { id: 31566704, amount: 0 }])
+    }));
+    window.asastatsSwap = {
+      optIn: jest.fn(),
+      signAndSend: jest.fn(async () => { throw new Error("user rejected"); })
+    };
+    const ctx = {
+      fromAddress: "ADDR", owns: true, cfg: {}, holdingsUrl: "/u",
+      lastQuote: { raw: {} }, adapter: { buildSwapGroup: jest.fn(async () => []) }
+    };
     await F.executeSwap(panel, ctx);
     expect(panel.querySelector(".id-folks-status").textContent).toContain("user rejected");
   });
@@ -296,15 +327,19 @@ describe("error branches", () => {
     panel.querySelector(".id-folks-from").value = "0";
     panel.querySelector(".id-folks-to").value = "5";
     panel.querySelector(".id-folks-amount").value = "1";
-    const ctx = { fromAddress: "ADDR", owns: true, cfg: {}, holdingsUrl: "/u",
-      lastQuote: null, adapter: { buildSwapGroup: jest.fn() } };
+    const ctx = {
+      fromAddress: "ADDR", owns: true, cfg: {}, holdingsUrl: "/u",
+      lastQuote: null, adapter: { buildSwapGroup: jest.fn() }
+    };
     await F.executeSwap(panel, ctx);
     expect(ctx.adapter.buildSwapGroup).not.toHaveBeenCalled();
   });
   test("renderQuote no-ops without an output element; setPanelStatus tolerates missing el", () => {
     const bare = document.createElement("div");
-    expect(() => F.renderQuote(bare, { amountOut: BigInt(1), minimumReceived: BigInt(1),
-      priceImpactPct: 0, routeLabel: "x", feesTotal: 0 })).not.toThrow();
+    expect(() => F.renderQuote(bare, {
+      amountOut: BigInt(1), minimumReceived: BigInt(1),
+      priceImpactPct: 0, routeLabel: "x", feesTotal: 0
+    })).not.toThrow();
     expect(() => F.setPanelStatus(bare, "hi")).not.toThrow();
   });
 });
@@ -317,18 +352,26 @@ describe("debounce + fetch edge", () => {
     panel.querySelector(".id-folks-from").value = "0";
     panel.querySelector(".id-folks-to").value = "5";
     panel.querySelector(".id-folks-amount").value = "1";
-    const ctx = { fromAddress: "ADDR", owns: true, cfg: {},
-      adapter: { getQuote: jest.fn(async () => ({ amountOut: BigInt(1),
-        minimumReceived: BigInt(1), priceImpactPct: 0, routeLabel: "r", feesTotal: 0 })) },
-      quoteTimer: null };
+    const ctx = {
+      fromAddress: "ADDR", owns: true, cfg: {},
+      adapter: {
+        getQuote: jest.fn(async () => ({
+          amountOut: BigInt(1),
+          minimumReceived: BigInt(1), priceImpactPct: 0, routeLabel: "r", feesTotal: 0
+        }))
+      },
+      quoteTimer: null
+    };
     F.scheduleQuote(panel, ctx);
     expect(ctx.adapter.getQuote).not.toHaveBeenCalled();
     jest.advanceTimersByTime(400);
     expect(ctx.adapter.getQuote).toHaveBeenCalled();
   });
   test("fetchHoldings returns [] when the island holds bad JSON", async () => {
-    global.fetch = jest.fn(async () => ({ text: async () =>
-      '<script class="id-folks-holdings">{bad</script>' }));
+    global.fetch = jest.fn(async () => ({
+      text: async () =>
+        '<script class="id-folks-holdings">{bad</script>'
+    }));
     await expect(F.fetchHoldings("/u")).resolves.toEqual([]);
   });
 });
@@ -461,7 +504,8 @@ describe("inline reveal helpers", () => {
   test("readPanelCfg: defaults when attrs missing", () => {
     document.body.innerHTML = '<div class="id-folks-panel"><span class="id-folks-cfg"></span></div>';
     expect(F.readPanelCfg(document.querySelector(".id-folks-panel"))).toEqual({
-      router: "", network: "mainnet", referrer: "", feeBps: 0 });
+      router: "", network: "mainnet", referrer: "", feeBps: 0
+    });
   });
   test("readPanelCfg: null when no island", () => {
     document.body.innerHTML = '<div class="id-folks-panel"></div>';
@@ -647,5 +691,52 @@ describe("toggleInlineSwap — additional cases", () => {
     document.body.innerHTML = '<div id="w" class="hidden"></div>';
     expect(typeof F.toggleInlineSwap(document.getElementById("w"), null, labels))
       .toBe("boolean");
+  });
+});
+describe("swap success + dirty helpers", () => {
+  test("alloTxUrl builds the explorer URL (and encodes)", () => {
+    expect(F.alloTxUrl("ABC123")).toBe("https://allo.info/tx/ABC123");
+    expect(F.alloTxUrl("a/b c")).toBe("https://allo.info/tx/a%2Fb%20c");
+  });
+
+  function panelWith() {
+    const p = document.createElement("div");
+    p.innerHTML =
+      '<div class="id-folks-status"></div>' +
+      '<input class="id-folks-amount" value="1.5">' +
+      '<input class="id-folks-pct" value="50">' +
+      '<div class="id-folks-quote">≈ 100</div>';
+    return p;
+  }
+
+  test("renderSwapSuccess: builds link and resets amount/pct/quote", () => {
+    const p = panelWith();
+    F.renderSwapSuccess(p, "TXID");
+    const link = p.querySelector(".id-folks-tx-link");
+    expect(link.getAttribute("href")).toBe("https://allo.info/tx/TXID");
+    expect(link.textContent).toBe("TXID");
+    expect(link.target).toBe("_blank");
+    expect(p.querySelector(".id-folks-status").textContent).toBe("Swap submitted: TXID");
+    expect(p.querySelector(".id-folks-amount").value).toBe("");
+    expect(p.querySelector(".id-folks-pct").value).toBe("");
+    expect(p.querySelector(".id-folks-quote").textContent).toBe("");
+  });
+
+  test("renderSwapSuccess: tolerates missing optional elements", () => {
+    const bare = document.createElement("div"); // no status/amount/pct/quote
+    expect(() => F.renderSwapSuccess(bare, "TXID")).not.toThrow();
+  });
+
+  test("markSwapDirty: sets folksDirty on the enclosing modal", () => {
+    const modal = document.createElement("div");
+    modal.className = "modal";
+    const panel = document.createElement("div");
+    modal.appendChild(panel);
+    expect(F.markSwapDirty(panel)).toBe(true);
+    expect(modal.dataset.folksDirty).toBe("1");
+  });
+
+  test("markSwapDirty: no-op when not inside a modal", () => {
+    expect(F.markSwapDirty(document.createElement("div"))).toBe(false);
   });
 });

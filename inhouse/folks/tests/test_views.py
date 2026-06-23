@@ -1,10 +1,33 @@
 """Testing module for :py:mod:`widgets.inhouse.folks.views` module."""
 
+import json
+
 from widgets.inhouse.folks.views import (
     FolksAssetsView,
     FolksHoldingsView,
     FolksSwapView,
+    _safe_json_for_script,
 )
+
+
+class TestInhouseFolksViewsJsonEscaping:
+    # # get_context_data
+    def test_inhouse_folks_views_safe_json_for_script_escapes_script_breakout(self):
+        # An ASA whose unit tries to break out of the <script> island.
+        evil = [
+            {
+                "id": 1,
+                "unit": "</script><img src=x onerror=alert(1)>",
+                "name": "x",
+                "decimals": 0,
+                "amount": "1",
+            }
+        ]
+        out = _safe_json_for_script(evil)
+        assert "</script>" not in out
+        assert "\\u003c/script\\u003e" in out
+        # Round-trips back to the original value (no semantic change).
+        assert json.loads(out) == evil
 
 
 class TestInhouseFolksViewsFolksSwapView:

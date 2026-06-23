@@ -196,6 +196,7 @@ async function executeSwap(panel, ctx) {
   if (!params || !ctx.lastQuote) return;
   var btn = panel.querySelector(".id-folks-swap-btn");
   if (btn) btn.disabled = true;
+  var submitted = false;
   setPanelStatus(panel, "Re-checking balance…");
   try {
     var fresh = await fetchHoldings(ctx.holdingsUrl);
@@ -218,11 +219,15 @@ async function executeSwap(panel, ctx) {
     );
     setPanelStatus(panel, "Awaiting signature…");
     var txid = await window.asastatsSwap.signAndSend(group);
-    setPanelStatus(panel, "Swap submitted: " + txid);
+    renderSwapSuccess(panel, txid);
+    markSwapDirty(panel);
+    submitted = true;
   } catch (e) {
     setPanelStatus(panel, "Swap failed or cancelled: " + (e && e.message));
   } finally {
-    if (btn) btn.disabled = !ctx.owns;
+    // Keep the button disabled after a successful submit (the amount was
+    // cleared); on failure, restore it to the owner's normal state.
+    if (btn) btn.disabled = submitted || !ctx.owns;
   }
 }
 
@@ -371,6 +376,48 @@ function applySwapMode(formEl, mode) {
   var buy = mode === "buy";
   formEl.classList.toggle("folks-mode-buy", buy);
   return buy ? "buy" : "sell";
+}
+
+/** allo.info explorer URL for a transaction id. */
+function alloTxUrl(txid) {
+  return "https://allo.info/tx/" + encodeURIComponent(txid);
+}
+
+/**
+ * Render a successful submission: a tappable allo.info link for the txid, then
+ * reset the form to a clean state (clear amount + percentage + the now-stale
+ * quote). The Swap button is left for executeSwap to disable, since the cleared
+ * amount means there's nothing valid to re-submit.
+ */
+function renderSwapSuccess(panel, txid) {
+  var status = panel.querySelector(".id-folks-status");
+  if (status) {
+    status.textContent = "Swap submitted: ";
+    var a = document.createElement("a");
+    a.className = "id-folks-tx-link";
+    a.href = alloTxUrl(txid);
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = txid;
+    status.appendChild(a);
+  }
+  var amount = panel.querySelector(".id-folks-amount");
+  if (amount) amount.value = "";
+  var pct = panel.querySelector(".id-folks-pct");
+  if (pct) pct.value = "";
+  var quote = panel.querySelector(".id-folks-quote");
+  if (quote) quote.textContent = "";
+}
+
+/**
+ * Flag the enclosing modal "dirty" after a successful swap so closing it can
+ * refresh now-stale holdings on the parent page. Returns whether a modal was
+ * found (no-op on the shell accordion, which has no modal).
+ */
+function markSwapDirty(panel) {
+  var modal = panel.closest && panel.closest(".modal");
+  if (modal) modal.dataset.folksDirty = "1";
+  return !!modal;
 }
 
 /* istanbul ignore next -- DOM event wiring; logic is covered via applyImpliedSource, applyPercent/setAmountFromPercent, and the scheduleQuote/selectTarget/executeSwap tests */
@@ -563,6 +610,14 @@ function startFolks() {
   var modal = document.getElementById("folks-swap-modal");
   if (modal && window.M) {
     var modalInst = window.M.Modal ? window.M.Modal.init(modal) : null;
+    if (modalInst) {
+      // After a successful swap the viewed holdings are stale; refresh the
+      // parent page when the user closes the modal -- but only if a swap
+      // actually marked it dirty, so a look-and-cancel never reloads.
+      modalInst.options.onCloseEnd = function () {
+        if (modal.dataset.folksDirty === "1") window.location.reload();
+      };
+    }
     var tabsEl = modal.querySelector(".tabs");
     if (tabsEl && window.M.Tabs) {
       var tabs = window.M.Tabs.getInstance(tabsEl) || window.M.Tabs.init(tabsEl);
@@ -602,6 +657,9 @@ if (typeof module !== "undefined" && module.exports) {
     executeSwap: executeSwap,
     renderQuote: renderQuote,
     setPanelStatus: setPanelStatus,
+    alloTxUrl: alloTxUrl,
+    renderSwapSuccess: renderSwapSuccess,
+    markSwapDirty: markSwapDirty,
     decimalToBaseUnits: decimalToBaseUnits,
     baseUnitsToDecimal: baseUnitsToDecimal,
     b64ToBytes: b64ToBytes,

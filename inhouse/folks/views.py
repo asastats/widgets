@@ -12,6 +12,23 @@ from widgethost.enforcement import WidgetAccessMixin
 from .manifest import MANIFEST
 
 
+def _safe_json_for_script(value):
+    """json.dumps + escape chars that could break out of a <script> block.
+
+    :param value: any JSON-serialisable object
+    :return: a JSON string safe to embed in an HTML <script> element
+    :rtype: str
+    """
+    return (
+        json.dumps(value)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+
+
 class FolksSwapView(WidgetAccessMixin, TemplateView):
     """Render the Folks swap widget shell for an address or bundle page.
 
@@ -105,7 +122,7 @@ class FolksHoldingsView(WidgetAccessMixin, TemplateView):
         ]
         context["address"] = self.address
         context["holdings"] = holdings
-        context["holdings_json"] = json.dumps(holdings)
+        context["holdings_json"] = _safe_json_for_script(holdings)
         context["router_id"] = self.manifest.id
         context["folks_network"] = getattr(settings, "FOLKS_NETWORK", "mainnet")
         context["folks_referrer"] = getattr(settings, "FOLKS_REFERRER_ADDRESS", "")
