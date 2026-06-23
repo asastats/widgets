@@ -2,7 +2,7 @@
   "name": "asastats-widget-folks",
   "private": true,
   "scripts": {
-    "build:sdk": "esbuild folks-sdk-entry.js --bundle --format=iife --global-name=FolksRouter --minify --outfile=static/folks/folks-sdk.bundle.js",
+    "build:sdk": "esbuild folks-sdk-entry.js --bundle --format=iife --global-name=FolksRouter --inject:./buffer-shim.js --minify --outfile=static/folks/folks-sdk.bundle.js",
     "test": "jest"
   },
   "jest": {
@@ -20,7 +20,8 @@
     "testEnvironment": "jsdom"
   },
   "dependencies": {
-    "@folks-router/js-sdk": "^0.5.1"
+    "@folks-router/js-sdk": "^0.5.1",
+    "buffer": "^6.0.3"
   },
   "devDependencies": {
     "esbuild": "^0.28.1",
