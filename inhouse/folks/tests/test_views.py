@@ -66,7 +66,6 @@ class TestInhouseFolksViewsFolksSwapView:
         assert context["router_id"] == FolksSwapView.manifest.id
         assert context["folks_network"] == "mainnet"
         assert context["folks_referrer"] == ""
-        assert context["folks_fee_bps"] == 0
         assert "holdings_json" not in context
 
 

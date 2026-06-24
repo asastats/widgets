@@ -108,6 +108,11 @@ describe("selectTarget", () => {
     expect(panel.querySelector(".id-folks-optin-notice").style.display).toBe("none");
   });
   test("non-opted-in target shows the opt-in notice", () => {
+    window.asastatsSwap = {
+      activeAddress: () => "ADDR",
+      optIn: jest.fn(async () => { order.push("optIn"); return "OPTTX"; }),
+      signAndSend: jest.fn(async () => { order.push("sign"); return "TXID"; }),
+    };
     const panel = mountPanel([{ id: 0, unit: "ALGO", decimals: 6, amount: 5 }]);
     F.selectTarget(panel, optionEl(999, "NEW", 2), { quoteTimer: null });
     const to = panel.querySelector(".id-folks-to");
@@ -131,8 +136,11 @@ describe("fetchHoldings", () => {
 });
 
 describe("refreshQuote", () => {
+  afterEach(() => { delete window.asastatsSwap; });
   test("fetches a quote, renders it, enables the button when owned", async () => {
+
     const panel = mountPanel([]);
+    window.asastatsSwap = { activeAddress: () => "ADDR" };
     panel.querySelector(".id-folks-from").value = "0";
     panel.querySelector(".id-folks-to").value = "31566704";
     panel.querySelector(".id-folks-to").dataset.decimals = "6";
@@ -177,7 +185,7 @@ describe("executeSwap", () => {
       text: async () =>
         panelHTML([{ id: 0, amount: 5000000 }, { id: 31566704, amount: 0 }])
     }));
-    window.asastatsSwap = { optIn: jest.fn(), signAndSend: jest.fn(async () => "TXID") };
+    window.asastatsSwap = { activeAddress: () => "ADDR", optIn: jest.fn(), signAndSend: jest.fn(async () => "TXID") };
     const ctx = {
       fromAddress: "ADDR", owns: true, cfg: {}, holdingsUrl: "/u",
       lastQuote: { raw: {} },
@@ -203,6 +211,7 @@ describe("executeSwap", () => {
     }));  // target 31566704 absent => not opted in
     const order = [];
     window.asastatsSwap = {
+      activeAddress: () => "ADDR",
       optIn: jest.fn(async () => { order.push("optIn"); return "OPTTX"; }),
       signAndSend: jest.fn(async () => { order.push("sign"); return "TXID"; }),
     };
@@ -222,7 +231,7 @@ describe("executeSwap", () => {
       text: async () =>
         panelHTML([{ id: 0, amount: 100 }])
     }));  // less than 1 ALGO
-    window.asastatsSwap = { optIn: jest.fn(), signAndSend: jest.fn() };
+    window.asastatsSwap = { activeAddress: () => "ADDR", optIn: jest.fn(), signAndSend: jest.fn() };
     const ctx = {
       fromAddress: "ADDR", owns: true, cfg: {}, holdingsUrl: "/u",
       lastQuote: { raw: {} }, adapter: { buildSwapGroup: jest.fn() }
@@ -237,6 +246,7 @@ describe("executeSwap", () => {
 describe("FolksAdapter", () => {
   beforeEach(() => {
     F.FolksAdapter._clients = {};
+    F.FolksAdapter._discounts = {}
     window.FolksRouter = {
       Network: { MAINNET: "MAIN", TESTNET: "TEST" },
       SwapMode: { FIXED_INPUT: "FI" },
@@ -246,10 +256,11 @@ describe("FolksAdapter", () => {
           quoteAmount: BigInt(2000000), priceImpact: 0.1, microalgoTxnsFee: 2000,
         }));
         this.prepareSwapTransactions = jest.fn(async () => [btoa("AB"), btoa("CD")]);
+        this.fetchUserDiscount = jest.fn(async () => 10);
       }),
     };
   });
-  afterEach(() => { delete window.FolksRouter; F.FolksAdapter._clients = {}; });
+  afterEach(() => { delete window.FolksRouter; F.FolksAdapter._clients = {}; F.FolksAdapter._discounts = {}; });
 
   test("getQuote passes fee+referrer and computes minimumReceived", async () => {
     const q = await F.FolksAdapter.getQuote(
@@ -262,7 +273,7 @@ describe("FolksAdapter", () => {
     const client = F.FolksAdapter._clients.mainnet;
     expect(client.fetchSwapQuote).toHaveBeenCalledWith(
       expect.objectContaining({ fromAssetId: 0, toAssetId: 5, swapMode: "FI" }),
-      undefined, 25, undefined, "REF"
+      undefined, undefined, undefined, "REF"
     );
   });
   test("getQuote on testnet builds a testnet client", async () => {
@@ -311,10 +322,8 @@ describe("error branches", () => {
       text: async () =>
         panelHTML([{ id: 0, amount: 5000000 }, { id: 31566704, amount: 0 }])
     }));
-    window.asastatsSwap = {
-      optIn: jest.fn(),
-      signAndSend: jest.fn(async () => { throw new Error("user rejected"); })
-    };
+    window.asastatsSwap = { activeAddress: () => "ADDR", optIn: jest.fn(),
+      signAndSend: jest.fn(async () => { throw new Error("user rejected"); }) };    
     const ctx = {
       fromAddress: "ADDR", owns: true, cfg: {}, holdingsUrl: "/u",
       lastQuote: { raw: {} }, adapter: { buildSwapGroup: jest.fn(async () => []) }
@@ -483,8 +492,10 @@ describe("branch coverage", () => {
     const p = panel('<select class="id-folks-from"><option value="0" data-decimals="6">A</option></select>' +
       '<input class="id-folks-to" value="31566704"><input class="id-folks-amount" value="1">' +
       '<input class="id-folks-slippage" value="0.5"><div class="id-folks-status"></div>');
+    window.asastatsSwap = { activeAddress: () => "ADDR" };
     await F.executeSwap(p, { adapter: {}, cfg: {}, fromAddress: "ADDR", owns: true, lastQuote: {}, holdingsUrl: "/u" });
     expect(p.querySelector(".id-folks-status").textContent).toContain("Insufficient");
+    delete window.asastatsSwap;
   });
 
   test("decimalToBaseUnits: leading dot + zero decimals", () => {
@@ -738,5 +749,126 @@ describe("swap success + dirty helpers", () => {
 
   test("markSwapDirty: no-op when not inside a modal", () => {
     expect(F.markSwapDirty(document.createElement("div"))).toBe(false);
+  });
+});
+
+describe("getQuote discount handling", () => {
+  function clientMock(discountImpl) {
+    const client = {
+      fetchSwapQuote: jest.fn(async () => ({
+        quoteAmount: BigInt(2000000), priceImpact: 0.1, microalgoTxnsFee: 2000,
+      })),
+      fetchUserDiscount: discountImpl || jest.fn(async () => 10),
+      prepareSwapTransactions: jest.fn(),
+    };
+    window.FolksRouter = {
+      Network: { MAINNET: "MAIN", TESTNET: "TEST" },
+      SwapMode: { FIXED_INPUT: "FI" },
+      FolksRouterClient: jest.fn(() => client),
+    };
+    return client;
+  }
+  beforeEach(() => { F.FolksAdapter._clients = {}; F.FolksAdapter._discounts = {}; });
+  afterEach(() => { delete window.FolksRouter; F.FolksAdapter._clients = {}; F.FolksAdapter._discounts = {}; });
+
+  test("fetches the user discount and passes it (no feeBps)", async () => {
+    const client = clientMock();
+    await F.FolksAdapter.getQuote(
+      { fromAssetId: 0, toAssetId: 5, amount: BigInt(1), slippagePct: 0, fromAddress: "USER" },
+      { network: "mainnet", referrer: "REF" }
+    );
+    expect(client.fetchUserDiscount).toHaveBeenCalledWith("USER");
+    expect(client.fetchSwapQuote).toHaveBeenCalledWith(
+      expect.objectContaining({ fromAssetId: 0, toAssetId: 5 }),
+      undefined, undefined, 10, "REF"
+    );
+  });
+  test("caches the discount per address (one lookup across quotes)", async () => {
+    delete F.FolksAdapter._discounts; // exercise lazy-init
+    const client = clientMock();
+    const p = { fromAssetId: 0, toAssetId: 5, amount: BigInt(1), slippagePct: 0, fromAddress: "USER" };
+    await F.FolksAdapter.getQuote(p, { network: "mainnet" });
+    await F.FolksAdapter.getQuote(p, { network: "mainnet" });
+    expect(client.fetchUserDiscount).toHaveBeenCalledTimes(1);
+  });
+  test("a discount lookup failure does not block the quote", async () => {
+    const client = clientMock(jest.fn(async () => { throw new Error("down"); }));
+    const q = await F.FolksAdapter.getQuote(
+      { fromAssetId: 0, toAssetId: 5, amount: BigInt(1), slippagePct: 0, fromAddress: "USER" },
+      { network: "mainnet" }
+    );
+    expect(q.amountOut).toBe(BigInt(2000000));
+    expect(client.fetchSwapQuote).toHaveBeenCalledWith(
+      expect.anything(), undefined, undefined, undefined, undefined
+    );
+  });
+});
+
+describe("walletOwns + applyOwnership", () => {
+  afterEach(() => { delete window.asastatsSwap; });
+  test("walletOwns: false without a bridge", () => {
+    expect(F.walletOwns("ADDR")).toBe(false);
+  });
+  test("walletOwns: false for a falsy address", () => {
+    window.asastatsSwap = { activeAddress: () => "ADDR" };
+    expect(F.walletOwns("")).toBe(false);
+  });
+  test("walletOwns: false when the active account differs", () => {
+    window.asastatsSwap = { activeAddress: () => "OTHER" };
+    expect(F.walletOwns("ADDR")).toBe(false);
+  });
+  test("walletOwns: true when the active account matches", () => {
+    window.asastatsSwap = { activeAddress: () => "ADDR" };
+    expect(F.walletOwns("ADDR")).toBe(true);
+  });
+
+  function ownPanel() {
+    const p = document.createElement("div");
+    p.innerHTML =
+      '<button class="id-folks-swap-btn" disabled></button>' +
+      '<div class="id-folks-connect-notice" style="display:none;"></div>';
+    return p;
+  }
+  test("applyOwnership(true): enables button, hides notice", () => {
+    const p = ownPanel();
+    expect(F.applyOwnership(p, true)).toBe(true);
+    expect(p.querySelector(".id-folks-swap-btn").disabled).toBe(false);
+    expect(p.querySelector(".id-folks-connect-notice").style.display).toBe("none");
+  });
+  test("applyOwnership(false): disables button, shows notice", () => {
+    const p = ownPanel();
+    F.applyOwnership(p, false);
+    expect(p.querySelector(".id-folks-swap-btn").disabled).toBe(true);
+    expect(p.querySelector(".id-folks-connect-notice").style.display).toBe("block");
+  });
+  test("applyOwnership tolerates missing button/notice", () => {
+    expect(() => F.applyOwnership(document.createElement("div"), true)).not.toThrow();
+  });
+});
+
+describe("executeSwap ownership gate", () => {
+  afterEach(() => { delete global.fetch; delete window.asastatsSwap; });
+  test("does not build/sign when the wallet is not the from-address", async () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-folks-from").value = "0";
+    panel.querySelector(".id-folks-to").value = "31566704";
+    panel.querySelector(".id-folks-amount").value = "1";
+    window.asastatsSwap = { activeAddress: () => "OTHER", optIn: jest.fn(), signAndSend: jest.fn() };
+    global.fetch = jest.fn();
+    const ctx = { fromAddress: "ADDR", owns: false, cfg: {}, holdingsUrl: "/u",
+      lastQuote: { raw: {} }, adapter: { buildSwapGroup: jest.fn() } };
+    await F.executeSwap(panel, ctx);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(ctx.adapter.buildSwapGroup).not.toHaveBeenCalled();
+    expect(panel.querySelector(".id-folks-status").textContent).toContain("Connect the wallet");
+  });
+});
+
+describe("inlineHoldingsUrl encoding", () => {
+  test("encodes the from-asset query value", () => {
+    expect(F.inlineHoldingsUrl("/w/ADDRESS/h", "ADDR", "a b&c")).toBe("/w/ADDR/h?from=a%20b%26c");
+  });
+  test("numeric from-asset is unchanged", () => {
+    expect(F.inlineHoldingsUrl("/w/ADDRESS/h", "ADDR", "123")).toBe("/w/ADDR/h?from=123");
   });
 });

@@ -37,6 +37,27 @@ var FolksAdapter = {
     return FolksAdapter._clients[key];
   },
 
+  _discounts: null,
+
+  /**
+   * The user's on-chain FOLKS fee discount, cached per address. A lookup failure
+   * must never block quoting -- the discount is applied on-chain at swap time
+   * regardless of whether the quote reflected it -- so on error we proceed with
+   * no discount in the quote.
+   */
+  _discountFor: async function (client, address) {
+    if (!address) return undefined;
+    FolksAdapter._discounts = FolksAdapter._discounts || {};
+    if (!(address in FolksAdapter._discounts)) {
+      try {
+        FolksAdapter._discounts[address] = await client.fetchUserDiscount(address);
+      } catch (e) {
+        FolksAdapter._discounts[address] = undefined;
+      }
+    }
+    return FolksAdapter._discounts[address];
+  },
+
   getQuote: async function (p, cfg) {
     var SwapMode = window.FolksRouter.SwapMode;
     var client = FolksAdapter._clientFor(cfg);
@@ -46,11 +67,17 @@ var FolksAdapter = {
       amount: p.amount,
       swapMode: SwapMode.FIXED_INPUT,
     };
+    // Make the quote discount-aware. We deliberately pass NO feeBps: omitting it
+    // lets the router apply its protocol-minimum fee (0.1%) with the referral
+    // credited to our referrer, and means there is no client-supplied fee that a
+    // user could tamper to 0. The referrer is server-rendered (settings), not
+    // hardcoded here.
+    var discount = await FolksAdapter._discountFor(client, p.fromAddress);
     var sq = await client.fetchSwapQuote(
       params,
-      undefined,
-      cfg.feeBps || undefined,
-      undefined,
+      undefined, // maxGroupSize
+      undefined, // feeBps — never set; protocol minimum applies
+      discount, // userFeeDiscount
       cfg.referrer || undefined
     );
     var slippageBps = Math.round((p.slippagePct || 0) * 100);
@@ -184,7 +211,7 @@ async function refreshQuote(panel, ctx) {
     ctx.lastQuote = await ctx.adapter.getQuote(params, ctx.cfg);
     renderQuote(panel, ctx.lastQuote);
     setPanelStatus(panel, "");
-    if (btn) btn.disabled = !ctx.owns;
+    applyOwnership(panel, walletOwns(ctx.fromAddress));
   } catch (e) {
     setPanelStatus(panel, "Could not fetch a quote: " + (e && e.message));
     if (btn) btn.disabled = true;
@@ -194,6 +221,13 @@ async function refreshQuote(panel, ctx) {
 async function executeSwap(panel, ctx) {
   var params = readQuoteParams(panel, ctx.fromAddress);
   if (!params || !ctx.lastQuote) return;
+  // Authoritative gate: the connected wallet must control the from-address right
+  // now (it may have connected, disconnected, or switched since the quote). The
+  // on-chain sender check is the ultimate backstop; this is the clear message.
+  if (!walletOwns(ctx.fromAddress)) {
+    setPanelStatus(panel, "Connect the wallet for this address to swap.");
+    return;
+  }
   var btn = panel.querySelector(".id-folks-swap-btn");
   if (btn) btn.disabled = true;
   var submitted = false;
@@ -312,7 +346,7 @@ function readPanelCfg(panelEl) {
 function inlineHoldingsUrl(tmpl, address, fromAsset) {
   if (!tmpl || !address) return "";
   var url = tmpl.replace("ADDRESS", address);
-  return fromAsset ? url + "?from=" + fromAsset : url;
+  return fromAsset ? url + "?from=" + encodeURIComponent(fromAsset) : url;
 }
 
 /** Toggle an inline swap panel + its button label; returns true when now shown. */
@@ -420,6 +454,31 @@ function markSwapDirty(panel) {
   return !!modal;
 }
 
+/**
+ * Whether the live wallet bridge is connected to `address`. The bridge
+ * (`window.asastatsSwap`) is published asynchronously after the per-user marker
+ * loads and the wallet manager initialises, so this returns false until then and
+ * whenever no wallet (or a different account) is connected. Holdings + quotes
+ * need no connection; only signing does, so the swap UI stays gated on this.
+ */
+function walletOwns(address) {
+  return !!(
+    address &&
+    window.asastatsSwap &&
+    window.asastatsSwap.activeAddress &&
+    window.asastatsSwap.activeAddress() === address
+  );
+}
+
+/** Reflect ownership in the panel: enable/disable Swap + show the connect hint. */
+function applyOwnership(panel, owns) {
+  var btn = panel.querySelector(".id-folks-swap-btn");
+  if (btn) btn.disabled = !owns;
+  var notice = panel.querySelector(".id-folks-connect-notice");
+  if (notice) notice.style.display = owns ? "none" : "block";
+  return !!owns;
+}
+
 /* istanbul ignore next -- DOM event wiring; logic is covered via applyImpliedSource, applyPercent/setAmountFromPercent, and the scheduleQuote/selectTarget/executeSwap tests */
 function bindPanel(panelEl, ctx) {
   ["id-folks-from", "id-folks-amount", "id-folks-slippage"].forEach(function (cls) {
@@ -450,9 +509,9 @@ function bindPanel(panelEl, ctx) {
       scheduleQuote(panelEl, ctx);
     });
   }
+  applyOwnership(panelEl, ctx.owns);
   var btn = panelEl.querySelector(".id-folks-swap-btn");
   if (btn) {
-    btn.disabled = !ctx.owns;
     btn.addEventListener("click", function () { executeSwap(panelEl, ctx); });
   }
 }
@@ -558,7 +617,7 @@ function openSwapModal(fromAsset) {
     adapter: ROUTERS[cfg.router],
     cfg: cfg,
     fromAddress: address,
-    owns: true,
+    owns: walletOwns(address),
     holdingsUrl: inlineHoldingsUrl(marker.dataset.holdingsTmpl, address, fromAsset),
     from: fromAsset,
     quoteTimer: null,
@@ -657,6 +716,8 @@ if (typeof module !== "undefined" && module.exports) {
     executeSwap: executeSwap,
     renderQuote: renderQuote,
     setPanelStatus: setPanelStatus,
+    walletOwns: walletOwns,
+    applyOwnership: applyOwnership,
     alloTxUrl: alloTxUrl,
     renderSwapSuccess: renderSwapSuccess,
     markSwapDirty: markSwapDirty,

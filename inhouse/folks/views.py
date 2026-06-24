@@ -68,7 +68,6 @@ class FolksSwapView(WidgetAccessMixin, TemplateView):
         context["router_id"] = self.manifest.id
         context["folks_network"] = getattr(settings, "FOLKS_NETWORK", "mainnet")
         context["folks_referrer"] = getattr(settings, "FOLKS_REFERRER_ADDRESS", "")
-        context["folks_fee_bps"] = getattr(settings, "FOLKS_FEE_BPS", 0)
         return context
 
     def test_func(self):
@@ -126,7 +125,6 @@ class FolksHoldingsView(WidgetAccessMixin, TemplateView):
         context["router_id"] = self.manifest.id
         context["folks_network"] = getattr(settings, "FOLKS_NETWORK", "mainnet")
         context["folks_referrer"] = getattr(settings, "FOLKS_REFERRER_ADDRESS", "")
-        context["folks_fee_bps"] = getattr(settings, "FOLKS_FEE_BPS", 0)
         return context
 
     def test_func(self):
