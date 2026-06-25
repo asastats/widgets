@@ -347,20 +347,28 @@ async function executeSwap(panel, ctx) {
         window.asastatsSwap
       );
     } else {
-      // Legacy path: a separate opt-in, then sign + send an all-user-signed
-      // group built by the adapter (Folks).
-      if (!isOptedIn(fresh, params.toAssetId)) {
-        setPanelStatus(panel, "Opting into the target asset (one approval)…");
-        await window.asastatsSwap.optIn(params.toAssetId);
-      }
+      // Legacy path (Folks): build the all-user-signed swap group. The bridge
+      // prepends — into THIS atomic group (Folks' Option 2 / shape B) — the
+      // user's target-asset opt-in if needed, and the per-referrer escrow's
+      // logic-sig opt-in if a referrer is set and its escrow isn't opted in yet.
       setPanelStatus(panel, "Building transaction…");
       var group = await ctx.adapter.buildSwapGroup(
         ctx.lastQuote,
         ctx.fromAddress,
         ctx.cfg
       );
-      setPanelStatus(panel, "Awaiting signature…");
-      txid = await window.asastatsSwap.signAndSend(group);
+      var userNeedsOptIn = !isOptedIn(fresh, params.toAssetId);
+      setPanelStatus(
+        panel,
+        userNeedsOptIn || (ctx.cfg && ctx.cfg.referrer)
+          ? "Awaiting signature (may include opt-in)…"
+          : "Awaiting signature…"
+      );
+      txid = await window.asastatsSwap.signAndSend(group, {
+        outputAssetId: params.toAssetId,
+        userNeedsOptIn: userNeedsOptIn,
+        referrer: (ctx.cfg && ctx.cfg.referrer) || "",
+      });
     }
     renderSwapSuccess(panel, txid);
     markSwapDirty(panel);

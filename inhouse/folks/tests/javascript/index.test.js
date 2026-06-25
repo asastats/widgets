@@ -202,9 +202,9 @@ describe("executeSwap", () => {
     expect(panel.querySelector(".id-folks-amount").value).toBe("");
     expect(panel.querySelector(".id-folks-swap-btn").disabled).toBe(true);
   });
-  test("non-opted-in target: pre-flight opt-in before signing", async () => {
+  test("non-opted-in target: passes userNeedsOptIn to signAndSend", async () => {
     const panel = mountPanel([]);
-    ready(panel);
+    ready(panel); // Assuming 'ready' sets the hidden target id to 31566704 and amount
     global.fetch = jest.fn(async () => ({
       text: async () =>
         panelHTML([{ id: 0, amount: 5000000 }])
@@ -212,7 +212,7 @@ describe("executeSwap", () => {
     const order = [];
     window.asastatsSwap = {
       activeAddress: () => "ADDR",
-      optIn: jest.fn(async () => { order.push("optIn"); return "OPTTX"; }),
+      // Replaced optIn with just signAndSend since the bridge handles prepending
       signAndSend: jest.fn(async () => { order.push("sign"); return "TXID"; }),
     };
     const ctx = {
@@ -220,9 +220,20 @@ describe("executeSwap", () => {
       lastQuote: { raw: {} },
       adapter: { buildSwapGroup: jest.fn(async () => { order.push("build"); return []; }) }
     };
+
     await F.executeSwap(panel, ctx);
-    expect(window.asastatsSwap.optIn).toHaveBeenCalledWith(31566704);
-    expect(order).toEqual(["optIn", "build", "sign"]);
+
+    // Assert signAndSend is called with the userNeedsOptIn boolean set to true
+    expect(window.asastatsSwap.signAndSend).toHaveBeenCalledWith(
+      [], // the returned group array from buildSwapGroup mock
+      {
+        outputAssetId: 31566704,
+        userNeedsOptIn: true,
+        referrer: ""
+      }
+    );
+    // The separate optIn call is gone, order is just build -> sign
+    expect(order).toEqual(["build", "sign"]);
   });
   test("insufficient balance aborts before building", async () => {
     const panel = mountPanel([]);
@@ -322,8 +333,10 @@ describe("error branches", () => {
       text: async () =>
         panelHTML([{ id: 0, amount: 5000000 }, { id: 31566704, amount: 0 }])
     }));
-    window.asastatsSwap = { activeAddress: () => "ADDR", optIn: jest.fn(),
-      signAndSend: jest.fn(async () => { throw new Error("user rejected"); }) };    
+    window.asastatsSwap = {
+      activeAddress: () => "ADDR", optIn: jest.fn(),
+      signAndSend: jest.fn(async () => { throw new Error("user rejected"); })
+    };
     const ctx = {
       fromAddress: "ADDR", owns: true, cfg: {}, holdingsUrl: "/u",
       lastQuote: { raw: {} }, adapter: { buildSwapGroup: jest.fn(async () => []) }
@@ -566,7 +579,8 @@ describe("modal swap helpers", () => {
   test("markerCfg: defaults when only router set", () => {
     const m = document.createElement("span");
     m.dataset.router = "folks";
-    expect(F.markerCfg(m)).toEqual({ router: "folks", network: "mainnet", referrer: "", feeBps: 0 });
+    // ADDED apiKey: "" to match updated return object
+    expect(F.markerCfg(m)).toEqual({ router: "folks", network: "mainnet", referrer: "", feeBps: 0, apiKey: "" });
   });
   test("markerCfg: explicit network/referrer/feeBps", () => {
     const m = document.createElement("span");
@@ -574,9 +588,9 @@ describe("modal swap helpers", () => {
     m.dataset.network = "testnet";
     m.dataset.referrer = "ADDR";
     m.dataset.feeBps = "30";
-    expect(F.markerCfg(m)).toEqual({ router: "folks", network: "testnet", referrer: "ADDR", feeBps: 30 });
+    // ADDED apiKey: "" to match updated return object
+    expect(F.markerCfg(m)).toEqual({ router: "folks", network: "testnet", referrer: "ADDR", feeBps: 30, apiKey: "" });
   });
-
   test("applyPercent: 50/25/100 of 1000.0 @ 6dp", () => {
     expect(F.applyPercent("1000000000", 6, 50)).toBe("500");
     expect(F.applyPercent("1000000000", 6, 25)).toBe("250");
@@ -855,8 +869,10 @@ describe("executeSwap ownership gate", () => {
     panel.querySelector(".id-folks-amount").value = "1";
     window.asastatsSwap = { activeAddress: () => "OTHER", optIn: jest.fn(), signAndSend: jest.fn() };
     global.fetch = jest.fn();
-    const ctx = { fromAddress: "ADDR", owns: false, cfg: {}, holdingsUrl: "/u",
-      lastQuote: { raw: {} }, adapter: { buildSwapGroup: jest.fn() } };
+    const ctx = {
+      fromAddress: "ADDR", owns: false, cfg: {}, holdingsUrl: "/u",
+      lastQuote: { raw: {} }, adapter: { buildSwapGroup: jest.fn() }
+    };
     await F.executeSwap(panel, ctx);
     expect(global.fetch).not.toHaveBeenCalled();
     expect(ctx.adapter.buildSwapGroup).not.toHaveBeenCalled();
@@ -968,13 +984,17 @@ describe("controller executeSwap delegates to router-owned execution", () => {
     panel.querySelector(".id-folks-from").value = "0";
     panel.querySelector(".id-folks-to").value = "31566704";
     panel.querySelector(".id-folks-amount").value = "1";
-    global.fetch = jest.fn(async () => ({ text: async () =>
-      panelHTML([{ id: 0, amount: 5000000 }]) }));  // target absent => would opt-in on legacy path
+    global.fetch = jest.fn(async () => ({
+      text: async () =>
+        panelHTML([{ id: 0, amount: 5000000 }])
+    }));  // target absent => would opt-in on legacy path
     const optIn = jest.fn();
     window.asastatsSwap = { activeAddress: () => "ADDR", optIn: optIn, signer: jest.fn() };
     const adapter = { executeSwap: jest.fn(async () => "HSTX") };
-    const ctx = { fromAddress: "ADDR", owns: true, cfg: { apiKey: "K" },
-      holdingsUrl: "/u", lastQuote: { raw: {} }, adapter: adapter };
+    const ctx = {
+      fromAddress: "ADDR", owns: true, cfg: { apiKey: "K" },
+      holdingsUrl: "/u", lastQuote: { raw: {} }, adapter: adapter
+    };
     await F.executeSwap(panel, ctx);
     expect(adapter.executeSwap).toHaveBeenCalled();
     expect(optIn).not.toHaveBeenCalled(); // Haystack handles opt-in itself
