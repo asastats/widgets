@@ -872,3 +872,113 @@ describe("inlineHoldingsUrl encoding", () => {
     expect(F.inlineHoldingsUrl("/w/ADDRESS/h", "ADDR", "123")).toBe("/w/ADDR/h?from=123");
   });
 });
+
+describe("shared quote helpers", () => {
+  test("minReceived applies slippage bps (fixed-input)", () => {
+    expect(F.minReceived(BigInt(2000000), 0.5)).toBe(BigInt(1990000)); // 50 bps
+    expect(F.minReceived(BigInt(2000000), 0)).toBe(BigInt(2000000));
+  });
+  test("routeLabelFrom joins protocol keys, '' when empty/absent", () => {
+    expect(F.routeLabelFrom({ TinymanV2: 60, Pact: 40 })).toBe("TinymanV2, Pact");
+    expect(F.routeLabelFrom({})).toBe("");
+    expect(F.routeLabelFrom(null)).toBe("");
+  });
+  test("makeQuote fills defaults for optional fields", () => {
+    const q = F.makeQuote({ amountOut: BigInt(1), minimumReceived: BigInt(1), routeLabel: "X" });
+    expect(q.priceImpactPct).toBe(0);
+    expect(q.feesTotal).toBe(0);
+    expect(q.raw).toEqual({});
+  });
+});
+
+describe("HaystackAdapter", () => {
+  let client;
+  beforeEach(() => {
+    F.HaystackAdapter._clients = {};
+    client = {
+      newQuote: jest.fn(async () => ({
+        quote: "2000000", userPriceImpact: 0.2, flattenedRoute: { TinymanV2: 100 },
+      })),
+      newSwap: jest.fn(async () => ({ execute: jest.fn(async () => ({ confirmedRound: 9n, txIds: ["HSTX"] })) })),
+    };
+    window.HaystackRouter = { RouterClient: jest.fn(() => client) };
+  });
+  afterEach(() => { delete window.HaystackRouter; F.HaystackAdapter._clients = {}; });
+
+  test("_clientFor: constructs with apiKey+referrer+autoOptIn, no feeBps; caches per key", () => {
+    const c1 = F.HaystackAdapter._clientFor({ apiKey: "K", referrer: "REF" });
+    const c2 = F.HaystackAdapter._clientFor({ apiKey: "K", referrer: "REF" });
+    expect(c1).toBe(c2);
+    expect(window.HaystackRouter.RouterClient).toHaveBeenCalledTimes(1);
+    const arg = window.HaystackRouter.RouterClient.mock.calls[0][0];
+    expect(arg).toEqual({ apiKey: "K", referrerAddress: "REF", autoOptIn: true });
+    expect("feeBps" in arg).toBe(false);
+  });
+  test("_clientFor: lazy-inits the cache", () => {
+    delete F.HaystackAdapter._clients;
+    expect(F.HaystackAdapter._clientFor({ apiKey: "K" })).toBeDefined();
+  });
+  test("getQuote: normalises quote, min-received, route label, raw payload", async () => {
+    const q = await F.HaystackAdapter.getQuote(
+      { fromAssetId: 0, toAssetId: 31566704, amount: BigInt(1000000), slippagePct: 1, fromAddress: "USER" },
+      { apiKey: "K", referrer: "REF" }
+    );
+    expect(client.newQuote).toHaveBeenCalledWith({
+      address: "USER", fromASAID: 0, toASAID: 31566704, amount: BigInt(1000000), type: "fixed-input",
+    });
+    expect(q.amountOut).toBe(BigInt(2000000));
+    expect(q.minimumReceived).toBe(BigInt(1980000)); // 1% = 100 bps
+    expect(q.priceImpactPct).toBe(0.2);
+    expect(q.routeLabel).toBe("TinymanV2");
+    expect(q.raw.slippagePct).toBe(1);
+  });
+  test("getQuote: falls back to market price impact + default label", async () => {
+    client.newQuote = jest.fn(async () => ({ quote: "5", marketPriceImpact: 0.9, flattenedRoute: {} }));
+    const q = await F.HaystackAdapter.getQuote(
+      { fromAssetId: 0, toAssetId: 1, amount: BigInt(5), slippagePct: 0 }, { apiKey: "K" }
+    );
+    expect(q.priceImpactPct).toBe(0.9);
+    expect(q.routeLabel).toBe("Haystack Router");
+  });
+  test("executeSwap: composes via the bridge signer and returns the txid", async () => {
+    const bridge = { signer: jest.fn() };
+    const txid = await F.HaystackAdapter.executeSwap(
+      { quote: { raw: { swapQuote: { q: 1 }, slippagePct: 1 } }, fromAddress: "USER", cfg: { apiKey: "K" } },
+      bridge
+    );
+    expect(client.newSwap).toHaveBeenCalledWith({
+      quote: { q: 1 }, address: "USER", slippage: 1, signer: bridge.signer,
+    });
+    expect(txid).toBe("HSTX");
+  });
+  test("executeSwap: empty txid when the composer returns none", async () => {
+    client.newSwap = jest.fn(async () => ({ execute: jest.fn(async () => ({ txIds: [] })) }));
+    const txid = await F.HaystackAdapter.executeSwap(
+      { quote: { raw: { swapQuote: {}, slippagePct: 0 } }, fromAddress: "USER", cfg: {} },
+      { signer: jest.fn() }
+    );
+    expect(txid).toBe("");
+  });
+});
+
+describe("controller executeSwap delegates to router-owned execution", () => {
+  afterEach(() => { delete global.fetch; delete window.asastatsSwap; });
+  test("uses adapter.executeSwap (no separate opt-in) when provided", async () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-folks-from").value = "0";
+    panel.querySelector(".id-folks-to").value = "31566704";
+    panel.querySelector(".id-folks-amount").value = "1";
+    global.fetch = jest.fn(async () => ({ text: async () =>
+      panelHTML([{ id: 0, amount: 5000000 }]) }));  // target absent => would opt-in on legacy path
+    const optIn = jest.fn();
+    window.asastatsSwap = { activeAddress: () => "ADDR", optIn: optIn, signer: jest.fn() };
+    const adapter = { executeSwap: jest.fn(async () => "HSTX") };
+    const ctx = { fromAddress: "ADDR", owns: true, cfg: { apiKey: "K" },
+      holdingsUrl: "/u", lastQuote: { raw: {} }, adapter: adapter };
+    await F.executeSwap(panel, ctx);
+    expect(adapter.executeSwap).toHaveBeenCalled();
+    expect(optIn).not.toHaveBeenCalled(); // Haystack handles opt-in itself
+    expect(panel.querySelector(".id-folks-tx-link").getAttribute("href"))
+      .toBe("https://allo.info/tx/HSTX");
+  });
+});

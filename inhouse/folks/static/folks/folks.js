@@ -23,6 +23,35 @@
  */
 
 /** @type {Object} The Folks RouterAdapter (getQuote / buildSwapGroup). */
+/**
+ * Normalised quote shape shared by every router adapter, so the controller
+ * (renderQuote, executeSwap) never needs to know which router produced it.
+ * `raw` carries the router-specific payload that adapter.buildSwapGroup /
+ * adapter.executeSwap need later.
+ */
+function makeQuote(q) {
+  return {
+    amountOut: q.amountOut,
+    minimumReceived: q.minimumReceived,
+    priceImpactPct: q.priceImpactPct || 0,
+    routeLabel: q.routeLabel,
+    feesTotal: q.feesTotal || 0,
+    raw: q.raw || {},
+  };
+}
+
+/** Human route label from a {protocol: percent} map, e.g. "Tinyman, Pact". */
+function routeLabelFrom(flattened) {
+  var names = flattened ? Object.keys(flattened) : [];
+  return names.length ? names.join(", ") : "";
+}
+
+/** Minimum-received (base units) for a fixed-input quote at `slippagePct`. */
+function minReceived(amountOut, slippagePct) {
+  var bps = BigInt(Math.round((slippagePct || 0) * 100));
+  return amountOut - (amountOut * bps) / BigInt(10000);
+}
+
 var FolksAdapter = {
   _client: null,
 
@@ -81,16 +110,14 @@ var FolksAdapter = {
       cfg.referrer || undefined
     );
     var slippageBps = Math.round((p.slippagePct || 0) * 100);
-    var minOut =
-      sq.quoteAmount - (sq.quoteAmount * BigInt(slippageBps)) / BigInt(10000);
-    return {
+    return makeQuote({
       amountOut: sq.quoteAmount,
-      minimumReceived: minOut,
+      minimumReceived: minReceived(sq.quoteAmount, p.slippagePct),
       priceImpactPct: sq.priceImpact,
       routeLabel: "Folks Router",
       feesTotal: sq.microalgoTxnsFee,
       raw: { swapQuote: sq, params: params, slippageBps: slippageBps },
-    };
+    });
   },
 
   buildSwapGroup: async function (quote, fromAddress, cfg) {
@@ -106,7 +133,71 @@ var FolksAdapter = {
 };
 
 /** Router registry — one entry per swap widget. */
-var ROUTERS = { folks: FolksAdapter };
+/**
+ * Haystack order router (@txnlab/haystack-router). Unlike Folks it uses a config
+ * object (apiKey + referrer), a `newQuote`/`newSwap().execute()` composer flow,
+ * and groups that can mix user-signed and pre-signed (logic-sig) transactions --
+ * so it OWNS execution via `executeSwap` (the controller delegates to it) rather
+ * than returning an all-user-signed group for `signAndSend`. Opt-in is handled
+ * by the SDK (`autoOptIn` + address), so no separate pre-flight is needed.
+ */
+var HaystackAdapter = {
+  _clients: null,
+
+  _clientFor: function (cfg) {
+    // No feeBps is set: omitting it applies Haystack's protocol-minimum fee with
+    // the referral credited to our referrer, and leaves no client fee to tamper.
+    var key = (cfg.apiKey || "") + "|" + (cfg.referrer || "");
+    HaystackAdapter._clients = HaystackAdapter._clients || {};
+    if (!HaystackAdapter._clients[key]) {
+      HaystackAdapter._clients[key] = new window.HaystackRouter.RouterClient({
+        apiKey: cfg.apiKey,
+        referrerAddress: cfg.referrer || undefined,
+        autoOptIn: true,
+      });
+    }
+    return HaystackAdapter._clients[key];
+  },
+
+  getQuote: async function (p, cfg) {
+    var client = HaystackAdapter._clientFor(cfg);
+    // `address` lets autoOptIn detect whether the output-asset opt-in must be
+    // bundled into the routed group.
+    var sq = await client.newQuote({
+      address: p.fromAddress || undefined,
+      fromASAID: p.fromAssetId,
+      toASAID: p.toAssetId,
+      amount: p.amount,
+      type: "fixed-input",
+    });
+    var out = BigInt(sq.quote);
+    return makeQuote({
+      amountOut: out,
+      minimumReceived: minReceived(out, p.slippagePct),
+      priceImpactPct:
+        sq.userPriceImpact != null ? sq.userPriceImpact : sq.marketPriceImpact,
+      routeLabel: routeLabelFrom(sq.flattenedRoute) || "Haystack Router",
+      feesTotal: 0,
+      raw: { swapQuote: sq, slippagePct: p.slippagePct || 0 },
+    });
+  },
+
+  // Router-owned execution: the SDK composer signs (via the wallet bridge's
+  // use-wallet signer) and submits, returning the submitted txid.
+  executeSwap: async function (a, bridge) {
+    var client = HaystackAdapter._clientFor(a.cfg);
+    var swap = await client.newSwap({
+      quote: a.quote.raw.swapQuote,
+      address: a.fromAddress,
+      slippage: a.quote.raw.slippagePct,
+      signer: bridge.signer,
+    });
+    var result = await swap.execute();
+    return (result && result.txIds && result.txIds[0]) || "";
+  },
+};
+
+var ROUTERS = { folks: FolksAdapter, haystack: HaystackAdapter };
 
 var QUOTE_DEBOUNCE_MS = 400;
 
@@ -241,18 +332,36 @@ async function executeSwap(panel, ctx) {
       setPanelStatus(panel, "Insufficient balance — it may have changed.");
       return;
     }
-    if (!isOptedIn(fresh, params.toAssetId)) {
-      setPanelStatus(panel, "Opting into the target asset (one approval)…");
-      await window.asastatsSwap.optIn(params.toAssetId);
+    var txid;
+    if (typeof ctx.adapter.executeSwap === "function") {
+      // Router owns build + opt-in + sign + submit (e.g. Haystack's composer).
+      setPanelStatus(panel, "Awaiting signature…");
+      txid = await ctx.adapter.executeSwap(
+        {
+          params: params,
+          quote: ctx.lastQuote,
+          fromAddress: ctx.fromAddress,
+          cfg: ctx.cfg,
+          holdings: fresh,
+        },
+        window.asastatsSwap
+      );
+    } else {
+      // Legacy path: a separate opt-in, then sign + send an all-user-signed
+      // group built by the adapter (Folks).
+      if (!isOptedIn(fresh, params.toAssetId)) {
+        setPanelStatus(panel, "Opting into the target asset (one approval)…");
+        await window.asastatsSwap.optIn(params.toAssetId);
+      }
+      setPanelStatus(panel, "Building transaction…");
+      var group = await ctx.adapter.buildSwapGroup(
+        ctx.lastQuote,
+        ctx.fromAddress,
+        ctx.cfg
+      );
+      setPanelStatus(panel, "Awaiting signature…");
+      txid = await window.asastatsSwap.signAndSend(group);
     }
-    setPanelStatus(panel, "Building transaction…");
-    var group = await ctx.adapter.buildSwapGroup(
-      ctx.lastQuote,
-      ctx.fromAddress,
-      ctx.cfg
-    );
-    setPanelStatus(panel, "Awaiting signature…");
-    var txid = await window.asastatsSwap.signAndSend(group);
     renderSwapSuccess(panel, txid);
     markSwapDirty(panel);
     submitted = true;
@@ -369,6 +478,7 @@ function markerCfg(marker) {
     network: marker.dataset.network || "mainnet",
     referrer: marker.dataset.referrer || "",
     feeBps: Number(marker.dataset.feeBps || "0"),
+    apiKey: marker.dataset.apiKey || "",
   };
 }
 
@@ -702,7 +812,11 @@ function startFolks() {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     FolksAdapter: FolksAdapter,
+    HaystackAdapter: HaystackAdapter,
     ROUTERS: ROUTERS,
+    makeQuote: makeQuote,
+    routeLabelFrom: routeLabelFrom,
+    minReceived: minReceived,
     folksConfig: folksConfig,
     readPanelHoldings: readPanelHoldings,
     isOptedIn: isOptedIn,

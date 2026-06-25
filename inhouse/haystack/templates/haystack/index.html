@@ -1,0 +1,38 @@
+{% extends 'base.html' %}{% load static %}{% load core_extras %}
+{% block title %}Swap (Haystack Order Router) - ASA Stats{% endblock %}
+{% block content %}
+{# Page context + non-secret router config handed to the shared controller via #}
+{# data-*. The #id-folks-swap id is the controller's router-agnostic shell hook. #}
+<div id="id-folks-swap"
+     data-router="{{ router_id }}"
+     data-bundle="{{ bundle }}"
+     data-addresses="{{ addresses }}"
+     data-referrer="{{ haystack_referrer }}"
+     data-api-key="{{ haystack_api_key }}">
+
+  <h1 class="center-align">Swap</h1>
+
+  {% if linked_addresses %}
+  <ul class="collapsible" id="id-folks-addresses">
+    {% for address in linked_addresses %}
+    <li data-address="{{ address }}">
+      <div class="collapsible-header">{{ address|short_address }}</div>
+      <div class="collapsible-body">
+        <div class="id-folks-panel" id="id-folks-panel-{{ forloop.counter }}"
+             data-holdings-url="{% url 'haystack_holdings' address %}"></div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <blockquote id="id-folks-locked">
+    Connect the wallet that owns an address on this page to swap from it.
+  </blockquote>
+  {% endif %}
+</div>
+
+{# Shared controller + this router's SDK bundle. Requires the wallet swap bridge #}
+{# (window.asastatsSwap incl. `signer`) from the wallet bundle on this page.      #}
+<script src="{% static 'haystack/haystack-sdk.bundle.js' %}"></script>
+<script src="{% static 'folks/folks.js' %}"></script>
+{% endblock %}

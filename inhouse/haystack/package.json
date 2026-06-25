@@ -1,0 +1,14 @@
+{
+  "name": "asastats-widget-haystack",
+  "private": true,
+  "scripts": {
+    "build:sdk": "esbuild haystack-sdk-entry.js --bundle --format=iife --global-name=HaystackRouter --inject:./buffer-shim.js --minify --outfile=static/haystack/haystack-sdk.bundle.js"
+  },
+  "dependencies": {
+    "@txnlab/haystack-router": "^2.0.5",
+    "buffer": "^6.0.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
+  }
+}
