@@ -19,7 +19,7 @@ class TestWidgetsUrls:
         assert "widgets.inhouse.historic.urls" in str(url.urlconf_name)
 
     def test_widgets_urls_patterns_count(self):
-        assert len(urls.urlpatterns) == 2
+        assert len(urls.urlpatterns) == 3
 
 
 class TestWidgetsUrlsFallback:
@@ -38,6 +38,7 @@ class TestWidgetsUrlsFallback:
             assert urls.urlpatterns == [
                 ("re", ("include", "inhouse.historic.urls")),
                 ("re", ("include", "inhouse.folks.urls")),
+                ("re", ("include", "inhouse.haystack.urls")),
             ]
         finally:
             mocker.stopall()

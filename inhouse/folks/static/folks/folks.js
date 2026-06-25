@@ -183,14 +183,23 @@ var HaystackAdapter = {
   },
 
   // Router-owned execution: the SDK composer signs (via the wallet bridge's
-  // use-wallet signer) and submits, returning the submitted txid.
+  // haystackSigner) and submits, returning the submitted txid.
+  //
+  // haystackSigner (not bridge.signer) is required here: Haystack calls the
+  // signer with live Transaction objects from its own bundle, whereas
+  // use-wallet's raw transactionSigner (bridge.signer) expects encoded
+  // Uint8Array[]. Passing bridge.signer causes a DataView overread at sign
+  // time because use-wallet re-encodes a "foreign" Transaction object using
+  // its own algosdk class, reading past its internal byte buffer.
+  // haystackSigner pre-encodes each Transaction to bytes on our side first,
+  // making the handoff safe regardless of bundle boundaries.
   executeSwap: async function (a, bridge) {
     var client = HaystackAdapter._clientFor(a.cfg);
     var swap = await client.newSwap({
       quote: a.quote.raw.swapQuote,
       address: a.fromAddress,
       slippage: a.quote.raw.slippagePct,
-      signer: bridge.signer,
+      signer: bridge.haystackSigner,
     });
     var result = await swap.execute();
     return (result && result.txIds && result.txIds[0]) || "";

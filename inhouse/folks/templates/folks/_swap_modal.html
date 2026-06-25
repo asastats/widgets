@@ -19,12 +19,11 @@
       <div id="folks-tab-buy" class="col s12"></div>
     </div>
     <div class="id-folks-panel" data-from=""></div>
-    <p class="center-align grey-text" style="margin-top:1rem;">
-      Routing via <strong>{{ swap_router_name|default:"your default router" }}</strong>.
-      <a href="{% url 'profile_settings' %}">Change your default router</a>.
-    </p>
   </div>
   <div class="modal-footer">
+    <span class="left helper-text">
+      <a href="{% url 'profile_settings' %}">Change the default router</a>
+    </span>
     <a href="#!" class="waves-effect btn-flat modal-close">Close</a>
   </div>
 </div>

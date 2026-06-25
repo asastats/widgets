@@ -36,6 +36,7 @@ class TestWidgetsRouting:
             assert routing.websocket_urlpatterns == [
                 ("inhouse.historic.routing",),
                 ("inhouse.folks.routing",),
+                ("inhouse.haystack.routing",),
             ]
         finally:
             mocker.stopall()

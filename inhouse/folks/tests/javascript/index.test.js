@@ -957,13 +957,13 @@ describe("HaystackAdapter", () => {
     expect(q.routeLabel).toBe("Haystack Router");
   });
   test("executeSwap: composes via the bridge signer and returns the txid", async () => {
-    const bridge = { signer: jest.fn() };
+    const bridge = { haystackSigner: jest.fn() };
     const txid = await F.HaystackAdapter.executeSwap(
       { quote: { raw: { swapQuote: { q: 1 }, slippagePct: 1 } }, fromAddress: "USER", cfg: { apiKey: "K" } },
       bridge
     );
     expect(client.newSwap).toHaveBeenCalledWith({
-      quote: { q: 1 }, address: "USER", slippage: 1, signer: bridge.signer,
+      quote: { q: 1 }, address: "USER", slippage: 1, signer: bridge.haystackSigner,
     });
     expect(txid).toBe("HSTX");
   });
