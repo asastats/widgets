@@ -1,10 +1,13 @@
 {% load core_extras %}
-{# Swap panel for one linked address. The JSON island is the controller's source #}
-{# of truth for SDK calls; the visible form mirrors it for the user. #}
+{# Swap form for one linked address, loaded into the modal's .id-folks-panel.     #}
+{# The JSON island is the controller's source of truth; the visible form mirrors  #}
+{# it. Source column = the asset you own (Sell default on the left; on Buy it      #}
+{# moves right via .folks-mode-buy). The percentage row lives in the source        #}
+{# column, so it follows the owned asset on both tabs.                             #}
 <script type="application/json" class="id-folks-holdings">{{ holdings_json|safe }}</script>
 <div class="id-folks-form" data-address="{{ address }}">
-  <div class="row">
-    <div class="input-field col s12 m6">
+  <div class="row id-folks-cols">
+    <div class="input-field col s12 m6 id-folks-source-col">
       <select class="browser-default id-folks-from">
         {% for asset in holdings %}{% if asset.amount > 0 %}
         <option value="{{ asset.id }}"
@@ -13,24 +16,29 @@
                 data-amount="{{ asset.amount }}">{{ asset.unit|default:asset.id }}</option>
         {% endif %}{% endfor %}
       </select>
-      <span class="helper-text">From</span>
+      <span class="helper-text">From (you own)</span>
+      <input type="text" class="id-folks-amount" inputmode="decimal" placeholder="0.0">
+      <span class="helper-text">Amount</span>
+      <div class="id-folks-pct-row">
+        <button type="button" class="btn-flat id-folks-pct-btn" data-pct="25">25%</button>
+        <button type="button" class="btn-flat id-folks-pct-btn" data-pct="50">50%</button>
+        <button type="button" class="btn-flat id-folks-pct-btn" data-pct="75">75%</button>
+        <button type="button" class="btn-flat id-folks-pct-btn" data-pct="100">Max</button>
+        <input type="text" class="id-folks-pct" inputmode="decimal" placeholder="%">
+      </div>
     </div>
-    <div class="input-field col s12 m6">
+    <div class="input-field col s12 m6 id-folks-target-col">
       <input type="text" class="id-folks-to-search" placeholder="To asset: name, unit, or ID"
              hx-get="{% url 'folks_assets' %}"
              hx-trigger="keyup changed delay:300ms"
              hx-target="next .id-folks-to-results"
              name="q" autocomplete="off">
       <div class="id-folks-to-results"></div>
-      <input type="hidden" class="id-folks-to"
-             data-decimals="" data-unit="" data-opted-in="">
+      <input type="hidden" class="id-folks-to" data-decimals="" data-unit="" data-opted-in="">
+      <span class="helper-text">To (you receive)</span>
     </div>
   </div>
   <div class="row">
-    <div class="input-field col s12 m6">
-      <input type="text" class="id-folks-amount" inputmode="decimal" placeholder="0.0">
-      <span class="helper-text">Amount</span>
-    </div>
     <div class="input-field col s12 m6">
       <input type="text" class="id-folks-slippage" inputmode="decimal" value="0.5">
       <span class="helper-text">Slippage %</span>

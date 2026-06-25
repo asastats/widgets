@@ -54,7 +54,7 @@ for mod in MOCK_MODULES:
 # -- Project information -----------------------------------------------------
 
 project = "ASA Stats user widgets"
-copyright = "2025, ASA Stats DAO"
+copyright = "2026, ASA Stats DAO"
 author = "Ivica Paleka"
 
 release = __version__
