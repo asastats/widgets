@@ -4,7 +4,7 @@
 {% partialdef asaheader %}
 <span>&nbsp;{{ item.header.amount }}&nbsp;&nbsp;<span class="unit">{{ item.header.label|escape }}</span></span>
 <div class="icondiv">
-  <img src="https://cdn.asastats.com/{{ item.header.icon }}" alt="{{ item.info.name }} logo" class="circle asaicon" onerror="this.onerror=null; this.src='https://cdn.asastats.com/icons/empty.png';" />
+  <img src="{{ BASE_CDN_URL }}/{{ item.header.icon }}" alt="{{ item.info.name }} logo" class="circle asaicon" onerror="this.onerror=null; this.src='{{ BASE_CDN_URL }}/icons/empty.png';" />
 </div>
 <div class="right">
   &nbsp;<span class="val" data-val="{{ item.header.total }}">{{ item.header.total|floatformat:'2g' }} ALGO</span>
@@ -68,7 +68,7 @@
 </div>
 <div class="nftmid col s12 center-align">
   {% for elem in item.body %}
-    <img id="t{{ elem.asset.id }}" src="https://cdn.asastats.com{{ elem.asset.tpath }}" alt="{{ elem.asset.name }} thumbnail" class="nfticon" data-path="https://cdn.asastats.com{{ elem.asset.path }}" onerror="this.onerror=null; this.src='https://cdn.asastats.com/thumbnails/nftt.png';" />
+    <img id="t{{ elem.asset.id }}" src="{{ BASE_CDN_URL }}{{ elem.asset.tpath }}" alt="{{ elem.asset.name }} thumbnail" class="nfticon" data-path="{{ BASE_CDN_URL }}{{ elem.asset.path }}" onerror="this.onerror=null; this.src='{{ BASE_CDN_URL }}/thumbnails/nftt.png';" />
   {% endfor %}
 </div>
 <div class="nftright col s6 right-align">
@@ -125,7 +125,7 @@
 {% endpartialdef nftprogram %}
 
 {% partialdef nftimage %}
-<a href="{{ nft.asset.urls.0.1 }}" target="_blank" rel="noopener" title="View original NFT through an IPFS gateway"><img src="{% static 'nft.png' %}" data-src="https://cdn.asastats.com{{ nft.asset.path }}" alt="{{ nft.asset.name }} link" class="responsive-img hoverable nft" /></a>
+<a href="{{ nft.asset.urls.0.1 }}" target="_blank" rel="noopener" title="View original NFT through an IPFS gateway"><img src="{% static 'nft.png' %}" data-src="{{ BASE_CDN_URL }}{{ nft.asset.path }}" alt="{{ nft.asset.name }} link" class="responsive-img hoverable nft" /></a>
 {% endpartialdef nftimage %}
 
 {% partialdef nftelement %}
