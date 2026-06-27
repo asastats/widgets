@@ -1,14 +1,22 @@
 {% load core_extras %}
 <ul class="collection id-folks-asset-options">
   {% for asset in assets %}
-  <li class="collection-item id-folks-asset-option" style="cursor:pointer;"
+  <li class="collection-item id-folks-asset-option valign-wrapper" style="cursor:pointer;"
       data-id="{{ asset.id }}"
       data-unit="{{ asset.unit }}"
       data-name="{{ asset.name }}"
       data-decimals="{{ asset.decimals }}">
-    <span>{{ asset.unit }}</span> &middot; <span>{{ asset.name }}</span>
-    {% if asset.verified %}<span class="badge">verified</span>{% endif %}
-    <span class="secondary-content">#{{ asset.id }}</span>
+    <img src="{{ BASE_CDN_URL }}/icons/{{ asset.id }}t.png" alt="{{ asset.name }} logo"
+         class="circle swapicon"
+         onerror="this.onerror=null; this.src='{{ BASE_CDN_URL }}/icons/empty.png';" />
+    <div class="swap-asset-text">
+      <span>{{ asset.unit }}</span> &middot; <span>{{ asset.name }}</span>
+    </div>
+    {% if asset.verified %}
+    <span class="swap-asset-id verified">#{{ asset.id }}</span>
+    {% else %}
+    <span class="swap-asset-id unverified">#{{ asset.id }}</span>
+    {% endif %}
   </li>
   {% empty %}
   {% if query %}<li class="collection-item">No assets match "{{ query }}".</li>{% endif %}

@@ -31,8 +31,17 @@
  */
 function makeQuote(q) {
   return {
+    // "sell" = fixed-input (user fixes the source amount, output is computed);
+    // "buy" = fixed-output (user fixes the target amount, input is computed).
+    mode: q.mode || "sell",
+    // amountOut: output amount (computed for sell, the fixed target for buy).
     amountOut: q.amountOut,
+    // amountIn: input amount (the fixed source for sell, computed for buy).
+    amountIn: q.amountIn,
+    // minimumReceived: output floor after slippage (sell only).
     minimumReceived: q.minimumReceived,
+    // maximumSent: input ceiling after slippage (buy only).
+    maximumSent: q.maximumSent,
     priceImpactPct: q.priceImpactPct || 0,
     routeLabel: q.routeLabel,
     feesTotal: q.feesTotal || 0,
@@ -50,6 +59,12 @@ function routeLabelFrom(flattened) {
 function minReceived(amountOut, slippagePct) {
   var bps = BigInt(Math.round((slippagePct || 0) * 100));
   return amountOut - (amountOut * bps) / BigInt(10000);
+}
+
+/** Maximum-sent (base units) for a fixed-output quote at `slippagePct`. */
+function maxSent(amountIn, slippagePct) {
+  var bps = BigInt(Math.round((slippagePct || 0) * 100));
+  return amountIn + (amountIn * bps) / BigInt(10000);
 }
 
 var FolksAdapter = {
@@ -90,11 +105,12 @@ var FolksAdapter = {
   getQuote: async function (p, cfg) {
     var SwapMode = window.FolksRouter.SwapMode;
     var client = FolksAdapter._clientFor(cfg);
+    var buy = p.mode === "buy";
     var params = {
       fromAssetId: p.fromAssetId,
       toAssetId: p.toAssetId,
-      amount: p.amount,
-      swapMode: SwapMode.FIXED_INPUT,
+      amount: p.amount, // fixed input (sell) or fixed output (buy)
+      swapMode: buy ? SwapMode.FIXED_OUTPUT : SwapMode.FIXED_INPUT,
     };
     // Make the quote discount-aware. We deliberately pass NO feeBps: omitting it
     // lets the router apply its protocol-minimum fee (0.1%) with the referral
@@ -110,13 +126,30 @@ var FolksAdapter = {
       cfg.referrer || undefined
     );
     var slippageBps = Math.round((p.slippagePct || 0) * 100);
+    var raw = { swapQuote: sq, params: params, slippageBps: slippageBps };
+    if (buy) {
+      // FIXED_OUTPUT: quoteAmount is the required INPUT; the user fixed the output.
+      return makeQuote({
+        mode: "buy",
+        amountIn: sq.quoteAmount,
+        amountOut: p.amount,
+        maximumSent: maxSent(sq.quoteAmount, p.slippagePct),
+        priceImpactPct: sq.priceImpact,
+        routeLabel: "Folks Router",
+        feesTotal: sq.microalgoTxnsFee,
+        raw: raw,
+      });
+    }
+    // FIXED_INPUT: quoteAmount is the OUTPUT; the user fixed the input.
     return makeQuote({
+      mode: "sell",
       amountOut: sq.quoteAmount,
+      amountIn: p.amount,
       minimumReceived: minReceived(sq.quoteAmount, p.slippagePct),
       priceImpactPct: sq.priceImpact,
       routeLabel: "Folks Router",
       feesTotal: sq.microalgoTxnsFee,
-      raw: { swapQuote: sq, params: params, slippageBps: slippageBps },
+      raw: raw,
     });
   },
 
@@ -161,24 +194,44 @@ var HaystackAdapter = {
 
   getQuote: async function (p, cfg) {
     var client = HaystackAdapter._clientFor(cfg);
+    var buy = p.mode === "buy";
     // `address` lets autoOptIn detect whether the output-asset opt-in must be
     // bundled into the routed group.
     var sq = await client.newQuote({
       address: p.fromAddress || undefined,
       fromASAID: p.fromAssetId,
       toASAID: p.toAssetId,
-      amount: p.amount,
-      type: "fixed-input",
+      amount: p.amount, // fixed input (sell) or fixed output (buy)
+      type: buy ? "fixed-output" : "fixed-input",
     });
-    var out = BigInt(sq.quote);
+    // For fixed-output `sq.quote` is the required INPUT; for fixed-input it's the
+    // OUTPUT received.
+    var computed = BigInt(sq.quote);
+    var impact =
+      sq.userPriceImpact != null ? sq.userPriceImpact : sq.marketPriceImpact;
+    var label = routeLabelFrom(sq.flattenedRoute) || "Haystack Router";
+    var raw = { swapQuote: sq, slippagePct: p.slippagePct || 0 };
+    if (buy) {
+      return makeQuote({
+        mode: "buy",
+        amountIn: computed,
+        amountOut: p.amount,
+        maximumSent: maxSent(computed, p.slippagePct),
+        priceImpactPct: impact,
+        routeLabel: label,
+        feesTotal: 0,
+        raw: raw,
+      });
+    }
     return makeQuote({
-      amountOut: out,
-      minimumReceived: minReceived(out, p.slippagePct),
-      priceImpactPct:
-        sq.userPriceImpact != null ? sq.userPriceImpact : sq.marketPriceImpact,
-      routeLabel: routeLabelFrom(sq.flattenedRoute) || "Haystack Router",
+      mode: "sell",
+      amountOut: computed,
+      amountIn: p.amount,
+      minimumReceived: minReceived(computed, p.slippagePct),
+      priceImpactPct: impact,
+      routeLabel: label,
       feesTotal: 0,
-      raw: { swapQuote: sq, slippagePct: p.slippagePct || 0 },
+      raw: raw,
     });
   },
 
@@ -279,11 +332,19 @@ function readQuoteParams(panel, fromAddress) {
   if (!fromSel || !fromSel.value || !toHidden.value || !amountEl.value) {
     return null;
   }
+  var form = panel.querySelector(".id-folks-form");
+  var mode = form && form.classList.contains("folks-mode-buy") ? "buy" : "sell";
   var fromOpt = fromSel.options[fromSel.selectedIndex];
-  var decimals = Number(fromOpt.dataset.decimals || "0");
+  // Sell fixes the SOURCE amount (From decimals); Buy fixes the TARGET amount
+  // (To decimals). The amount field's units depend on the mode.
+  var decimals =
+    mode === "buy"
+      ? Number(toHidden.dataset.decimals || "0")
+      : Number(fromOpt.dataset.decimals || "0");
   var amount = decimalToBaseUnits(amountEl.value, decimals);
   if (amount <= BigInt(0)) return null;
   return {
+    mode: mode,
     fromAssetId: Number(fromSel.value),
     toAssetId: Number(toHidden.value),
     amount: amount,
@@ -310,6 +371,12 @@ async function refreshQuote(panel, ctx) {
   try {
     ctx.lastQuote = await ctx.adapter.getQuote(params, ctx.cfg);
     renderQuote(panel, ctx.lastQuote);
+    var affordErr = affordabilityError(panel, ctx.lastQuote);
+    if (affordErr) {
+      setPanelStatus(panel, affordErr);
+      if (btn) btn.disabled = true;
+      return;
+    }
     setPanelStatus(panel, "");
     applyOwnership(panel, walletOwns(ctx.fromAddress));
   } catch (e) {
@@ -337,7 +404,9 @@ async function executeSwap(panel, ctx) {
     var from = fresh.filter(function (h) {
       return Number(h.id) === params.fromAssetId;
     })[0];
-    if (!from || BigInt(from.amount) < params.amount) {
+    var requiredInput =
+      ctx.lastQuote.mode === "buy" ? ctx.lastQuote.maximumSent : params.amount;
+    if (!from || BigInt(from.amount) < requiredInput) {
       setPanelStatus(panel, "Insufficient balance — it may have changed.");
       return;
     }
@@ -392,10 +461,33 @@ async function executeSwap(panel, ctx) {
 }
 
 function renderQuote(panel, q) {
-  var toHidden = panel.querySelector(".id-folks-to");
-  var toDec = Number((toHidden && toHidden.dataset.decimals) || "0");
   var out = panel.querySelector(".id-folks-quote");
   if (!out) return;
+  var fromSel = panel.querySelector(".id-folks-from");
+  var fromOpt = fromSel && fromSel.options[fromSel.selectedIndex];
+  if (q.mode === "buy") {
+    // Fixed-output: show the required INPUT (and the slippage-padded ceiling) in
+    // the source asset's units.
+    var fromDec = Number((fromOpt && fromOpt.dataset.decimals) || "0");
+    var fromUnit = (fromOpt && fromOpt.dataset.unit) || "";
+    out.textContent =
+      "≈ " +
+      baseUnitsToDecimal(q.amountIn, fromDec) +
+      " " +
+      fromUnit +
+      " (max " +
+      baseUnitsToDecimal(q.maximumSent, fromDec) +
+      ", impact " +
+      q.priceImpactPct +
+      "%, " +
+      baseUnitsToDecimal(BigInt(q.feesTotal), 6) +
+      " ALGO fee) via " +
+      q.routeLabel;
+    return;
+  }
+  // Fixed-input: show the OUTPUT received (and the slippage floor) in target units.
+  var toHidden = panel.querySelector(".id-folks-to");
+  var toDec = Number((toHidden && toHidden.dataset.decimals) || "0");
   out.textContent =
     "≈ " +
     baseUnitsToDecimal(q.amountOut, toDec) +
@@ -407,6 +499,35 @@ function renderQuote(panel, q) {
     baseUnitsToDecimal(BigInt(q.feesTotal), 6) +
     " ALGO fee) via " +
     q.routeLabel;
+}
+
+/**
+ * For a fixed-output (buy) quote the user must hold at least the slippage-padded
+ * maximum input. Returns an error string when they don't, else "" (sell quotes
+ * are guarded by the input amount itself and always return "").
+ */
+function affordabilityError(panel, quote) {
+  if (!quote || quote.mode !== "buy") return "";
+  var held = sourceHoldingsBaseUnits(panel);
+  if (held === null) return "";
+  if (quote.maximumSent > held) {
+    var sel = panel.querySelector(".id-folks-from");
+    var opt = sel.options[sel.selectedIndex];
+    var dec = Number(opt.dataset.decimals || "0");
+    var unit = opt.dataset.unit || "";
+    return (
+      "Need up to " +
+      baseUnitsToDecimal(quote.maximumSent, dec) +
+      " " +
+      unit +
+      " but you have " +
+      baseUnitsToDecimal(held, dec) +
+      " " +
+      unit +
+      "."
+    );
+  }
+  return "";
 }
 
 function setPanelStatus(panel, msg) {
@@ -767,6 +888,21 @@ function wireSwapTabs() {
     var tab = ev.target.closest && ev.target.closest("[data-folks-mode]");
     if (!tab) return;
     applySwapMode(modal.querySelector(".id-folks-form"), tab.dataset.folksMode);
+    // The amount's meaning flips with the mode (source vs target), so clear the
+    // amount + percentage + stale quote and re-gate the button until a fresh,
+    // mode-correct quote arrives.
+    var panel = modal.querySelector(".id-folks-panel");
+    if (!panel) return;
+    var amt = panel.querySelector(".id-folks-amount");
+    var pct = panel.querySelector(".id-folks-pct");
+    var quote = panel.querySelector(".id-folks-quote");
+    var status = panel.querySelector(".id-folks-status");
+    var btn = panel.querySelector(".id-folks-swap-btn");
+    if (amt) amt.value = "";
+    if (pct) pct.value = "";
+    if (quote) quote.textContent = "";
+    if (status) status.textContent = "";
+    if (btn) btn.disabled = true;
   });
 }
 
@@ -834,6 +970,8 @@ if (typeof module !== "undefined" && module.exports) {
     makeQuote: makeQuote,
     routeLabelFrom: routeLabelFrom,
     minReceived: minReceived,
+    maxSent: maxSent,
+    affordabilityError: affordabilityError,
     folksConfig: folksConfig,
     readPanelHoldings: readPanelHoldings,
     isOptedIn: isOptedIn,

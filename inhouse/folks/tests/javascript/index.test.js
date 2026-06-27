@@ -84,8 +84,8 @@ describe("readQuoteParams", () => {
     panel.querySelector(".id-folks-amount").value = "2.5";
     const p = F.readQuoteParams(panel, "ADDR");
     expect(p).toEqual({
-      fromAssetId: 0, toAssetId: 31566704, amount: BigInt(2500000),
-      slippagePct: 0.5, fromAddress: "ADDR",
+      mode: "sell", fromAssetId: 0, toAssetId: 31566704, 
+      amount: BigInt(2500000), slippagePct: 0.5, fromAddress: "ADDR",
     });
   });
   test("returns null for zero amount", () => {
@@ -1000,5 +1000,164 @@ describe("controller executeSwap delegates to router-owned execution", () => {
     expect(optIn).not.toHaveBeenCalled(); // Haystack handles opt-in itself
     expect(panel.querySelector(".id-folks-tx-link").getAttribute("href"))
       .toBe("https://allo.info/tx/HSTX");
+  });
+});
+
+describe("fixed-output (buy) mode", () => {
+  test("maxSent pads the input by slippage bps", () => {
+    expect(F.maxSent(BigInt(1000000), 0.5)).toBe(BigInt(1005000));
+    expect(F.maxSent(BigInt(1000000), 0)).toBe(BigInt(1000000));
+  });
+
+  test("readQuoteParams: buy uses TARGET decimals and tags mode", () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-folks-from").value = "0";
+    const to = panel.querySelector(".id-folks-to");
+    to.value = "31566704";
+    to.dataset.decimals = "6";
+    panel.querySelector(".id-folks-amount").value = "1.5";
+    panel.querySelector(".id-folks-form").classList.add("folks-mode-buy");
+    const p = F.readQuoteParams(panel, "ADDR");
+    expect(p.mode).toBe("buy");
+    expect(p.amount).toBe(BigInt(1500000)); // 1.5 in TO (6) decimals
+  });
+
+  test("FolksAdapter.getQuote buy: required input + max sent + FIXED_OUTPUT", async () => {
+    F.FolksAdapter._clients = {}; F.FolksAdapter._discounts = {};
+    mockFolksRouter({ quote: { quoteAmount: 2000000n, priceImpact: 0.1, microalgoTxnsFee: 3000, txnPayload: "P" } });
+    const q = await F.FolksAdapter.getQuote(
+      { mode: "buy", fromAssetId: 0, toAssetId: 5, amount: BigInt(1000000), slippagePct: 0.5 },
+      { network: "mainnet", referrer: "REF" }
+    );
+    expect(q.mode).toBe("buy");
+    expect(q.amountIn).toBe(BigInt(2000000));    // quoteAmount = required input
+    expect(q.amountOut).toBe(BigInt(1000000));   // the fixed target
+    expect(q.maximumSent).toBe(BigInt(2010000)); // +50 bps
+    expect(F.FolksAdapter._clients.mainnet.fetchSwapQuote.mock.calls[0][0].swapMode).toBe("FIXED_OUTPUT");
+    delete window.FolksRouter; F.FolksAdapter._clients = {}; F.FolksAdapter._discounts = {};
+  });
+
+  test("HaystackAdapter.getQuote buy: type fixed-output, required input + max sent", async () => {
+    F.HaystackAdapter._clients = {};
+    const client = { newQuote: jest.fn(async () => ({ quote: "2000000", userPriceImpact: 0.2, flattenedRoute: { Pact: 100 } })) };
+    window.HaystackRouter = { RouterClient: jest.fn(() => client) };
+    const q = await F.HaystackAdapter.getQuote(
+      { mode: "buy", fromAssetId: 0, toAssetId: 5, amount: BigInt(1000000), slippagePct: 1 },
+      { apiKey: "K" }
+    );
+    expect(client.newQuote.mock.calls[0][0].type).toBe("fixed-output");
+    expect(q.mode).toBe("buy");
+    expect(q.amountIn).toBe(BigInt(2000000));
+    expect(q.maximumSent).toBe(BigInt(2020000)); // +100 bps
+    delete window.HaystackRouter; F.HaystackAdapter._clients = {};
+  });
+
+  test("renderQuote buy: shows required input + max in source units", () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-folks-from").value = "0"; // ALGO, 6dp
+    F.renderQuote(panel, {
+      mode: "buy", amountIn: BigInt(2000000), maximumSent: BigInt(2010000),
+      amountOut: BigInt(1000000), priceImpactPct: 0.1, feesTotal: 3000, routeLabel: "Folks Router",
+    });
+    const txt = panel.querySelector(".id-folks-quote").textContent;
+    expect(txt).toContain("2 ALGO");
+    expect(txt).toContain("(max 2.01");
+    expect(txt).toContain("via Folks Router");
+  });
+
+  test("affordabilityError: sell '', buy ok '', buy short message, no holdings ''", () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-folks-from").value = "0"; // 5 ALGO held
+    expect(F.affordabilityError(panel, { mode: "sell" })).toBe("");
+    expect(F.affordabilityError(panel, { mode: "buy", maximumSent: BigInt(2010000) })).toBe("");
+    const msg = F.affordabilityError(panel, { mode: "buy", maximumSent: BigInt(6000000) });
+    expect(msg).toContain("Need up to 6 ALGO");
+    expect(msg).toContain("you have 5 ALGO");
+    panel.querySelector(".id-folks-from").value = "";
+    expect(F.affordabilityError(panel, { mode: "buy", maximumSent: BigInt(1) })).toBe("");
+  });
+
+  test("refreshQuote buy: blocks swap when required input exceeds holdings", async () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-folks-from").value = "0";
+    const to = panel.querySelector(".id-folks-to");
+    to.value = "5"; to.dataset.decimals = "6";
+    panel.querySelector(".id-folks-amount").value = "1";
+    panel.querySelector(".id-folks-form").classList.add("folks-mode-buy");
+    window.asastatsSwap = { activeAddress: () => "ADDR" };
+    const ctx = { fromAddress: "ADDR", cfg: {}, adapter: {
+      getQuote: jest.fn(async () => ({ mode: "buy", amountIn: BigInt(6000000), maximumSent: BigInt(6000000),
+        amountOut: BigInt(1000000), priceImpactPct: 0, feesTotal: 0, routeLabel: "R" })) } };
+    await F.refreshQuote(panel, ctx);
+    expect(panel.querySelector(".id-folks-status").textContent).toContain("Need up to 6 ALGO");
+    expect(panel.querySelector(".id-folks-swap-btn").disabled).toBe(true);
+    delete window.asastatsSwap;
+  });
+
+  test("executeSwap buy: insufficient when max-sent exceeds fresh holdings", async () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-folks-from").value = "0";
+    const to = panel.querySelector(".id-folks-to");
+    to.value = "5"; to.dataset.decimals = "6";
+    panel.querySelector(".id-folks-amount").value = "1";
+    panel.querySelector(".id-folks-form").classList.add("folks-mode-buy");
+    global.fetch = jest.fn(async () => ({ text: async () => panelHTML([{ id: 0, amount: 5000000 }]) }));
+    window.asastatsSwap = { activeAddress: () => "ADDR", signAndSend: jest.fn() };
+    const ctx = { fromAddress: "ADDR", cfg: {}, holdingsUrl: "/u",
+      lastQuote: { mode: "buy", maximumSent: BigInt(6000000), amountOut: BigInt(1000000) },
+      adapter: { buildSwapGroup: jest.fn() } };
+    await F.executeSwap(panel, ctx);
+    expect(panel.querySelector(".id-folks-status").textContent).toContain("Insufficient");
+    expect(window.asastatsSwap.signAndSend).not.toHaveBeenCalled();
+    delete global.fetch; delete window.asastatsSwap;
+  });
+});
+
+describe("fixed-output (buy) — fallback branches", () => {
+  test("readQuoteParams buy: empty TO decimals falls back to 0", () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-folks-from").value = "0";
+    const to = panel.querySelector(".id-folks-to");
+    to.value = "5"; // to.dataset.decimals stays "" -> fallback "0"
+    panel.querySelector(".id-folks-amount").value = "3";
+    panel.querySelector(".id-folks-form").classList.add("folks-mode-buy");
+    const p = F.readQuoteParams(panel, "ADDR");
+    expect(p.mode).toBe("buy");
+    expect(p.amount).toBe(BigInt(3)); // 3 in 0 decimals
+  });
+
+  test("refreshQuote buy: unaffordable with no swap button does not throw", async () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-folks-swap-btn").remove();
+    panel.querySelector(".id-folks-from").value = "0";
+    const to = panel.querySelector(".id-folks-to");
+    to.value = "5"; to.dataset.decimals = "6";
+    panel.querySelector(".id-folks-amount").value = "1";
+    panel.querySelector(".id-folks-form").classList.add("folks-mode-buy");
+    window.asastatsSwap = { activeAddress: () => "ADDR" };
+    const ctx = { fromAddress: "ADDR", cfg: {}, adapter: {
+      getQuote: jest.fn(async () => ({ mode: "buy", amountIn: BigInt(6000000), maximumSent: BigInt(6000000),
+        amountOut: BigInt(1000000), priceImpactPct: 0, feesTotal: 0, routeLabel: "R" })) } };
+    await F.refreshQuote(panel, ctx);
+    expect(panel.querySelector(".id-folks-status").textContent).toContain("Need up to 6 ALGO");
+    delete window.asastatsSwap;
+  });
+
+  test("renderQuote buy: no selected from-option falls back to 0 decimals / '' unit", () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-folks-from").value = ""; // no selection -> fromOpt undefined
+    F.renderQuote(panel, { mode: "buy", amountIn: BigInt(2), maximumSent: BigInt(3),
+      amountOut: BigInt(1), priceImpactPct: 0, feesTotal: 0, routeLabel: "R" });
+    const txt = panel.querySelector(".id-folks-quote").textContent;
+    expect(txt).toContain("≈ 2 "); // raw base units (0 decimals), empty unit
+  });
+
+  test("affordabilityError buy-short: empty from dataset falls back", () => {
+    const panel = mountPanel([]);
+    const opt = panel.querySelector(".id-folks-from").options[0];
+    opt.dataset.decimals = ""; opt.dataset.unit = ""; // keep data-amount=5000000
+    panel.querySelector(".id-folks-from").value = "0";
+    const msg = F.affordabilityError(panel, { mode: "buy", maximumSent: BigInt(6000000) });
+    expect(msg).toContain("Need up to 6000000"); // 0-decimals fallback, no unit
   });
 });
