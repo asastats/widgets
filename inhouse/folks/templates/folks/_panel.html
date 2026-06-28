@@ -1,13 +1,14 @@
 {% load core_extras %}
 {# Swap form for one linked address, loaded into the modal's .id-folks-panel.    #}
-{# The JSON island is the controller's source of truth; the visible form mirrors #}
-{# it. The amount field is shared by both tabs: on Sell it is the SOURCE amount  #}
-{# (fixed-input) and on Buy it is the TARGET amount (fixed-output). folks.js      #}
-{# reads the correct decimals per mode and flips the layout via .folks-mode-buy.  #}
+{# The clicked asset is the ANCHOR. On Sell it is the From (you sell it) and you  #}
+{# pick the To; on Buy it is the To (you buy it) and you pick the From you spend  #}
+{# from your holdings. folks.js (retargetForMode) flips the anchor between sides. #}
+{# All four cells live in ONE flex grid; CSS `order` controls the sequence per    #}
+{# breakpoint + mode so the amount always sits with its asset (under From on Sell, #}
+{# under "Buy (you receive)" on Buy) on both wide and stacked layouts.            #}
 <script type="application/json" class="id-folks-holdings">{{ holdings_json|safe }}</script>
 <div class="id-folks-form" data-address="{{ address }}">
-  {# Asset pickers: From (you own) on the left, To (you receive) on the right. #}
-  <div class="row id-folks-asset-row">
+  <div class="row id-folks-grid">
     <div class="input-field col s12 m6 id-folks-source-col">
       <select class="browser-default id-folks-from">
         {% for asset in holdings %}{% if asset.amount > 0 %}
@@ -17,23 +18,26 @@
                 data-amount="{{ asset.amount }}">{{ asset.unit|default:asset.id }}</option>
         {% endif %}{% endfor %}
       </select>
-      <span class="helper-text">From (you own)</span>
+      <span class="helper-text">
+        <span class="id-folks-from-label-sell">From (you own)</span>
+        <span class="id-folks-from-label-buy">Pay with (you own)</span>
+        <span class="id-folks-from-max"></span>
+      </span>
     </div>
     <div class="input-field col s12 m6 id-folks-target-col">
       <input type="text" class="id-folks-to-search" placeholder="To asset: name, unit, or ID"
+             onfocus="this.select()"
              hx-get="{% url 'folks_assets' %}"
              hx-trigger="keyup changed delay:300ms"
              hx-target="next .id-folks-to-results"
              name="q" autocomplete="off">
       <div class="id-folks-to-results"></div>
       <input type="hidden" class="id-folks-to" data-decimals="" data-unit="" data-opted-in="">
-      <span class="helper-text">To (you receive)</span>
+      <span class="helper-text">
+        <span class="id-folks-to-label-sell">To (you receive)</span>
+        <span class="id-folks-to-label-buy">Buy (you receive)</span>
+      </span>
     </div>
-  </div>
-  {# Amount (left) + slippage (right) in BOTH modes. The amount label switches    #}
-  {# with the mode; the percentage row is a "% of what you own" helper, so it is  #}
-  {# only meaningful when selling and is hidden on Buy via .folks-mode-buy CSS.    #}
-  <div class="row id-folks-amount-row">
     <div class="input-field col s12 m6 id-folks-amount-col">
       <input type="text" class="id-folks-amount" inputmode="decimal" placeholder="0.0">
       <span class="helper-text">

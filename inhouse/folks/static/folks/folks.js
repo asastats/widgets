@@ -67,6 +67,18 @@ function maxSent(amountIn, slippagePct) {
   return amountIn + (amountIn * bps) / BigInt(10000);
 }
 
+/**
+ * True when a router returned an empty / no-route quote: the computed side (output
+ * for sell, required input for buy) is missing or zero. Some routers signal "no
+ * route for this pair/size" with an all-zero quote rather than an error, and we
+ * must not render that as "≈ 0" or let the user submit it.
+ */
+function quoteIsEmpty(quote) {
+  if (!quote) return true;
+  var computed = quote.mode === "buy" ? quote.amountIn : quote.amountOut;
+  return computed == null || computed <= BigInt(0);
+}
+
 var FolksAdapter = {
   _client: null,
 
@@ -370,6 +382,14 @@ async function refreshQuote(panel, ctx) {
   setPanelStatus(panel, "Fetching best route…");
   try {
     ctx.lastQuote = await ctx.adapter.getQuote(params, ctx.cfg);
+    if (quoteIsEmpty(ctx.lastQuote)) {
+      setPanelStatus(
+        panel,
+        "No route available for this swap. Try a different amount or asset."
+      );
+      if (btn) btn.disabled = true;
+      return;
+    }
     renderQuote(panel, ctx.lastQuote);
     var affordErr = affordabilityError(panel, ctx.lastQuote);
     if (affordErr) {
@@ -502,32 +522,49 @@ function renderQuote(panel, q) {
 }
 
 /**
- * For a fixed-output (buy) quote the user must hold at least the slippage-padded
- * maximum input. Returns an error string when they don't, else "" (sell quotes
- * are guarded by the input amount itself and always return "").
+ * Returns an error string when the user can't cover the source side of the quote,
+ * else "". Sell (fixed-input) checks the entered input amount; Buy (fixed-output)
+ * checks the slippage-padded maximum input. Both compare against the holdings of
+ * the source (From) asset.
  */
 function affordabilityError(panel, quote) {
-  if (!quote || quote.mode !== "buy") return "";
+  if (!quote) return "";
+  var buy = quote.mode === "buy";
+  var required = buy ? quote.maximumSent : quote.amountIn;
+  if (required == null) return "";
   var held = sourceHoldingsBaseUnits(panel);
   if (held === null) return "";
-  if (quote.maximumSent > held) {
+  if (required > held) {
     var sel = panel.querySelector(".id-folks-from");
     var opt = sel.options[sel.selectedIndex];
     var dec = Number(opt.dataset.decimals || "0");
     var unit = opt.dataset.unit || "";
-    return (
-      "Need up to " +
-      baseUnitsToDecimal(quote.maximumSent, dec) +
-      " " +
-      unit +
-      " but you have " +
-      baseUnitsToDecimal(held, dec) +
-      " " +
-      unit +
-      "."
-    );
+    var need = baseUnitsToDecimal(required, dec) + " " + unit;
+    var have = baseUnitsToDecimal(held, dec) + " " + unit;
+    return buy
+      ? "Need up to " + need + " but you have " + have + "."
+      : "You only have " + have + " (tried to sell " + need + ").";
   }
   return "";
+}
+
+/**
+ * Mirror the selected source (From) holdings into the "you own / pay with" helper
+ * text so the user sees their maximum without opening the dropdown.
+ */
+function updateSourceMax(panel) {
+  var sel = panel.querySelector(".id-folks-from");
+  var maxEl = panel.querySelector(".id-folks-from-max");
+  if (!sel || !maxEl) return;
+  var opt = sel.options[sel.selectedIndex];
+  if (!opt || opt.dataset.amount === undefined) {
+    maxEl.textContent = "";
+    return;
+  }
+  var dec = Number(opt.dataset.decimals || "0");
+  var unit = opt.dataset.unit || "";
+  maxEl.textContent =
+    " — " + baseUnitsToDecimal(BigInt(opt.dataset.amount), dec) + " " + unit;
 }
 
 function setPanelStatus(panel, msg) {
@@ -660,6 +697,63 @@ function applySwapMode(formEl, mode) {
   return buy ? "buy" : "sell";
 }
 
+/**
+ * Re-target the panel around the constant ANCHOR asset (the one whose Swap button
+ * was clicked). On Sell the anchor is the From -- you sell it and pick the To. On
+ * Buy the anchor is the To -- you buy it and pick the From (the asset you spend)
+ * from your holdings. The anchor is captured from the From value on the first
+ * switch and remembered on the panel for later switches.
+ *
+ * Returns { mode, ok, reason }; ok is false with reason "no-source" when a Buy has
+ * no non-anchor holding available to spend.
+ */
+function retargetForMode(panel, mode) {
+  var fromSel = panel.querySelector(".id-folks-from");
+  var toHidden = panel.querySelector(".id-folks-to");
+  var toSearch = panel.querySelector(".id-folks-to-search");
+  var anchorId = panel.dataset.anchorId || fromSel.value || "";
+  panel.dataset.anchorId = anchorId;
+  if (mode === "buy") {
+    var anchorOpt = fromSel.querySelector('option[value="' + anchorId + '"]');
+    // Lock the target (To) to the anchor -- the asset being bought.
+    toHidden.value = anchorId;
+    toHidden.dataset.decimals = (anchorOpt && anchorOpt.dataset.decimals) || "0";
+    toHidden.dataset.unit = (anchorOpt && anchorOpt.dataset.unit) || "";
+    toHidden.dataset.optedIn = "1"; // the anchor is held, so already opted in
+    panel.querySelector(".id-folks-optin-notice").style.display = "none";
+    var anchorUnit = (anchorOpt && anchorOpt.dataset.unit) || "asset";
+    // Leave the search box EMPTY so typing searches cleanly; advertise the default
+    // buy target in the placeholder. The actual default selection lives in the
+    // hidden input, so a quote works with no further interaction, and the user can
+    // type to pick a different asset to buy.
+    toSearch.value = "";
+    toSearch.placeholder =
+      "Buying " + anchorUnit + " (#" + anchorId + ") — type to change";
+    panel.querySelector(".id-folks-to-results").innerHTML = "";
+    // Default the source (From) to the first held asset that is NOT the anchor.
+    var src = "";
+    for (var i = 0; i < fromSel.options.length; i++) {
+      if (fromSel.options[i].value !== anchorId) {
+        src = fromSel.options[i].value;
+        break;
+      }
+    }
+    if (!src) return { mode: "buy", ok: false, reason: "no-source" };
+    fromSel.value = src;
+    return { mode: "buy", ok: true };
+  }
+  // Sell: the anchor is the From again; the To returns to a free search picker.
+  fromSel.value = anchorId;
+  toHidden.value = "";
+  toHidden.dataset.decimals = "";
+  toHidden.dataset.unit = "";
+  toHidden.dataset.optedIn = "";
+  toSearch.value = "";
+  toSearch.placeholder = "To asset: name, unit, or ID";
+  panel.querySelector(".id-folks-optin-notice").style.display = "none";
+  return { mode: "sell", ok: true };
+}
+
 /** allo.info explorer URL for a transaction id. */
 function alloTxUrl(txid) {
   return "https://allo.info/tx/" + encodeURIComponent(txid);
@@ -731,7 +825,11 @@ function applyOwnership(panel, owns) {
 function bindPanel(panelEl, ctx) {
   ["id-folks-from", "id-folks-amount", "id-folks-slippage"].forEach(function (cls) {
     var el = panelEl.querySelector("." + cls);
-    if (el) el.addEventListener("input", function () { scheduleQuote(panelEl, ctx); });
+    if (el)
+      el.addEventListener("input", function () {
+        updateSourceMax(panelEl);
+        scheduleQuote(panelEl, ctx);
+      });
   });
   if (!ctx.cfg) {
     var pc = readPanelCfg(panelEl);
@@ -741,6 +839,11 @@ function bindPanel(panelEl, ctx) {
     }
   }
   applyImpliedSource(panelEl, ctx.from || impliedSource());
+  // Re-anchor on every (re)load: the clicked asset becomes the fresh anchor, so
+  // opening the modal from a different ASA's Swap button is captured correctly by
+  // retargetForMode instead of reusing the previous session's anchor.
+  delete panelEl.dataset.anchorId;
+  updateSourceMax(panelEl);
   panelEl.addEventListener("click", function (ev) {
     var opt = ev.target.closest && ev.target.closest(".id-folks-asset-option");
     if (opt) { selectTarget(panelEl, opt, ctx); return; }
@@ -893,6 +996,9 @@ function wireSwapTabs() {
     // mode-correct quote arrives.
     var panel = modal.querySelector(".id-folks-panel");
     if (!panel) return;
+    // Re-target the anchor: From on Sell, To on Buy (and pick a source to spend).
+    var res = retargetForMode(panel, tab.dataset.folksMode);
+    updateSourceMax(panel);
     var amt = panel.querySelector(".id-folks-amount");
     var pct = panel.querySelector(".id-folks-pct");
     var quote = panel.querySelector(".id-folks-quote");
@@ -901,7 +1007,11 @@ function wireSwapTabs() {
     if (amt) amt.value = "";
     if (pct) pct.value = "";
     if (quote) quote.textContent = "";
-    if (status) status.textContent = "";
+    if (status) {
+      status.textContent = res.ok
+        ? ""
+        : "You hold no other assets to spend on a buy.";
+    }
     if (btn) btn.disabled = true;
   });
 }
@@ -971,7 +1081,10 @@ if (typeof module !== "undefined" && module.exports) {
     routeLabelFrom: routeLabelFrom,
     minReceived: minReceived,
     maxSent: maxSent,
+    quoteIsEmpty: quoteIsEmpty,
     affordabilityError: affordabilityError,
+    retargetForMode: retargetForMode,
+    updateSourceMax: updateSourceMax,
     folksConfig: folksConfig,
     readPanelHoldings: readPanelHoldings,
     isOptedIn: isOptedIn,
