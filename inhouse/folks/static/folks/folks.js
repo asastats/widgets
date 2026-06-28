@@ -375,6 +375,7 @@ function scheduleQuote(panel, ctx) {
 async function refreshQuote(panel, ctx) {
   var params = readQuoteParams(panel, ctx.fromAddress);
   var btn = panel.querySelector(".id-folks-swap-btn");
+  clearQuote(panel); // drop any stale quote line before the new result arrives
   if (!params) {
     if (btn) btn.disabled = true;
     return;
@@ -385,7 +386,8 @@ async function refreshQuote(panel, ctx) {
     if (quoteIsEmpty(ctx.lastQuote)) {
       setPanelStatus(
         panel,
-        "No route available for this swap. Try a different amount or asset."
+        "No route available for this swap. Try a different amount or asset.",
+        true
       );
       if (btn) btn.disabled = true;
       return;
@@ -393,14 +395,14 @@ async function refreshQuote(panel, ctx) {
     renderQuote(panel, ctx.lastQuote);
     var affordErr = affordabilityError(panel, ctx.lastQuote);
     if (affordErr) {
-      setPanelStatus(panel, affordErr);
+      setPanelStatus(panel, affordErr, true);
       if (btn) btn.disabled = true;
       return;
     }
     setPanelStatus(panel, "");
     applyOwnership(panel, walletOwns(ctx.fromAddress));
   } catch (e) {
-    setPanelStatus(panel, "Could not fetch a quote: " + (e && e.message));
+    setPanelStatus(panel, "Could not fetch a quote: " + (e && e.message), true);
     if (btn) btn.disabled = true;
   }
 }
@@ -412,7 +414,7 @@ async function executeSwap(panel, ctx) {
   // now (it may have connected, disconnected, or switched since the quote). The
   // on-chain sender check is the ultimate backstop; this is the clear message.
   if (!walletOwns(ctx.fromAddress)) {
-    setPanelStatus(panel, "Connect the wallet for this address to swap.");
+    setPanelStatus(panel, "Connect the wallet for this address to swap.", true);
     return;
   }
   var btn = panel.querySelector(".id-folks-swap-btn");
@@ -427,7 +429,7 @@ async function executeSwap(panel, ctx) {
     var requiredInput =
       ctx.lastQuote.mode === "buy" ? ctx.lastQuote.maximumSent : params.amount;
     if (!from || BigInt(from.amount) < requiredInput) {
-      setPanelStatus(panel, "Insufficient balance — it may have changed.");
+      setPanelStatus(panel, "Insufficient balance — it may have changed.", true);
       return;
     }
     var txid;
@@ -472,7 +474,7 @@ async function executeSwap(panel, ctx) {
     markSwapDirty(panel);
     submitted = true;
   } catch (e) {
-    setPanelStatus(panel, "Swap failed or cancelled: " + (e && e.message));
+    setPanelStatus(panel, "Swap failed or cancelled: " + (e && e.message), true);
   } finally {
     // Keep the button disabled after a successful submit (the amount was
     // cleared); on failure, restore it to the owner's normal state.
@@ -567,9 +569,17 @@ function updateSourceMax(panel) {
     " — " + baseUnitsToDecimal(BigInt(opt.dataset.amount), dec) + " " + unit;
 }
 
-function setPanelStatus(panel, msg) {
+function clearQuote(panel) {
+  var el = panel.querySelector(".id-folks-quote");
+  if (el) el.textContent = "";
+}
+
+function setPanelStatus(panel, msg, isError) {
   var el = panel.querySelector(".id-folks-status");
-  if (el) el.textContent = msg;
+  if (el) {
+    el.textContent = msg;
+    el.classList.toggle("id-folks-status-error", !!isError);
+  }
 }
 
 /** Parse a decimal string into integer base units (bigint), truncating extra dp. */
@@ -768,6 +778,7 @@ function alloTxUrl(txid) {
 function renderSwapSuccess(panel, txid) {
   var status = panel.querySelector(".id-folks-status");
   if (status) {
+    status.classList.remove("id-folks-status-error");
     status.textContent = "Swap submitted: ";
     var a = document.createElement("a");
     a.className = "id-folks-tx-link";
@@ -926,7 +937,7 @@ function handleInlineSwapClick(ev) {
   var address = marker ? marker.dataset.address : "";
   if (!marker || !address) {
     panelEl.innerHTML =
-      '<div class="id-folks-status">Swap is not available for this address.</div>';
+      '<div class="id-folks-status id-folks-status-error">Swap is not available for this address.</div>';
     return;
   }
   btn.dataset.folksLoaded = "1";
@@ -956,7 +967,7 @@ function openSwapModal(fromAsset) {
   // quote must never fail just because the holdings island lacks router config.
   if (!cfg || !cfg.router || !ROUTERS[cfg.router] || !address) {
     panelEl.innerHTML =
-      '<div class="id-folks-status">Swap is not available for this address.</div>';
+      '<div class="id-folks-status id-folks-status-error">Swap is not available for this address.</div>';
     return;
   }
   if (panelEl.dataset.folksFrom === String(fromAsset) && panelEl.dataset.folksLoaded) {
@@ -1098,6 +1109,7 @@ if (typeof module !== "undefined" && module.exports) {
     executeSwap: executeSwap,
     renderQuote: renderQuote,
     setPanelStatus: setPanelStatus,
+    clearQuote: clearQuote,
     walletOwns: walletOwns,
     applyOwnership: applyOwnership,
     alloTxUrl: alloTxUrl,

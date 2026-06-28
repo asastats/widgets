@@ -1089,9 +1089,14 @@ describe("fixed-output (buy) mode", () => {
     panel.querySelector(".id-folks-amount").value = "1";
     panel.querySelector(".id-folks-form").classList.add("folks-mode-buy");
     window.asastatsSwap = { activeAddress: () => "ADDR" };
-    const ctx = { fromAddress: "ADDR", cfg: {}, adapter: {
-      getQuote: jest.fn(async () => ({ mode: "buy", amountIn: BigInt(6000000), maximumSent: BigInt(6000000),
-        amountOut: BigInt(1000000), priceImpactPct: 0, feesTotal: 0, routeLabel: "R" })) } };
+    const ctx = {
+      fromAddress: "ADDR", cfg: {}, adapter: {
+        getQuote: jest.fn(async () => ({
+          mode: "buy", amountIn: BigInt(6000000), maximumSent: BigInt(6000000),
+          amountOut: BigInt(1000000), priceImpactPct: 0, feesTotal: 0, routeLabel: "R"
+        }))
+      }
+    };
     await F.refreshQuote(panel, ctx);
     expect(panel.querySelector(".id-folks-status").textContent).toContain("Need up to 6 ALGO");
     expect(panel.querySelector(".id-folks-swap-btn").disabled).toBe(true);
@@ -1107,9 +1112,11 @@ describe("fixed-output (buy) mode", () => {
     panel.querySelector(".id-folks-form").classList.add("folks-mode-buy");
     global.fetch = jest.fn(async () => ({ text: async () => panelHTML([{ id: 0, amount: 5000000 }]) }));
     window.asastatsSwap = { activeAddress: () => "ADDR", signAndSend: jest.fn() };
-    const ctx = { fromAddress: "ADDR", cfg: {}, holdingsUrl: "/u",
+    const ctx = {
+      fromAddress: "ADDR", cfg: {}, holdingsUrl: "/u",
       lastQuote: { mode: "buy", maximumSent: BigInt(6000000), amountOut: BigInt(1000000) },
-      adapter: { buildSwapGroup: jest.fn() } };
+      adapter: { buildSwapGroup: jest.fn() }
+    };
     await F.executeSwap(panel, ctx);
     expect(panel.querySelector(".id-folks-status").textContent).toContain("Insufficient");
     expect(window.asastatsSwap.signAndSend).not.toHaveBeenCalled();
@@ -1139,9 +1146,14 @@ describe("fixed-output (buy) — fallback branches", () => {
     panel.querySelector(".id-folks-amount").value = "1";
     panel.querySelector(".id-folks-form").classList.add("folks-mode-buy");
     window.asastatsSwap = { activeAddress: () => "ADDR" };
-    const ctx = { fromAddress: "ADDR", cfg: {}, adapter: {
-      getQuote: jest.fn(async () => ({ mode: "buy", amountIn: BigInt(6000000), maximumSent: BigInt(6000000),
-        amountOut: BigInt(1000000), priceImpactPct: 0, feesTotal: 0, routeLabel: "R" })) } };
+    const ctx = {
+      fromAddress: "ADDR", cfg: {}, adapter: {
+        getQuote: jest.fn(async () => ({
+          mode: "buy", amountIn: BigInt(6000000), maximumSent: BigInt(6000000),
+          amountOut: BigInt(1000000), priceImpactPct: 0, feesTotal: 0, routeLabel: "R"
+        }))
+      }
+    };
     await F.refreshQuote(panel, ctx);
     expect(panel.querySelector(".id-folks-status").textContent).toContain("Need up to 6 ALGO");
     delete window.asastatsSwap;
@@ -1150,8 +1162,10 @@ describe("fixed-output (buy) — fallback branches", () => {
   test("renderQuote buy: no selected from-option falls back to 0 decimals / '' unit", () => {
     const panel = mountPanel([]);
     panel.querySelector(".id-folks-from").value = ""; // no selection -> fromOpt undefined
-    F.renderQuote(panel, { mode: "buy", amountIn: BigInt(2), maximumSent: BigInt(3),
-      amountOut: BigInt(1), priceImpactPct: 0, feesTotal: 0, routeLabel: "R" });
+    F.renderQuote(panel, {
+      mode: "buy", amountIn: BigInt(2), maximumSent: BigInt(3),
+      amountOut: BigInt(1), priceImpactPct: 0, feesTotal: 0, routeLabel: "R"
+    });
     const txt = panel.querySelector(".id-folks-quote").textContent;
     expect(txt).toContain("≈ 2 "); // raw base units (0 decimals), empty unit
   });
@@ -1300,9 +1314,14 @@ describe("empty / no-route quote handling", () => {
     panel.querySelector(".id-folks-amount").value = "10000";
     panel.querySelector(".id-folks-form").classList.add("folks-mode-buy");
     window.asastatsSwap = { activeAddress: () => "ADDR" };
-    const ctx = { fromAddress: "ADDR", cfg: {}, adapter: {
-      getQuote: jest.fn(async () => ({ mode: "buy", amountIn: BigInt(0), maximumSent: BigInt(0),
-        amountOut: BigInt(10000000000), priceImpactPct: 0, feesTotal: 0, routeLabel: "Haystack Router" })) } };
+    const ctx = {
+      fromAddress: "ADDR", cfg: {}, adapter: {
+        getQuote: jest.fn(async () => ({
+          mode: "buy", amountIn: BigInt(0), maximumSent: BigInt(0),
+          amountOut: BigInt(10000000000), priceImpactPct: 0, feesTotal: 0, routeLabel: "Haystack Router"
+        }))
+      }
+    };
     await F.refreshQuote(panel, ctx);
     expect(panel.querySelector(".id-folks-status").textContent).toContain("No route available");
     expect(panel.querySelector(".id-folks-swap-btn").disabled).toBe(true);
@@ -1321,11 +1340,116 @@ describe("empty quote — no button branch", () => {
     panel.querySelector(".id-folks-amount").value = "10000";
     panel.querySelector(".id-folks-form").classList.add("folks-mode-buy");
     window.asastatsSwap = { activeAddress: () => "ADDR" };
-    const ctx = { fromAddress: "ADDR", cfg: {}, adapter: {
-      getQuote: jest.fn(async () => ({ mode: "buy", amountIn: BigInt(0), maximumSent: BigInt(0),
-        amountOut: BigInt(1), priceImpactPct: 0, feesTotal: 0, routeLabel: "R" })) } };
+    const ctx = {
+      fromAddress: "ADDR", cfg: {}, adapter: {
+        getQuote: jest.fn(async () => ({
+          mode: "buy", amountIn: BigInt(0), maximumSent: BigInt(0),
+          amountOut: BigInt(1), priceImpactPct: 0, feesTotal: 0, routeLabel: "R"
+        }))
+      }
+    };
     await F.refreshQuote(panel, ctx);
     expect(panel.querySelector(".id-folks-status").textContent).toContain("No route available");
+    delete window.asastatsSwap;
+  });
+});
+
+describe("Haystack fixed-output: amount is sent unmodified in target base units", () => {
+  test("buy 10000 of a 6-decimal asset -> amount = 10000 * 1e6 (decimals correct)", async () => {
+    F.HaystackAdapter._clients = {};
+    let captured;
+    const client = { newQuote: jest.fn(async (p) => { captured = p; return { quote: "1350000", flattenedRoute: {} }; }) };
+    window.HaystackRouter = { RouterClient: jest.fn(() => client) };
+    const q = await F.HaystackAdapter.getQuote(
+      {
+        mode: "buy", fromAssetId: 0, toAssetId: 393537671,
+        amount: BigInt(10000) * BigInt(1000000), slippagePct: 0.5
+      },
+      { apiKey: "K" }
+    );
+    expect(captured.type).toBe("fixed-output");
+    expect(captured.toASAID).toBe(393537671);
+    expect(captured.amount).toBe(BigInt(10000000000)); // sent verbatim, in target base units
+    expect(q.amountIn).toBe(BigInt(1350000));          // required input read back from sq.quote
+    delete window.HaystackRouter; F.HaystackAdapter._clients = {};
+  });
+
+  test("an empty/zero router response is detected as no-route (not rendered as 0)", async () => {
+    F.HaystackAdapter._clients = {};
+    // The SDK maps an empty API quote ("") to 0n before our adapter sees it.
+    const client = { newQuote: jest.fn(async () => ({ quote: "0", flattenedRoute: {} })) };
+    window.HaystackRouter = { RouterClient: jest.fn(() => client) };
+    const q = await F.HaystackAdapter.getQuote(
+      { mode: "buy", fromAssetId: 0, toAssetId: 393537671, amount: BigInt(10000000000), slippagePct: 0.5 },
+      { apiKey: "K" }
+    );
+    expect(F.quoteIsEmpty(q)).toBe(true);
+    delete window.HaystackRouter; F.HaystackAdapter._clients = {};
+  });
+});
+
+describe("status styling + stale-quote clearing", () => {
+  test("setPanelStatus toggles the error class on/off", () => {
+    const panel = mountPanel([]);
+    const status = panel.querySelector(".id-folks-status");
+    F.setPanelStatus(panel, "oops", true);
+    expect(status.textContent).toBe("oops");
+    expect(status.classList.contains("id-folks-status-error")).toBe(true);
+    F.setPanelStatus(panel, "ok"); // not an error -> class removed
+    expect(status.classList.contains("id-folks-status-error")).toBe(false);
+  });
+
+  test("clearQuote empties the quote line and no-ops when absent", () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-folks-quote").textContent = "≈ 1 USDC";
+    F.clearQuote(panel);
+    expect(panel.querySelector(".id-folks-quote").textContent).toBe("");
+    expect(() => F.clearQuote(document.createElement("div"))).not.toThrow();
+  });
+
+  test("refreshQuote: a no-route result clears the prior quote and marks status red", async () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-folks-quote").textContent = "≈ 0.1167 USDC (max ...)"; // stale
+    panel.querySelector(".id-folks-from").value = "0";
+    const to = panel.querySelector(".id-folks-to");
+    to.value = "393537671"; to.dataset.decimals = "6";
+    panel.querySelector(".id-folks-amount").value = "10000";
+    panel.querySelector(".id-folks-form").classList.add("folks-mode-buy");
+    window.asastatsSwap = { activeAddress: () => "ADDR" };
+    const ctx = {
+      fromAddress: "ADDR", cfg: {}, adapter: {
+        getQuote: jest.fn(async () => ({
+          mode: "buy", amountIn: BigInt(0), maximumSent: BigInt(0),
+          amountOut: BigInt(1), priceImpactPct: 0, feesTotal: 0, routeLabel: "R"
+        }))
+      }
+    };
+    await F.refreshQuote(panel, ctx);
+    expect(panel.querySelector(".id-folks-quote").textContent).toBe(""); // stale line gone
+    const status = panel.querySelector(".id-folks-status");
+    expect(status.textContent).toContain("No route available");
+    expect(status.classList.contains("id-folks-status-error")).toBe(true);
+    delete window.asastatsSwap;
+  });
+
+  test("refreshQuote: a successful quote clears any prior error styling", async () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-folks-status").classList.add("id-folks-status-error");
+    panel.querySelector(".id-folks-from").value = "0";
+    const to = panel.querySelector(".id-folks-to");
+    to.value = "31566704"; to.dataset.decimals = "6";
+    panel.querySelector(".id-folks-amount").value = "1";
+    window.asastatsSwap = { activeAddress: () => "ADDR" };
+    const ctx = {
+      fromAddress: "ADDR", cfg: {}, adapter: {
+        getQuote: jest.fn(async () => ({
+          mode: "sell", amountOut: BigInt(2000000), amountIn: BigInt(1000000),
+          minimumReceived: BigInt(1990000), priceImpactPct: 0, feesTotal: 0, routeLabel: "pact"
+        }))
+      }
+    };
+    await F.refreshQuote(panel, ctx);
+    expect(panel.querySelector(".id-folks-status").classList.contains("id-folks-status-error")).toBe(false);
     delete window.asastatsSwap;
   });
 });
