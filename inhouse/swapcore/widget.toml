@@ -1,0 +1,27 @@
+id = "swapcore"
+name = "Swap core"
+version = "0.1.0"
+
+# Inhouse infra, not a router: it owns the router-agnostic engine-data endpoints
+# (fresh holdings + asset search) shared by every swap-router widget.
+origin = "inhouse"
+
+# Engine-backed: it calls api.client.engine_request for the two generic scopes.
+capability = "engine-backed"
+revenue_account = ""
+
+# The same generic, data-named scopes every router declares. Mounted once here so
+# routers no longer each re-expose them.
+#   account:holdings -> GET /api/v2/internal/accounts/{address}/holdings/
+#   assets:lookup    -> GET /api/v2/internal/assets/{id}/ | ?q=...
+engine_endpoints = ["account:holdings", "assets:lookup"]
+
+# Host-injected context used by the shared views' gate.
+data = ["profile:permission", "walletauth:linked_addresses"]
+
+# Deliberately NO `category = "swap"`: this must not be discovered as a selectable
+# router by widgethost.registry.swap_routers().
+
+# A swap is a single-user action; holdings are gated per-address by linkage and
+# asset metadata is public. 0 = any authenticated profile (mirrors the routers).
+required_permission = 0

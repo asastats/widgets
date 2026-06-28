@@ -2,35 +2,39 @@
 {% block title %}Swap (Folks Smart Router) - {{ WEBSITE_NAME }}{% endblock %}
 {% block content %}
 {# Page context + non-secret router config handed to the controller via data-*. #}
-<div id="id-folks-swap"
+<div id="id-swap-swap"
      data-router="{{ router_id }}"
      data-bundle="{{ bundle }}"
      data-addresses="{{ addresses }}"
      data-network="{{ folks_network }}"
-     data-referrer="{{ folks_referrer }}">
+     data-referrer="{{ folks_referrer }}"
+     data-fee-bps="{{ folks_fee_bps }}">
 
   <h1 class="center-align">Swap</h1>
 
   {% if linked_addresses %}
-  <ul class="collapsible" id="id-folks-addresses">
+  <ul class="collapsible" id="id-swap-addresses">
     {% for address in linked_addresses %}
     <li data-address="{{ address }}">
       <div class="collapsible-header">{{ address|short_address }}</div>
       <div class="collapsible-body">
-        {# Holdings panel is lazy-loaded on first open; folks.js triggers the load. #}
-        <div class="id-folks-panel" id="id-folks-panel-{{ forloop.counter }}"
-             data-holdings-url="{% url 'folks_holdings' address %}"></div>
+        {# Holdings panel is lazy-loaded on first open; swap.js triggers the load. #}
+        <div class="id-swap-panel" id="id-swap-panel-{{ forloop.counter }}"
+             data-holdings-url="{% url 'swap_holdings' address %}"></div>
       </div>
     </li>
     {% endfor %}
   </ul>
   {% else %}
-  <blockquote id="id-folks-locked">
+  <blockquote id="id-swap-locked">
     Connect the wallet that owns an address on this page to swap from it.
   </blockquote>
   {% endif %}
 </div>
 
+{# Requires the wallet swap bridge (window.asastatsSwap: activeAddress/
+   signAndSend/optIn, dispatching 'asastats:swap-ready') to be loaded on this
+   page -- it ships with the wallet bundle; ensure that bundle is included. #}
 <script src="{% static 'folks/folks-sdk.bundle.js' %}"></script>
-<script src="{% static 'folks/folks.js' %}"></script>
+<script src="{% static 'swap/swap.js' %}"></script>
 {% endblock %}

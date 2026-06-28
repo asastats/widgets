@@ -1,24 +1,24 @@
 {% load core_extras %}
-{# Responsive Swap modal. A Swap button (.id-folks-swap-toggle, data-from) opens  #}
-{# it; folks.js resolves the router + cfg from the #id-swap-enabled marker and    #}
-{# loads the holdings form into .id-folks-panel. The provider name + the          #}
+{# Responsive Swap modal. A Swap button (.id-swap-swap-toggle, data-from) opens  #}
+{# it; swap.js resolves the router + cfg from the #id-swap-enabled marker and    #}
+{# loads the holdings form into .id-swap-panel. The provider name + the          #}
 {# "change router" note are server-rendered from the (non-cached) swap context,   #}
 {# so they survive even when the panel shows the "not available" message.         #}
-<div id="folks-swap-modal" class="modal">
+<div id="swap-modal" class="modal">
   <div class="modal-content">
     <h4 class="center-align">Swap ({{ swap_router_name|default:"smart router" }})</h4>
     <div class="row">
       <div class="col s12">
         <ul class="tabs tabs-fixed-width">
-          <li class="tab col s6"><a class="active" href="#folks-tab-sell" data-folks-mode="sell">Sell</a></li>
-          <li class="tab col s6"><a href="#folks-tab-buy" data-folks-mode="buy">Buy</a></li>
+          <li class="tab col s6"><a class="active" href="#swap-tab-sell" data-swap-mode="sell">Sell</a></li>
+          <li class="tab col s6"><a href="#swap-tab-buy" data-swap-mode="buy">Buy</a></li>
         </ul>
       </div>
       {# Materialize needs the href targets to exist; the real form is shared below. #}
-      <div id="folks-tab-sell" class="col s12"></div>
-      <div id="folks-tab-buy" class="col s12"></div>
+      <div id="swap-tab-sell" class="col s12"></div>
+      <div id="swap-tab-buy" class="col s12"></div>
     </div>
-    <div class="id-folks-panel" data-from=""></div>
+    <div class="id-swap-panel" data-from=""></div>
   </div>
   <div class="modal-footer">
     <span class="left helper-text">

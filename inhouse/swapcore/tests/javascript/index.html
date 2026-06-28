@@ -2,7 +2,7 @@
 <html lang="en">
 <head><meta charset="utf-8"><title>ASA Stats</title></head>
 <body>
-<div id="id-folks-swap"
+<div id="id-swap-swap"
      data-router="folks"
      data-bundle="BUNDLE"
      data-addresses="AAAA BBBB"
@@ -11,11 +11,11 @@
      data-referrer="REFERRER"
      data-fee-bps="10">
   <h1 class="center-align">Swap</h1>
-  <script type="application/json" id="id-folks-holdings">{"AAAA": [{"id": 31566704, "unit": "USDC", "decimals": 6, "amount": 5000000}, {"id": 888, "unit": "BAR", "decimals": 3, "amount": 10}, {"id": 999, "unit": "ZERO", "decimals": 2, "amount": 0}]}</script>
-  <div id="id-folks-locked" class="col s12 center-align" style="display:none;">
+  <script type="application/json" id="id-swap-holdings">{"AAAA": [{"id": 31566704, "unit": "USDC", "decimals": 6, "amount": 5000000}, {"id": 888, "unit": "BAR", "decimals": 3, "amount": 10}, {"id": 999, "unit": "ZERO", "decimals": 2, "amount": 0}]}</script>
+  <div id="id-swap-locked" class="col s12 center-align" style="display:none;">
     <blockquote>Connect the wallet that owns this address to swap from it.</blockquote>
   </div>
-  <div id="id-folks-form" class="row" style="display:none;">
+  <div id="id-swap-form" class="row" style="display:none;">
     <select id="id-from-asset"></select>
     <select id="id-to-asset"></select>
     <input id="id-amount" type="text" inputmode="decimal" placeholder="0.0">
@@ -28,9 +28,9 @@
       <span id="id-quote-fees"></span>
     </div>
     <button id="id-swap-btn" disabled>Swap</button>
-    <div id="id-folks-status"></div>
+    <div id="id-swap-status"></div>
   </div>
 </div>
-<script src="/static/folks/folks.js"></script>
+<script src="/static/swap/swap.js"></script>
 </body>
 </html>

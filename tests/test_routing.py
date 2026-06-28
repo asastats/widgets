@@ -37,6 +37,7 @@ class TestWidgetsRouting:
                 ("inhouse.historic.routing",),
                 ("inhouse.folks.routing",),
                 ("inhouse.haystack.routing",),
+                ("inhouse.swapcore.routing",),
             ]
         finally:
             mocker.stopall()

@@ -1,0 +1,71 @@
+{% load core_extras %}
+{# Swap form for one linked address, loaded into the modal's .id-swap-panel.    #}
+{# The clicked asset is the ANCHOR. On Sell it is the From (you sell it) and you  #}
+{# pick the To; on Buy it is the To (you buy it) and you pick the From you spend  #}
+{# from your holdings. swap.js (retargetForMode) flips the anchor between sides. #}
+{# All four cells live in ONE flex grid; CSS `order` controls the sequence per    #}
+{# breakpoint + mode so the amount always sits with its asset (under From on Sell, #}
+{# under "Buy (you receive)" on Buy) on both wide and stacked layouts.            #}
+<script type="application/json" class="id-swap-holdings">{{ holdings_json|safe }}</script>
+<div class="id-swap-form" data-address="{{ address }}">
+  <div class="row id-swap-grid">
+    <div class="input-field col s12 m6 id-swap-source-col">
+      <select class="browser-default id-swap-from">
+        {% for asset in holdings %}{% if asset.amount > 0 %}
+        <option value="{{ asset.id }}"
+                data-decimals="{{ asset.decimals }}"
+                data-unit="{{ asset.unit }}"
+                data-amount="{{ asset.amount }}">{{ asset.unit|default:asset.id }}</option>
+        {% endif %}{% endfor %}
+      </select>
+      <span class="helper-text">
+        <span class="id-swap-from-label-sell">From (you own)</span>
+        <span class="id-swap-from-label-buy">Pay with (you own)</span>
+        <span class="id-swap-from-max"></span>
+      </span>
+    </div>
+    <div class="input-field col s12 m6 id-swap-target-col">
+      <input type="text" class="id-swap-to-search" placeholder="To asset: name, unit, or ID"
+             onfocus="this.select()"
+             hx-get="{% url 'swap_assets' %}"
+             hx-trigger="keyup changed delay:300ms"
+             hx-target="next .id-swap-to-results"
+             name="q" autocomplete="off">
+      <div class="id-swap-to-results"></div>
+      <input type="hidden" class="id-swap-to" data-decimals="" data-unit="" data-opted-in="">
+      <span class="helper-text">
+        <span class="id-swap-to-label-sell">To (you receive)</span>
+        <span class="id-swap-to-label-buy">Buy (you receive)</span>
+      </span>
+    </div>
+    <div class="input-field col s12 m6 id-swap-amount-col">
+      <input type="text" class="id-swap-amount" inputmode="decimal" placeholder="0.0">
+      <span class="helper-text">
+        <span class="id-swap-amount-label-sell">Amount to sell</span>
+        <span class="id-swap-amount-label-buy">Amount to buy</span>
+      </span>
+      <div class="id-swap-pct-row">
+        <button type="button" class="btn-flat id-swap-pct-btn" data-pct="25">25%</button>
+        <button type="button" class="btn-flat id-swap-pct-btn" data-pct="50">50%</button>
+        <button type="button" class="btn-flat id-swap-pct-btn" data-pct="75">75%</button>
+        <button type="button" class="btn-flat id-swap-pct-btn" data-pct="100">Max</button>
+        <input type="text" class="id-swap-pct" inputmode="decimal" placeholder="%">
+      </div>
+    </div>
+    <div class="input-field col s12 m6 id-swap-slippage-col">
+      <input type="text" class="id-swap-slippage" inputmode="decimal" value="0.5">
+      <span class="helper-text">Slippage %</span>
+    </div>
+  </div>
+  <div class="id-swap-quote" aria-live="polite"></div>
+  <div class="id-swap-status" aria-live="polite"></div>
+  <div class="id-swap-optin-notice" style="display:none;">
+    Opting into the target asset locks 0.1 ALGO and needs one extra approval.
+  </div>
+  <div class="id-swap-connect-notice" style="display:none;">
+    Connect the wallet for this address to swap.
+  </div>
+  <div class="center-align">
+    <button class="btn whenmoon waves-effect id-swap-swap-btn" type="button" disabled>Swap</button>
+  </div>
+</div>

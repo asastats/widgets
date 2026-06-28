@@ -10,9 +10,9 @@
  *  - The shell renders one collapsible per linked address. Opening a section
  *    lazy-loads its swap panel via htmx from `account:holdings` (the widget's
  *    FolksHoldingsView -> engine_request). The panel embeds a JSON island
- *    (`.id-folks-holdings`) that is this controller's source of truth for the SDK.
+ *    (`.id-swap-holdings`) that is this controller's source of truth for the SDK.
  *  - The target search box is htmx-wired in the template to `assets:lookup`; this
- *    controller only handles selecting a returned `.id-folks-asset-option`.
+ *    controller only handles selecting a returned `.id-swap-asset-option`.
  *  - Opt-in is detected client-side (target id present in the holdings island).
  *    On Swap the controller re-reads fresh holdings, and if the target is not
  *    opted in it runs `window.asastatsSwap.optIn` as a separate pre-flight txn
@@ -276,7 +276,7 @@ var ROUTERS = { folks: FolksAdapter, haystack: HaystackAdapter };
 var QUOTE_DEBOUNCE_MS = 400;
 
 /** Read non-secret router config from the shell root element. */
-function folksConfig(root) {
+function swapConfig(root) {
   return {
     network: root.dataset.network || "mainnet",
     referrer: root.dataset.referrer || "",
@@ -286,7 +286,7 @@ function folksConfig(root) {
 
 /** Parse a panel's holdings JSON island into an array of holdings. */
 function readPanelHoldings(panel) {
-  var el = panel.querySelector(".id-folks-holdings");
+  var el = panel.querySelector(".id-swap-holdings");
   if (!el) return [];
   try {
     return JSON.parse(el.textContent || "[]");
@@ -308,7 +308,7 @@ async function fetchHoldings(url) {
   var resp = await fetch(url, { headers: { "HX-Request": "true" } });
   var html = await resp.text();
   var doc = new DOMParser().parseFromString(html, "text/html");
-  var island = doc.querySelector(".id-folks-holdings");
+  var island = doc.querySelector(".id-swap-holdings");
   if (!island) return [];
   try {
     return JSON.parse(island.textContent || "[]");
@@ -319,33 +319,33 @@ async function fetchHoldings(url) {
 
 /** Set the chosen target on the panel and toggle the opt-in notice. */
 function selectTarget(panel, optionEl, ctx) {
-  var toHidden = panel.querySelector(".id-folks-to");
+  var toHidden = panel.querySelector(".id-swap-to");
   toHidden.value = optionEl.dataset.id;
   toHidden.dataset.decimals = optionEl.dataset.decimals || "0";
   toHidden.dataset.unit = optionEl.dataset.unit || "";
   var opted = isOptedIn(readPanelHoldings(panel), optionEl.dataset.id);
   toHidden.dataset.optedIn = opted ? "1" : "0";
-  panel.querySelector(".id-folks-optin-notice").style.display = opted
+  panel.querySelector(".id-swap-optin-notice").style.display = opted
     ? "none"
     : "block";
-  panel.querySelector(".id-folks-to-search").value =
+  panel.querySelector(".id-swap-to-search").value =
     (optionEl.dataset.unit || "ASA") + " (#" + optionEl.dataset.id + ")";
-  var results = panel.querySelector(".id-folks-to-results");
+  var results = panel.querySelector(".id-swap-to-results");
   if (results) results.innerHTML = "";
   scheduleQuote(panel, ctx);
 }
 
 /** Assemble QuoteParams from a panel; null until from/to/amount are complete. */
 function readQuoteParams(panel, fromAddress) {
-  var fromSel = panel.querySelector(".id-folks-from");
-  var toHidden = panel.querySelector(".id-folks-to");
-  var amountEl = panel.querySelector(".id-folks-amount");
-  var slipEl = panel.querySelector(".id-folks-slippage");
+  var fromSel = panel.querySelector(".id-swap-from");
+  var toHidden = panel.querySelector(".id-swap-to");
+  var amountEl = panel.querySelector(".id-swap-amount");
+  var slipEl = panel.querySelector(".id-swap-slippage");
   if (!fromSel || !fromSel.value || !toHidden.value || !amountEl.value) {
     return null;
   }
-  var form = panel.querySelector(".id-folks-form");
-  var mode = form && form.classList.contains("folks-mode-buy") ? "buy" : "sell";
+  var form = panel.querySelector(".id-swap-form");
+  var mode = form && form.classList.contains("swap-mode-buy") ? "buy" : "sell";
   var fromOpt = fromSel.options[fromSel.selectedIndex];
   // Sell fixes the SOURCE amount (From decimals); Buy fixes the TARGET amount
   // (To decimals). The amount field's units depend on the mode.
@@ -374,7 +374,7 @@ function scheduleQuote(panel, ctx) {
 
 async function refreshQuote(panel, ctx) {
   var params = readQuoteParams(panel, ctx.fromAddress);
-  var btn = panel.querySelector(".id-folks-swap-btn");
+  var btn = panel.querySelector(".id-swap-swap-btn");
   clearQuote(panel); // drop any stale quote line before the new result arrives
   if (!params) {
     if (btn) btn.disabled = true;
@@ -417,7 +417,7 @@ async function executeSwap(panel, ctx) {
     setPanelStatus(panel, "Connect the wallet for this address to swap.", true);
     return;
   }
-  var btn = panel.querySelector(".id-folks-swap-btn");
+  var btn = panel.querySelector(".id-swap-swap-btn");
   if (btn) btn.disabled = true;
   var submitted = false;
   setPanelStatus(panel, "Re-checking balance…");
@@ -483,9 +483,9 @@ async function executeSwap(panel, ctx) {
 }
 
 function renderQuote(panel, q) {
-  var out = panel.querySelector(".id-folks-quote");
+  var out = panel.querySelector(".id-swap-quote");
   if (!out) return;
-  var fromSel = panel.querySelector(".id-folks-from");
+  var fromSel = panel.querySelector(".id-swap-from");
   var fromOpt = fromSel && fromSel.options[fromSel.selectedIndex];
   if (q.mode === "buy") {
     // Fixed-output: show the required INPUT (and the slippage-padded ceiling) in
@@ -508,7 +508,7 @@ function renderQuote(panel, q) {
     return;
   }
   // Fixed-input: show the OUTPUT received (and the slippage floor) in target units.
-  var toHidden = panel.querySelector(".id-folks-to");
+  var toHidden = panel.querySelector(".id-swap-to");
   var toDec = Number((toHidden && toHidden.dataset.decimals) || "0");
   out.textContent =
     "≈ " +
@@ -537,7 +537,7 @@ function affordabilityError(panel, quote) {
   var held = sourceHoldingsBaseUnits(panel);
   if (held === null) return "";
   if (required > held) {
-    var sel = panel.querySelector(".id-folks-from");
+    var sel = panel.querySelector(".id-swap-from");
     var opt = sel.options[sel.selectedIndex];
     var dec = Number(opt.dataset.decimals || "0");
     var unit = opt.dataset.unit || "";
@@ -555,8 +555,8 @@ function affordabilityError(panel, quote) {
  * text so the user sees their maximum without opening the dropdown.
  */
 function updateSourceMax(panel) {
-  var sel = panel.querySelector(".id-folks-from");
-  var maxEl = panel.querySelector(".id-folks-from-max");
+  var sel = panel.querySelector(".id-swap-from");
+  var maxEl = panel.querySelector(".id-swap-from-max");
   if (!sel || !maxEl) return;
   var opt = sel.options[sel.selectedIndex];
   if (!opt || opt.dataset.amount === undefined) {
@@ -570,15 +570,15 @@ function updateSourceMax(panel) {
 }
 
 function clearQuote(panel) {
-  var el = panel.querySelector(".id-folks-quote");
+  var el = panel.querySelector(".id-swap-quote");
   if (el) el.textContent = "";
 }
 
 function setPanelStatus(panel, msg, isError) {
-  var el = panel.querySelector(".id-folks-status");
+  var el = panel.querySelector(".id-swap-status");
   if (el) {
     el.textContent = msg;
-    el.classList.toggle("id-folks-status-error", !!isError);
+    el.classList.toggle("id-swap-status-error", !!isError);
   }
 }
 
@@ -616,7 +616,7 @@ function impliedSource() {
 
 function applyImpliedSource(panel, fromAsset) {
   if (!fromAsset) return false;
-  var sel = panel.querySelector(".id-folks-from");
+  var sel = panel.querySelector(".id-swap-from");
   if (!sel) return false;
   var match = sel.querySelector('option[value="' + fromAsset + '"]');
   if (!match) return false;
@@ -624,9 +624,9 @@ function applyImpliedSource(panel, fromAsset) {
   return true;
 }
 
-/** Read the router cfg island the holdings partial embeds (`.id-folks-cfg`). */
+/** Read the router cfg island the holdings partial embeds (`.id-swap-cfg`). */
 function readPanelCfg(panelEl) {
-  var el = panelEl.querySelector(".id-folks-cfg");
+  var el = panelEl.querySelector(".id-swap-cfg");
   if (!el) return null;
   return {
     router: el.dataset.router || "",
@@ -679,7 +679,7 @@ function applyPercent(base, decimals, pct) {
 
 /** Holding base units (bigint) of the currently selected source asset, or null. */
 function sourceHoldingsBaseUnits(panel) {
-  var sel = panel.querySelector(".id-folks-from");
+  var sel = panel.querySelector(".id-swap-from");
   if (!sel || !sel.value) return null;
   var opt = sel.options[sel.selectedIndex];
   if (!opt || opt.dataset.amount === undefined) return null;
@@ -688,8 +688,8 @@ function sourceHoldingsBaseUnits(panel) {
 
 /** Set the amount field to `pct`% of the selected source holding; returns it. */
 function setAmountFromPercent(panel, pct) {
-  var sel = panel.querySelector(".id-folks-from");
-  var amountEl = panel.querySelector(".id-folks-amount");
+  var sel = panel.querySelector(".id-swap-from");
+  var amountEl = panel.querySelector(".id-swap-amount");
   var base = sourceHoldingsBaseUnits(panel);
   if (!sel || !amountEl || base === null) return "";
   var opt = sel.options[sel.selectedIndex];
@@ -703,7 +703,7 @@ function setAmountFromPercent(panel, pct) {
 function applySwapMode(formEl, mode) {
   if (!formEl) return "sell";
   var buy = mode === "buy";
-  formEl.classList.toggle("folks-mode-buy", buy);
+  formEl.classList.toggle("swap-mode-buy", buy);
   return buy ? "buy" : "sell";
 }
 
@@ -718,9 +718,9 @@ function applySwapMode(formEl, mode) {
  * no non-anchor holding available to spend.
  */
 function retargetForMode(panel, mode) {
-  var fromSel = panel.querySelector(".id-folks-from");
-  var toHidden = panel.querySelector(".id-folks-to");
-  var toSearch = panel.querySelector(".id-folks-to-search");
+  var fromSel = panel.querySelector(".id-swap-from");
+  var toHidden = panel.querySelector(".id-swap-to");
+  var toSearch = panel.querySelector(".id-swap-to-search");
   var anchorId = panel.dataset.anchorId || fromSel.value || "";
   panel.dataset.anchorId = anchorId;
   if (mode === "buy") {
@@ -730,7 +730,7 @@ function retargetForMode(panel, mode) {
     toHidden.dataset.decimals = (anchorOpt && anchorOpt.dataset.decimals) || "0";
     toHidden.dataset.unit = (anchorOpt && anchorOpt.dataset.unit) || "";
     toHidden.dataset.optedIn = "1"; // the anchor is held, so already opted in
-    panel.querySelector(".id-folks-optin-notice").style.display = "none";
+    panel.querySelector(".id-swap-optin-notice").style.display = "none";
     var anchorUnit = (anchorOpt && anchorOpt.dataset.unit) || "asset";
     // Leave the search box EMPTY so typing searches cleanly; advertise the default
     // buy target in the placeholder. The actual default selection lives in the
@@ -739,7 +739,7 @@ function retargetForMode(panel, mode) {
     toSearch.value = "";
     toSearch.placeholder =
       "Buying " + anchorUnit + " (#" + anchorId + ") — type to change";
-    panel.querySelector(".id-folks-to-results").innerHTML = "";
+    panel.querySelector(".id-swap-to-results").innerHTML = "";
     // Default the source (From) to the first held asset that is NOT the anchor.
     var src = "";
     for (var i = 0; i < fromSel.options.length; i++) {
@@ -760,7 +760,7 @@ function retargetForMode(panel, mode) {
   toHidden.dataset.optedIn = "";
   toSearch.value = "";
   toSearch.placeholder = "To asset: name, unit, or ID";
-  panel.querySelector(".id-folks-optin-notice").style.display = "none";
+  panel.querySelector(".id-swap-optin-notice").style.display = "none";
   return { mode: "sell", ok: true };
 }
 
@@ -776,23 +776,23 @@ function alloTxUrl(txid) {
  * amount means there's nothing valid to re-submit.
  */
 function renderSwapSuccess(panel, txid) {
-  var status = panel.querySelector(".id-folks-status");
+  var status = panel.querySelector(".id-swap-status");
   if (status) {
-    status.classList.remove("id-folks-status-error");
+    status.classList.remove("id-swap-status-error");
     status.textContent = "Swap submitted: ";
     var a = document.createElement("a");
-    a.className = "id-folks-tx-link";
+    a.className = "id-swap-tx-link";
     a.href = alloTxUrl(txid);
     a.target = "_blank";
     a.rel = "noopener noreferrer";
     a.textContent = txid;
     status.appendChild(a);
   }
-  var amount = panel.querySelector(".id-folks-amount");
+  var amount = panel.querySelector(".id-swap-amount");
   if (amount) amount.value = "";
-  var pct = panel.querySelector(".id-folks-pct");
+  var pct = panel.querySelector(".id-swap-pct");
   if (pct) pct.value = "";
-  var quote = panel.querySelector(".id-folks-quote");
+  var quote = panel.querySelector(".id-swap-quote");
   if (quote) quote.textContent = "";
 }
 
@@ -803,7 +803,7 @@ function renderSwapSuccess(panel, txid) {
  */
 function markSwapDirty(panel) {
   var modal = panel.closest && panel.closest(".modal");
-  if (modal) modal.dataset.folksDirty = "1";
+  if (modal) modal.dataset.swapDirty = "1";
   return !!modal;
 }
 
@@ -825,16 +825,16 @@ function walletOwns(address) {
 
 /** Reflect ownership in the panel: enable/disable Swap + show the connect hint. */
 function applyOwnership(panel, owns) {
-  var btn = panel.querySelector(".id-folks-swap-btn");
+  var btn = panel.querySelector(".id-swap-swap-btn");
   if (btn) btn.disabled = !owns;
-  var notice = panel.querySelector(".id-folks-connect-notice");
+  var notice = panel.querySelector(".id-swap-connect-notice");
   if (notice) notice.style.display = owns ? "none" : "block";
   return !!owns;
 }
 
 /* istanbul ignore next -- DOM event wiring; logic is covered via applyImpliedSource, applyPercent/setAmountFromPercent, and the scheduleQuote/selectTarget/executeSwap tests */
 function bindPanel(panelEl, ctx) {
-  ["id-folks-from", "id-folks-amount", "id-folks-slippage"].forEach(function (cls) {
+  ["id-swap-from", "id-swap-amount", "id-swap-slippage"].forEach(function (cls) {
     var el = panelEl.querySelector("." + cls);
     if (el)
       el.addEventListener("input", function () {
@@ -856,15 +856,15 @@ function bindPanel(panelEl, ctx) {
   delete panelEl.dataset.anchorId;
   updateSourceMax(panelEl);
   panelEl.addEventListener("click", function (ev) {
-    var opt = ev.target.closest && ev.target.closest(".id-folks-asset-option");
+    var opt = ev.target.closest && ev.target.closest(".id-swap-asset-option");
     if (opt) { selectTarget(panelEl, opt, ctx); return; }
-    var pb = ev.target.closest && ev.target.closest(".id-folks-pct-btn");
+    var pb = ev.target.closest && ev.target.closest(".id-swap-pct-btn");
     if (pb) {
       setAmountFromPercent(panelEl, Number(pb.dataset.pct || "0"));
       scheduleQuote(panelEl, ctx);
     }
   });
-  var pctInput = panelEl.querySelector(".id-folks-pct");
+  var pctInput = panelEl.querySelector(".id-swap-pct");
   if (pctInput) {
     pctInput.addEventListener("input", function () {
       setAmountFromPercent(panelEl, Number(pctInput.value || "0"));
@@ -872,7 +872,7 @@ function bindPanel(panelEl, ctx) {
     });
   }
   applyOwnership(panelEl, ctx.owns);
-  var btn = panelEl.querySelector(".id-folks-swap-btn");
+  var btn = panelEl.querySelector(".id-swap-swap-btn");
   if (btn) {
     btn.addEventListener("click", function () { executeSwap(panelEl, ctx); });
   }
@@ -896,7 +896,7 @@ function loadPanel(panelEl, ctx) {
 function wireSection(li, adapter, cfg, active) {
   var address = li.dataset.address;
   var header = li.querySelector(".collapsible-header");
-  var panelEl = li.querySelector(".id-folks-panel");
+  var panelEl = li.querySelector(".id-swap-panel");
   if (!header || !panelEl) return;
   var loaded = false;
   header.addEventListener("click", function () {
@@ -916,19 +916,19 @@ function wireSection(li, adapter, cfg, active) {
 /* istanbul ignore next -- delegated DOM glue; toggle/url logic is unit-tested */
 function handleInlineSwapClick(ev) {
   var btn =
-    ev.target.closest && ev.target.closest(".id-folks-swap-toggle");
+    ev.target.closest && ev.target.closest(".id-swap-swap-toggle");
   if (!btn) return;
   // Inline reveal owns the click; never navigate to the fallback href.
   ev.preventDefault();
-  var wrap = document.getElementById(btn.dataset.folksTarget);
+  var wrap = document.getElementById(btn.dataset.swapTarget);
   if (!wrap) return;
-  var panelEl = wrap.querySelector(".id-folks-panel");
+  var panelEl = wrap.querySelector(".id-swap-panel");
   var labelEl = btn.querySelector(".swap-label");
   var shown = toggleInlineSwap(wrap, labelEl, {
     show: btn.dataset.labelShow || "Swap",
     hide: btn.dataset.labelHide || "Hide",
   });
-  if (!shown || !panelEl || btn.dataset.folksLoaded) return;
+  if (!shown || !panelEl || btn.dataset.swapLoaded) return;
 
   var marker = document.getElementById("id-swap-enabled");
   // Swap from the LINKED address the marker carries (the wallet-authenticated
@@ -937,10 +937,10 @@ function handleInlineSwapClick(ev) {
   var address = marker ? marker.dataset.address : "";
   if (!marker || !address) {
     panelEl.innerHTML =
-      '<div class="id-folks-status id-folks-status-error">Swap is not available for this address.</div>';
+      '<div class="id-swap-status id-swap-status-error">Swap is not available for this address.</div>';
     return;
   }
-  btn.dataset.folksLoaded = "1";
+  btn.dataset.swapLoaded = "1";
   var from = btn.dataset.from || panelEl.dataset.from;
   loadPanel(panelEl, {
     fromAddress: address,
@@ -953,7 +953,7 @@ function handleInlineSwapClick(ev) {
 
 /* istanbul ignore next -- DOM/modal glue; the quote + percent + mode logic is unit-tested */
 function openSwapModal(fromAsset) {
-  var modal = document.getElementById("folks-swap-modal");
+  var modal = document.getElementById("swap-modal");
   var marker = document.getElementById("id-swap-enabled");
   if (!modal) return;
   if (window.M && window.M.Modal) {
@@ -961,20 +961,20 @@ function openSwapModal(fromAsset) {
   }
   var cfg = markerCfg(marker);
   var address = marker ? marker.dataset.address || "" : "";
-  var panelEl = modal.querySelector(".id-folks-panel");
+  var panelEl = modal.querySelector(".id-swap-panel");
   if (!panelEl) return;
   // Resolve the adapter + cfg from the marker, NOT from the loaded partial: a
   // quote must never fail just because the holdings island lacks router config.
   if (!cfg || !cfg.router || !ROUTERS[cfg.router] || !address) {
     panelEl.innerHTML =
-      '<div class="id-folks-status id-folks-status-error">Swap is not available for this address.</div>';
+      '<div class="id-swap-status id-swap-status-error">Swap is not available for this address.</div>';
     return;
   }
-  if (panelEl.dataset.folksFrom === String(fromAsset) && panelEl.dataset.folksLoaded) {
+  if (panelEl.dataset.swapFrom === String(fromAsset) && panelEl.dataset.swapLoaded) {
     return;
   }
-  panelEl.dataset.folksFrom = String(fromAsset || "");
-  panelEl.dataset.folksLoaded = "1";
+  panelEl.dataset.swapFrom = String(fromAsset || "");
+  panelEl.dataset.swapLoaded = "1";
   loadPanel(panelEl, {
     adapter: ROUTERS[cfg.router],
     cfg: cfg,
@@ -988,7 +988,7 @@ function openSwapModal(fromAsset) {
 
 /* istanbul ignore next -- delegated DOM glue; opens the modal for the clicked row */
 function handleSwapModalClick(ev) {
-  var btn = ev.target.closest && ev.target.closest(".id-folks-swap-toggle");
+  var btn = ev.target.closest && ev.target.closest(".id-swap-swap-toggle");
   if (!btn) return;
   ev.preventDefault(); // the href is a no-JS fallback only
   openSwapModal(btn.dataset.from || "");
@@ -996,25 +996,25 @@ function handleSwapModalClick(ev) {
 
 /* istanbul ignore next -- tab glue; the layout flip itself is unit-tested via applySwapMode */
 function wireSwapTabs() {
-  var modal = document.getElementById("folks-swap-modal");
+  var modal = document.getElementById("swap-modal");
   if (!modal) return;
   modal.addEventListener("click", function (ev) {
-    var tab = ev.target.closest && ev.target.closest("[data-folks-mode]");
+    var tab = ev.target.closest && ev.target.closest("[data-swap-mode]");
     if (!tab) return;
-    applySwapMode(modal.querySelector(".id-folks-form"), tab.dataset.folksMode);
+    applySwapMode(modal.querySelector(".id-swap-form"), tab.dataset.swapMode);
     // The amount's meaning flips with the mode (source vs target), so clear the
     // amount + percentage + stale quote and re-gate the button until a fresh,
     // mode-correct quote arrives.
-    var panel = modal.querySelector(".id-folks-panel");
+    var panel = modal.querySelector(".id-swap-panel");
     if (!panel) return;
     // Re-target the anchor: From on Sell, To on Buy (and pick a source to spend).
-    var res = retargetForMode(panel, tab.dataset.folksMode);
+    var res = retargetForMode(panel, tab.dataset.swapMode);
     updateSourceMax(panel);
-    var amt = panel.querySelector(".id-folks-amount");
-    var pct = panel.querySelector(".id-folks-pct");
-    var quote = panel.querySelector(".id-folks-quote");
-    var status = panel.querySelector(".id-folks-status");
-    var btn = panel.querySelector(".id-folks-swap-btn");
+    var amt = panel.querySelector(".id-swap-amount");
+    var pct = panel.querySelector(".id-swap-pct");
+    var quote = panel.querySelector(".id-swap-quote");
+    var status = panel.querySelector(".id-swap-status");
+    var btn = panel.querySelector(".id-swap-swap-btn");
     if (amt) amt.value = "";
     if (pct) pct.value = "";
     if (quote) quote.textContent = "";
@@ -1028,29 +1028,29 @@ function wireSwapTabs() {
 }
 
 /* istanbul ignore next -- entry-point wiring */
-function mainFolks() {
-  var root = document.getElementById("id-folks-swap");
+function mainSwap() {
+  var root = document.getElementById("id-swap-swap");
   if (!root) return;
   var adapter = ROUTERS[root.dataset.router];
   if (!adapter) return;
-  var cfg = folksConfig(root);
+  var cfg = swapConfig(root);
   var active =
     window.asastatsSwap && window.asastatsSwap.activeAddress
       ? window.asastatsSwap.activeAddress()
       : null;
-  var items = root.querySelectorAll("#id-folks-addresses > li");
+  var items = root.querySelectorAll("#id-swap-addresses > li");
   Array.prototype.forEach.call(items, function (li) {
     wireSection(li, adapter, cfg, active);
   });
 }
 
 /* istanbul ignore next -- bridge-readiness gate */
-function startFolks() {
+function startSwap() {
   // Swap buttons open a modal. One delegated listener, attached as soon as this
   // script runs; the marker (router + cfg + linked address) is read at click
   // time, so this needs neither the bridge nor htmx swap timing to be ready.
   document.addEventListener("click", handleSwapModalClick);
-  var modal = document.getElementById("folks-swap-modal");
+  var modal = document.getElementById("swap-modal");
   if (modal && window.M) {
     var modalInst = window.M.Modal ? window.M.Modal.init(modal) : null;
     if (modalInst) {
@@ -1058,7 +1058,7 @@ function startFolks() {
       // parent page when the user closes the modal -- but only if a swap
       // actually marked it dirty, so a look-and-cancel never reloads.
       modalInst.options.onCloseEnd = function () {
-        if (modal.dataset.folksDirty === "1") window.location.reload();
+        if (modal.dataset.swapDirty === "1") window.location.reload();
       };
     }
     var tabsEl = modal.querySelector(".tabs");
@@ -1076,9 +1076,9 @@ function startFolks() {
   wireSwapTabs();
   // Shell page (accordion of addresses) still binds per-section after bridge.
   if (window.asastatsSwap) {
-    mainFolks();
+    mainSwap();
   } else {
-    window.addEventListener("asastats:swap-ready", mainFolks, { once: true });
+    window.addEventListener("asastats:swap-ready", mainSwap, { once: true });
   }
 }
 
@@ -1096,7 +1096,7 @@ if (typeof module !== "undefined" && module.exports) {
     affordabilityError: affordabilityError,
     retargetForMode: retargetForMode,
     updateSourceMax: updateSourceMax,
-    folksConfig: folksConfig,
+    swapConfig: swapConfig,
     readPanelHoldings: readPanelHoldings,
     isOptedIn: isOptedIn,
     fetchHoldings: fetchHoldings,
@@ -1133,10 +1133,10 @@ if (typeof module !== "undefined" && module.exports) {
     handleSwapModalClick: handleSwapModalClick,
     wireSwapTabs: wireSwapTabs,
     wireSection: wireSection,
-    mainFolks: mainFolks,
-    startFolks: startFolks,
+    mainSwap: mainSwap,
+    startSwap: startSwap,
   };
 } else {
   /* istanbul ignore next -- browser entry point */
-  startFolks();
+  startSwap();
 }
