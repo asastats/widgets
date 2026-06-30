@@ -2,6 +2,7 @@
 
 from api.client import engine_request
 from api.widgets import bundle_and_addresses_from_path
+from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
@@ -48,6 +49,7 @@ class HistoricView(WidgetAccessMixin, TemplateView):
         context = super().get_context_data(*args, **kwargs)
         context["bundle"] = self.bundle
         context["addresses"] = self.addresses
+        context["website_name"] = settings.WEBSITE_NAME
         return context
 
     def handle_no_permission(self):

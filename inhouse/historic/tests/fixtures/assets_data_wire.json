@@ -1,17 +1,142 @@
 {
-  "total": {"algo": 6.8, "asa": 16.53, "nft": 0.0, "total": 23.33,
-            "totalusdc": 0.0, "priceusdc": 0.0, "pricealgo": 0.0},
+  "total": {
+    "algo": 6.8,
+    "asa": 16.53,
+    "nft": 2.5,
+    "total": 25.83,
+    "totalusdc": 0.0,
+    "priceusdc": 0.0,
+    "pricealgo": 0.0
+  },
   "asa": [
     {
-      "info": {"id": 393537671, "name": "ASA Stats Token", "unit": "ASASTATS",
-               "total": 1000000000, "decimals": 6, "url": "https://www.asastats.com",
-               "creator": "VKEN...", "links": {"lcw": "ASAStats-ASASTATS"}},
-      "header": {"icon": "icons/393537671t.png", "label": "ASASTATS",
-                 "amount": "123,405.8413", "total": 16.529823},
-      "body": [{"asset": null, "name": "Balance", "type": "", "url": "",
-                "source": null, "amount": "123,405.8413", "value": 16.529823}]
+      "info": {
+        "id": 393537671,
+        "name": "ASA Stats Token",
+        "unit": "ASASTATS",
+        "total": 1000000000,
+        "decimals": 6,
+        "url": "https://www.asastats.com",
+        "creator": "VKENBO5W2DZAZFQR45SOQO6IMWS5UMVZCHLPEACNOII7BDJTGBZKSEL4Y4",
+        "links": {
+          "lcw": "ASAStats-ASASTATS",
+          "dsc": "uxojx6njdglj3kalt3jygggxfpxjikmwjztxslb2kavy5o7wjhpa2b3hje",
+          "cmc": "0-"
+        }
+      },
+      "header": {
+        "icon": "icons/393537671t.png",
+        "label": "ASASTATS",
+        "amount": "123,405.8413",
+        "total": 16.529823
+      },
+      "body": [
+        {
+          "asset": null,
+          "name": "",
+          "type": "Balance",
+          "url": "",
+          "source": null,
+          "amount": "123,405.8413",
+          "value": 16.529823
+        }
+      ]
     }
   ],
-  "nft": [],
-  "noteval": []
+  "nft": [
+    {
+      "info": "Algoseas Pirates",
+      "header": {
+        "icon": null,
+        "label": "Algoseas Pirates",
+        "amount": "2",
+        "total": 2.5
+      },
+      "body": [
+        {
+          "asset": {
+            "id": 1234567890,
+            "name": "Pirate #42",
+            "unit": "PIRATE42",
+            "total": 1,
+            "collection": "Algoseas Pirates",
+            "urls": ["ipfs://QmExampleCidForPirate42/42.png"],
+            "path": "icons/1234567890.png",
+            "tpath": "icons/1234567890t.png",
+            "listed": false,
+            "last": 1.75,
+            "max": 10000,
+            "floor": 1.5,
+            "attrs": [
+              {"trait": "Background", "value": "Ocean"},
+              {"trait": "Hat", "value": "Tricorne"}
+            ],
+            "title": "Pirate #42",
+            "desc": "A fearsome pirate from the Algoseas collection.",
+            "rarity": 0.0123
+          },
+          "name": "",
+          "type": "Balance",
+          "url": "",
+          "source": null,
+          "amount": "1",
+          "value": 1.5
+        },
+        {
+          "asset": {
+            "id": 1234567891,
+            "name": "Pirate #99",
+            "unit": "PIRATE99",
+            "total": 1,
+            "collection": "Algoseas Pirates",
+            "urls": ["ipfs://QmExampleCidForPirate99/99.png"],
+            "path": "icons/1234567891.png",
+            "tpath": "icons/1234567891t.png",
+            "listed": true,
+            "last": null,
+            "max": 10000,
+            "floor": 1.5,
+            "attrs": [
+              {"trait": "Background", "value": "Storm"},
+              {"trait": "Hat", "value": "Bandana"}
+            ],
+            "title": "Pirate #99",
+            "desc": "A rarer pirate from the Algoseas collection.",
+            "rarity": 0.0041
+          },
+          "name": "",
+          "type": "Balance",
+          "url": "",
+          "source": null,
+          "amount": "1",
+          "value": 1.0
+        }
+      ]
+    }
+  ],
+  "noteval": [
+    {
+      "info": {
+        "id": 700000001,
+        "name": "Unpriced Community Token",
+        "unit": "UCT",
+        "total": 1000000000,
+        "decimals": 0,
+        "url": "",
+        "creator": "ABCDQ5W2DZAZFQR45SOQO6IMWS5UMVZCHLPEACNOII7BDJTGBZKSEL4Y4",
+        "links": {}
+      },
+      "body": [
+        {
+          "asset": null,
+          "name": "",
+          "type": "Balance",
+          "url": "",
+          "source": null,
+          "amount": "500",
+          "value": 0
+        }
+      ]
+    }
+  ]
 }

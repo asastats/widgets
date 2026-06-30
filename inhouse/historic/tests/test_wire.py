@@ -26,5 +26,5 @@ class TestInhouseHistoricWireDeserializeAssetsData:
 
     def test_inhouse_historic_wire_total_tolerates_missing_noteval(self):
         total = deserialize_assets_data(self._payload())["total"]
-        assert total.total == 23.33
+        assert total.total == 25.83
         assert total.noteval is None  # engine omits it; default fills None

@@ -2,11 +2,12 @@
 
 import json
 
-from api.client import engine_request
 from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
+from django.conf import settings
 from django.template.loader import get_template
 
+from api.client import engine_request
 from .charts import consolidated_view_charts_from_assets_data
 from .helpers import check_chart_period, group_name_from_bundle
 from .manifest import MANIFEST
@@ -287,6 +288,7 @@ class HistoricConsumer(AsyncWebsocketConsumer):
                 "data": assets_data,
                 **consolidated,
                 "label": message.get("label"),
+                "base_cdn_url": settings.BASE_CDN_URL,
             }
         )
         await self.send(text_data=html)

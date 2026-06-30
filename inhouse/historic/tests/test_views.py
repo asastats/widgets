@@ -1,5 +1,6 @@
 """Testing module for :py:mod:`widgets.inhouse.historic.views` module."""
 
+from django.conf import settings
 from django.core.exceptions import PermissionDenied
 
 from widgets.inhouse.historic.views import HistoricResetView, HistoricView
@@ -35,6 +36,7 @@ class TestHistoricViewsHistoricView:
         context = view.get_context_data()
         assert context["bundle"] == "BUNDLE"
         assert context["addresses"] == "A1 A2"
+        assert context["website_name"] == settings.WEBSITE_NAME
 
     def test_historic_views_historic_view_handle_no_permission_address_limit(
         self, mocker

@@ -3,6 +3,7 @@
 import json
 
 from asgiref.sync import async_to_sync
+from django.conf import settings
 
 from widgets.inhouse.historic.consumers import (
     HistoricConsumer,
@@ -134,8 +135,7 @@ class TestHistoricConsumersProcessForTimestamp:
         engine.return_value.json.return_value = {"data": {}, "date": "x"}
         assets_data = mocker.MagicMock()
         mocked_assets_data = mocker.patch(
-            "widgets.inhouse.historic.consumers."
-            "deserialize_assets_data",
+            "widgets.inhouse.historic.consumers." "deserialize_assets_data",
             return_value=assets_data,
         )
         consolidated = mocker.patch(
@@ -154,6 +154,15 @@ class TestHistoricConsumersProcessForTimestamp:
         assert context["label"] == "ALGO"
         assert context["asachart"] == {}
         consumer.send.assert_awaited_once_with(text_data="<div></div>")
+        template.return_value.render.assert_called_with(
+            context={
+                "data": assets_data,
+                "date": "x",
+                "asachart": {},
+                "label": "ALGO",
+                "base_cdn_url": settings.BASE_CDN_URL,
+            }
+        )
 
 
 class TestHistoricConsumersBroadcasting:
