@@ -1,6 +1,7 @@
 """Testing module for historic widget synchronous url dispatcher module."""
 
 from django.urls import URLPattern
+
 from widgets.inhouse.historic import urls
 
 

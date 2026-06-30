@@ -32,8 +32,6 @@ class HaystackSwapView(BaseSwapShellView):
         :return: dict
         """
         return {
-            "haystack_referrer": getattr(
-                settings, "HAYSTACK_REFERRER_ADDRESS", ""
-            ),
+            "haystack_referrer": getattr(settings, "HAYSTACK_REFERRER_ADDRESS", ""),
             "haystack_api_key": getattr(settings, "HAYSTACK_API_KEY", ""),
         }

@@ -96,9 +96,7 @@ class SwapAssetsView(WidgetAccessMixin, TemplateView):
         query = self.request.GET.get("q", "").strip()
         context["query"] = query
         context["assets"] = (
-            fetch_asset_matches(query, self.manifest.engine_endpoints)
-            if query
-            else []
+            fetch_asset_matches(query, self.manifest.engine_endpoints) if query else []
         )
         return context
 

@@ -11,6 +11,7 @@ from .charts import consolidated_view_charts_from_assets_data
 from .helpers import check_chart_period, group_name_from_bundle
 from .manifest import MANIFEST
 from .structs import UpdateStatus, ViewStatus
+from .wire import deserialize_assets_data
 
 
 def _restore_event_phase_keys(events):
@@ -278,9 +279,15 @@ class HistoricConsumer(AsyncWebsocketConsumer):
             )
             return await self.send(text_data=json.dumps({"type": "show_update"}))
 
-        consolidated = consolidated_view_charts_from_assets_data(data["data"])
+        assets_data = deserialize_assets_data(data["data"])
+        consolidated = consolidated_view_charts_from_assets_data(assets_data)
         html = get_template("historic/assets.html").render(
-            context={**data, **consolidated, "label": message.get("label")}
+            context={
+                **data,
+                "data": assets_data,
+                **consolidated,
+                "label": message.get("label"),
+            }
         )
         await self.send(text_data=html)
         await self.channel_layer.group_send(

@@ -1,6 +1,7 @@
 """Testing module for historic widget's asynchronous routing module."""
 
 from django.urls import URLPattern
+
 from widgets.inhouse.historic import routing
 
 

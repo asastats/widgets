@@ -1,0 +1,17 @@
+{
+  "total": {"algo": 6.8, "asa": 16.53, "nft": 0.0, "total": 23.33,
+            "totalusdc": 0.0, "priceusdc": 0.0, "pricealgo": 0.0},
+  "asa": [
+    {
+      "info": {"id": 393537671, "name": "ASA Stats Token", "unit": "ASASTATS",
+               "total": 1000000000, "decimals": 6, "url": "https://www.asastats.com",
+               "creator": "VKEN...", "links": {"lcw": "ASAStats-ASASTATS"}},
+      "header": {"icon": "icons/393537671t.png", "label": "ASASTATS",
+                 "amount": "123,405.8413", "total": 16.529823},
+      "body": [{"asset": null, "name": "Balance", "type": "", "url": "",
+                "source": null, "amount": "123,405.8413", "value": 16.529823}]
+    }
+  ],
+  "nft": [],
+  "noteval": []
+}

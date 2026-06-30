@@ -1,6 +1,7 @@
 """Testing module for :py:mod:`widgets.inhouse.historic.views` module."""
 
 from django.core.exceptions import PermissionDenied
+
 from widgets.inhouse.historic.views import HistoricResetView, HistoricView
 
 

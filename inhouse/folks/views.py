@@ -48,9 +48,7 @@ class FolksSwapView(WidgetAccessMixin, TemplateView):
         context = super().get_context_data(*args, **kwargs)
         context["bundle"] = self.bundle
         context["addresses"] = self.addresses
-        linked = linked_addresses_for_user(
-            self.request.user, self.addresses.split(" ")
-        )
+        linked = linked_addresses_for_user(self.request.user, self.addresses.split(" "))
         context["linked_addresses"] = sorted(linked)
         context["router_id"] = self.manifest.id
         context["folks_network"] = getattr(settings, "FOLKS_NETWORK", "mainnet")

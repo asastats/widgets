@@ -47,7 +47,12 @@ class TestInhouseSwapcoreViewsSwapHoldingsView:
         view.address = "ADDR_ONE"
         # Backend returns {asset_id: {name, unit, decimals, amount}} (id 0 = ALGO).
         data = {
-            "31566704": {"name": "USD Coin", "unit": "USDC", "decimals": 6, "amount": 7},
+            "31566704": {
+                "name": "USD Coin",
+                "unit": "USDC",
+                "decimals": 6,
+                "amount": 7,
+            },
             "0": {"name": "Algorand", "unit": "ALGO", "decimals": 6, "amount": 5},
         }
         fetch = mocker.patch(
@@ -60,7 +65,13 @@ class TestInhouseSwapcoreViewsSwapHoldingsView:
         # Flattened, id-sorted, with the id folded in (ALGO first).
         expected = [
             {"name": "Algorand", "unit": "ALGO", "decimals": 6, "amount": 5, "id": 0},
-            {"name": "USD Coin", "unit": "USDC", "decimals": 6, "amount": 7, "id": 31566704},
+            {
+                "name": "USD Coin",
+                "unit": "USDC",
+                "decimals": 6,
+                "amount": 7,
+                "id": 31566704,
+            },
         ]
         assert context["address"] == "ADDR_ONE"
         assert context["holdings"] == expected
@@ -78,7 +89,9 @@ class TestInhouseSwapcoreViewsSwapAssetsView:
         assert view.test_func() is True
         gate.assert_called_once_with(1)
 
-    def test_inhouse_swapcore_views_swap_assets_view_get_context_data_query(self, mocker):
+    def test_inhouse_swapcore_views_swap_assets_view_get_context_data_query(
+        self, mocker
+    ):
         view = SwapAssetsView()
         view.request = mocker.MagicMock()
         view.request.GET.get.return_value = "usdc"
@@ -91,7 +104,9 @@ class TestInhouseSwapcoreViewsSwapAssetsView:
         assert context["query"] == "usdc"
         assert context["assets"] == assets
 
-    def test_inhouse_swapcore_views_swap_assets_view_get_context_data_empty(self, mocker):
+    def test_inhouse_swapcore_views_swap_assets_view_get_context_data_empty(
+        self, mocker
+    ):
         view = SwapAssetsView()
         view.request = mocker.MagicMock()
         view.request.GET.get.return_value = "  "

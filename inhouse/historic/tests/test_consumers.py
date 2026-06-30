@@ -3,6 +3,7 @@
 import json
 
 from asgiref.sync import async_to_sync
+
 from widgets.inhouse.historic.consumers import (
     HistoricConsumer,
     _restore_event_phase_keys,
@@ -131,6 +132,12 @@ class TestHistoricConsumersProcessForTimestamp:
         consumer.view.timestamp_for_x.return_value = 100
         engine = mocker.patch("widgets.inhouse.historic.consumers.engine_request")
         engine.return_value.json.return_value = {"data": {}, "date": "x"}
+        assets_data = mocker.MagicMock()
+        mocked_assets_data = mocker.patch(
+            "widgets.inhouse.historic.consumers."
+            "deserialize_assets_data",
+            return_value=assets_data,
+        )
         consolidated = mocker.patch(
             "widgets.inhouse.historic.consumers."
             "consolidated_view_charts_from_assets_data",
@@ -141,7 +148,8 @@ class TestHistoricConsumersProcessForTimestamp:
         async_to_sync(consumer._process_for_timestamp)(
             {"x-val": "100", "label": "ALGO"}
         )
-        consolidated.assert_called_once_with({})
+        mocked_assets_data.assert_called_once_with({})
+        consolidated.assert_called_once_with(assets_data)
         context = template.return_value.render.call_args.kwargs["context"]
         assert context["label"] == "ALGO"
         assert context["asachart"] == {}
