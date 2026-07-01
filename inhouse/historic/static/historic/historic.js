@@ -31,7 +31,7 @@ $(mainHistoric);
  * @function initHistoric
  *
  */
-function initHistoric() { }
+function initHistoric() {}
 
 /**
  * Assign window onload method to initIndex function.
@@ -432,7 +432,6 @@ function copyToClipboard(event) {
   }
 }
 
-
 /**
  * Assign src attribute from element's dataset src attribute.
  * This is done after all the page content has been already loaded.
@@ -449,9 +448,9 @@ function deferImages(images) {
 
     if (dataSrc) {
       // Attach the error handler for large NFTs BEFORE setting the new source
-      img.onerror = function() {
+      img.onerror = function () {
         this.onerror = null; // Prevent infinite loop if the fallback is missing
-        this.src = 'https://cdn.asastats.com/thumbnails/nft.png';
+        this.src = "https://cdn.asastats.com/thumbnails/nft.png";
       };
 
       // Trigger the actual image load
@@ -459,7 +458,6 @@ function deferImages(images) {
     }
   }
 }
-
 
 /**
  * Change visibility of all accordions based on text entered
@@ -715,15 +713,15 @@ function populateCandlesChart(chartData) {
     function (evt) {
       if (evt.touches.length !== 1) return;
 
-      var rect = canvas.getBoundingClientRect();
+      var rect = canvasCandles.getBoundingClientRect(); // fixed canvas -> canvasCandles
       var touch = evt.touches[0];
       var xPixel = touch.clientX - rect.left;
-      var xValue = chart.scales.x.getValueForPixel(xPixel);
+      var xValue = chartCandles.scales.x.getValueForPixel(xPixel); // fixed chart -> chartCandles
 
       longPressTimeout = setTimeout(function () {
         console.log("📱 Long press detected at x:", xValue);
         handleCandleClick(evt, xValue, chartCandles, 1);
-      }, 600); // 600ms for long press
+      }, 600);
     },
     { passive: true },
   );

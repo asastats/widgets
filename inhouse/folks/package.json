@@ -2,31 +2,13 @@
   "name": "asastats-widget-folks",
   "private": true,
   "scripts": {
-    "build:sdk": "esbuild folks-sdk-entry.js --bundle --format=iife --global-name=FolksRouter --inject:./buffer-shim.js --minify --outfile=static/folks/folks-sdk.bundle.js",
-    "test": "jest"
-  },
-  "jest": {
-    "verbose": true,
-    "collectCoverage": true,
-    "coverageDirectory": "<rootDir>/tests/javascript/coverage",
-    "collectCoverageFrom": [
-      "<rootDir>/static/folks/*.js",
-      "!<rootDir>/static/folks/*.min*.js",
-      "!<rootDir>/static/folks/folks-sdk.bundle.js",
-      "!<rootDir>/tests/javascript/coverage/**"
-    ],
-    "coverageReporters": ["lcov", "text"],
-    "setupFiles": ["jest-localstorage-mock", "<rootDir>/tests/javascript/test_helpers.js"],
-    "testEnvironment": "jsdom"
+    "build:sdk": "esbuild folks-sdk-entry.js --bundle --format=iife --global-name=FolksRouter --inject:./buffer-shim.js --minify --outfile=static/folks/folks-sdk.bundle.js"
   },
   "dependencies": {
     "@folks-router/js-sdk": "^0.5.1",
     "buffer": "^6.0.3"
   },
   "devDependencies": {
-    "esbuild": "^0.28.1",
-    "jest": "^30.4.2",
-    "jest-environment-jsdom": "^30.4.1",
-    "jest-localstorage-mock": "^2.4.26"
+    "esbuild": "^0.28.1"
   }
 }

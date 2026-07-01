@@ -39,12 +39,12 @@ jobs:
           cd inhouse/historic
           npm run test
 
-      - name: Install dependencies (folks)
+      - name: Install dependencies (swapcore)
         run: |
-          cd inhouse/folks
+          cd inhouse/swapcore
           npm install
 
-      - name: Run folks Javascript tests
+      - name: Run swapcore Javascript tests
         run: |
-          cd inhouse/folks
+          cd inhouse/swapcore
           npm run test

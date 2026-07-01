@@ -1,4 +1,5 @@
 const F = require("../../static/swap/swap.js");
+require('./test_helpers');
 
 function panelHTML(holdings) {
   return `
