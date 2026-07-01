@@ -1,14 +1,11 @@
 /**
  * @jest-environment jsdom
  */
-
 const fs = require("fs");
 const path = require("path");
 const html = fs.readFileSync(path.resolve(__dirname, "./index.html"), "utf8");
 const jquery = require("../../static/historic/jquery-2.2.4.min.js");
-
 window.$ = jquery;
-
 // Mock external plugins and globals
 $.prototype.tabs = jest.fn();
 $.prototype.collapsible = jest.fn();
@@ -29,17 +26,13 @@ Object.assign(navigator, {
     writeText: jest.fn().mockImplementation(() => Promise.resolve()),
   },
 });
-
 const historic = require("../../static/historic/historic.js");
 const { getEvents } = require("./test_helpers");
-
 jest.dontMock("fs");
-
 beforeEach(() => {
   document.documentElement.innerHTML = html.toString();
   jest.clearAllMocks();
   localStorage.clear();
-
   // Provide Chart.js mock for all chart tests
   global.Chart = jest.fn().mockImplementation((ctx, config) => {
     const chartInstance = {
@@ -57,7 +50,6 @@ beforeEach(() => {
       resize: jest.fn(),
       scales: { x: { min: 10, max: 90, getValueForPixel: jest.fn(() => 50) } },
     };
-
     // Simulate zoom completion triggering during update
     chartInstance.update = jest.fn(() => {
       if (
@@ -77,19 +69,15 @@ beforeEach(() => {
         });
       }
     });
-
     // Attach chart to canvas for later reference in tests
     ctx.canvas.chart = chartInstance;
-
     return chartInstance;
   });
 });
-
 afterEach(() => {
   jest.resetModules();
   jest.clearAllTimers();
 });
-
 /*
  * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * SECTION: Initialization & Reset
@@ -100,7 +88,6 @@ describe("SECTION: Initialization", function () {
     expect(historic.initHistoric).toBeDefined();
     expect(() => historic.initHistoric()).not.toThrow();
   });
-
   it("mainHistoric binds events and initializes components", function () {
     historic.mainHistoric();
     const events = global.getEvents
@@ -113,7 +100,6 @@ describe("SECTION: Initialization", function () {
     expect($.prototype.collapsible).toHaveBeenCalled();
     expect($.prototype.modal).toHaveBeenCalled();
   });
-
   it("resetHistoric rebinds events and runs view setup", function () {
     document.body.innerHTML += '<div id="id-assets" data-label="ALGO"></div>';
     window.mainConsolidated.mockClear();
@@ -122,7 +108,6 @@ describe("SECTION: Initialization", function () {
     expect(window.mainConsolidated).toHaveBeenCalled();
   });
 });
-
 /*
  * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * SECTION: Websocket communication
@@ -140,14 +125,12 @@ describe("SECTION: Websocket communication", () => {
     });
     expect(global.Chart).toHaveBeenCalledTimes(2);
   });
-
   it("handles show_update message", () => {
     historic.messageReceived({
       detail: { message: JSON.stringify({ type: "show_update" }) },
     });
     expect($.prototype.tabs).toHaveBeenCalledWith("select", "tupdate");
   });
-
   it("handles lock_interaction message", () => {
     // Ensure hidden inputs exist so submitView doesn't crash
     document.body.innerHTML += `
@@ -174,7 +157,6 @@ describe("SECTION: Websocket communication", () => {
     ).toBeFalsy();
     expect($.prototype.tabs).toHaveBeenCalledWith("select", "tbars");
   });
-
   it("handles lock_no_blur message", () => {
     historic.messageReceived({
       detail: {
@@ -183,14 +165,47 @@ describe("SECTION: Websocket communication", () => {
     });
     expect($("body").css("cursor")).toBe("progress");
   });
-
+  it("handles lock_interaction message via messageReceived", () => {
+    // hidden inputs prevent any crash if submitView is called
+    document.body.innerHTML += `
+      <input id="view-x-min" />
+      <input id="view-x-max" />
+    `;
+    historic.populateBarsChart({ data: { datasets: [] }, xmin: 0, xmax: 100 });
+    historic.populateCandlesChart({ data: { datasets: [] }, xmin: 0, xmax: 100 });
+    // Silence chart.update to prevent zoom/pan callbacks from firing
+    const barsChart = document.getElementById('id-bars').chart;
+    const candlesChart = document.getElementById('id-candles').chart;
+    const originalUpdateBars = barsChart.update;
+    const originalUpdateCandles = candlesChart.update;
+    barsChart.update = jest.fn();
+    candlesChart.update = jest.fn();
+    // Send message – line 103 is executed
+    historic.messageReceived({
+      detail: { message: JSON.stringify({ type: 'lock_interaction', locked: true }) }
+    });
+    // Verify effect
+    expect(document.getElementById('id-bars').classList.contains('chart-blurred')).toBeTruthy();
+    // Restore
+    barsChart.update = originalUpdateBars;
+    candlesChart.update = originalUpdateCandles;
+  });
+  it("ignores messages with an unrecognized type", () => {
+    // None of the four recognized `message.type` values match, so the
+    // if/else-if chain falls through without calling anything.
+    expect(() =>
+      historic.messageReceived({
+        detail: { message: JSON.stringify({ type: "something_else" }) },
+      }),
+    ).not.toThrow();
+    expect($.prototype.tabs).not.toHaveBeenCalled();
+  });
   it("falls back to resetHistoric on raw HTML (JSON parse error)", () => {
     window.mainConsolidated.mockClear();
     historic.messageReceived({ detail: { message: "<div>Bad JSON</div>" } });
     expect(window.mainConsolidated).toHaveBeenCalled(); // mainConsolidated is called inside resetHistoric
   });
 });
-
 /*
  * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * SECTION: HTMX Submitters
@@ -203,14 +218,12 @@ describe("SECTION: HTMX Submitters", () => {
       <input id="view-x-min" /><input id="view-x-max" />
     `;
   });
-
   it("submitShow updates inputs and triggers htmx", () => {
     historic.submitShow(100, "ALGO");
     expect(document.getElementById("show-x-val").value).toBe("100");
     expect(document.getElementById("show-label").value).toBe("ALGO");
     expect(window.htmx.trigger).toHaveBeenCalledWith("#id-show", "submit");
   });
-
   it("submitView updates inputs and triggers htmx", () => {
     historic.submitView(10, 50);
     expect(document.getElementById("view-x-min").value).toBe("10");
@@ -218,7 +231,6 @@ describe("SECTION: HTMX Submitters", () => {
     expect(window.htmx.trigger).toHaveBeenCalledWith("#id-view", "submit");
   });
 });
-
 /*
  * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * SECTION: Charts helper functions
@@ -231,7 +243,6 @@ describe("SECTION: Charts helper functions", () => {
       <input id="view-x-min" /><input id="view-x-max" />
     `;
   });
-
   it("handleCandleClick triggers submitShow with correct timestamp based on modifiers", () => {
     const chart = {
       data: {
@@ -247,7 +258,6 @@ describe("SECTION: Charts helper functions", () => {
     historic.handleCandleClick({ ctrlKey: false }, 10, chart, 0);
     expect(document.getElementById("show-x-val").value).toBe("44");
   });
-
   it("barChartClicked handles intersection events", () => {
     document.body.innerHTML +=
       '<div class="active"><div><div class="unit">ALGO</div></div></div>';
@@ -273,7 +283,35 @@ describe("SECTION: Charts helper functions", () => {
     historic.barChartClicked(evtScroll);
     expect(window.scrollToView).toHaveBeenCalled();
   });
-
+  it("barChartClicked does nothing when no points are hit", () => {
+    const evt = {
+      chart: {
+        getElementsAtEventForMode: () => [],
+        data: { datasets: [{ label: "ALGO" }] },
+      },
+    };
+    expect(() => historic.barChartClicked(evt)).not.toThrow();
+    expect(window.htmx.trigger).not.toHaveBeenCalled();
+    expect(window.scrollToView).not.toHaveBeenCalled();
+  });
+  it("handleCandleClick picks the closest of multiple candles", () => {
+    // second candle is farther away, exercising findNearest's `diff < minDiff`
+    // false branch (the loop must NOT replace an already-closer nearest candle)
+    const chart = {
+      data: {
+        datasets: [
+          {
+            data: [
+              { x: 10, ot: 1, ct: 2, ht: 3, lt: 4 },
+              { x: 100, ot: 10, ct: 20, ht: 30, lt: 40 },
+            ],
+          },
+        ],
+      },
+    };
+    historic.handleCandleClick({ ctrlKey: false }, 12, chart, 0);
+    expect(document.getElementById("show-x-val").value).toBe("4");
+  });
   it("viewChanged triggers submitView with scale limits unless suppressed", () => {
     const evt = { chart: { scales: { x: { min: 5, max: 95 } } } };
     historic.viewChanged(evt);
@@ -285,7 +323,6 @@ describe("SECTION: Charts helper functions", () => {
     historic.populateCharts({ bars: { data: {} }, candles: { data: {} } });
     expect(window.htmx.trigger).not.toHaveBeenCalled(); // The mock update fires zoom events while suppressed
   });
-
   it("populates and binds canvas touch/mouse events for candles", () => {
     jest.useFakeTimers();
     document.body.innerHTML += '<canvas id="id-candles"></canvas>';
@@ -304,6 +341,14 @@ describe("SECTION: Charts helper functions", () => {
     // Test mouse down
     canvas.dispatchEvent(new MouseEvent("mousedown", { button: 0 }));
     expect(document.getElementById("show-x-val").value).toBe("4"); // lt (button 0, no ctrl)
+    // Middle-click (button 1) exercises the right-hand operand of `evt.button === 0 || evt.button === 1`
+    document.getElementById("show-x-val").value = "";
+    canvas.dispatchEvent(new MouseEvent("mousedown", { button: 1 }));
+    expect(document.getElementById("show-x-val").value).toBe("3"); // ht (button 1, no ctrl)
+    // Any other button exercises the false branch of the `||` condition (handler is a no-op)
+    document.getElementById("show-x-val").value = "";
+    canvas.dispatchEvent(new MouseEvent("mousedown", { button: 2 }));
+    expect(document.getElementById("show-x-val").value).toBe("");
     // Test touch start (long press timeout)
     const touchStartEvt = new Event("touchstart");
     touchStartEvt.touches = [{ clientX: 50 }];
@@ -319,7 +364,6 @@ describe("SECTION: Charts helper functions", () => {
     canvas.dispatchEvent(new Event("touchend"));
     jest.useRealTimers();
   });
-
   it("updateChart correctly updates state", () => {
     const mockChartInstance = {
       data: {},
@@ -336,7 +380,6 @@ describe("SECTION: Charts helper functions", () => {
     expect(mockChartInstance.update).toHaveBeenCalled();
     expect(mockChartInstance.resetZoom).toHaveBeenCalled();
   });
-
   it("onHover changes cursor style", () => {
     historic.populateBarsChart({ data: { datasets: [] }, xmin: 0, xmax: 100 });
     historic.populateCandlesChart({
@@ -359,7 +402,6 @@ describe("SECTION: Charts helper functions", () => {
     expect(mockEvent.native.target.style.cursor).toBe("pointer");
   });
 });
-
 /*
  * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * SECTION: Currency functions
@@ -370,12 +412,10 @@ describe("SECTION: Currency functions", () => {
     expect(historic.cur(1234.567)).toBe("1,234.57");
     expect(historic.dec6(1234.5678912)).toBe("1,234.567891");
   });
-
   it("setCurrency returns false if element missing", () => {
     document.body.innerHTML = "";
     expect(historic.setCurrency("USD")).toBe(false);
   });
-
   it("setCurrency manipulates DOM based on USD/ALGO", () => {
     document.body.innerHTML = `
       <div class="pricetip" data-price="0.25" data-pricealgo="4.0" data-total="100"></div>
@@ -391,7 +431,6 @@ describe("SECTION: Currency functions", () => {
     expect($(".pricetip")[0].innerHTML).toBe("25.00 ALGO");
     expect($(".switch input").prop("checked")).toBe(false);
   });
-
   it("toggleCurrency flips state and sets localStorage", () => {
     document.body.innerHTML =
       '<div class="switch"><input type="checkbox" checked></div>';
@@ -399,8 +438,14 @@ describe("SECTION: Currency functions", () => {
     historic.toggleCurrency.call(checkbox);
     expect(localStorage.getItem("hcur")).toBe("USD");
   });
+  it("toggleCurrency sets ALGO when unchecked", () => {
+    document.body.innerHTML =
+      '<div class="switch"><input type="checkbox"></div>';
+    const checkbox = $(".switch input")[0];
+    historic.toggleCurrency.call(checkbox);
+    expect(localStorage.getItem("hcur")).toBe("ALGO");
+  });
 });
-
 /*
  * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * SECTION: Helper functions
@@ -410,7 +455,6 @@ describe("SECTION: Helper functions", () => {
   beforeEach(() => {
     jest.useFakeTimers();
   });
-
   it("copyToClipboard copies prev element text", () => {
     document.body.innerHTML =
       '<span>TextToCopy</span><button class="copy"></button>';
@@ -420,7 +464,17 @@ describe("SECTION: Helper functions", () => {
     jest.runAllTimers();
     expect($("span").css("color")).not.toBe("#ababab");
   });
-
+  it("copyToClipboard does nothing when clipboard API is unavailable", () => {
+    document.body.innerHTML =
+      '<span>TextToCopy</span><button class="copy"></button>';
+    const btn = $(".copy")[0];
+    const originalClipboard = navigator.clipboard;
+    const writeTextMock = originalClipboard.writeText;
+    delete navigator.clipboard;
+    expect(() => historic.copyToClipboard.call(btn)).not.toThrow();
+    expect(writeTextMock).not.toHaveBeenCalled();
+    Object.assign(navigator, { clipboard: originalClipboard });
+  });
   it("deferImages updates src, skips empty, and handles fallback", () => {
     document.body.innerHTML = `
       <img class="nft" data-src="real.jpg" src="placeholder.jpg" />
@@ -434,13 +488,11 @@ describe("SECTION: Helper functions", () => {
     images[0].onerror();
     expect(images[0].src).toContain("nft.png");
   });
-
   it("isItemInArray correctly checks array membership", () => {
     expect(historic.isItemInArray(undefined, [])).toBe(true);
     expect(historic.isItemInArray(1, [1, 2, 3])).toBe(true);
     expect(historic.isItemInArray(5, [1, 2, 3])).toBe(false);
   });
-
   it("filterChange toggles visibility and handles comma split", () => {
     document.body.innerHTML = `
       <input id="filter" value="ALGO great" />   <!-- both words match the text -->
@@ -457,14 +509,39 @@ describe("SECTION: Helper functions", () => {
     historic.filterChange({ keyCode: 999 });
     expect(document.getElementById("item1").style.display).toBe("none");
   });
-
+  it("filterChange splits on commas when the comma count exceeds spaces", () => {
+    document.body.innerHTML = `
+      <input id="filter" value="ALGO,great" />
+      <div class="collapsible">
+        <div id="item1" class="fitem"><span>ALGO is great</span></div>
+      </div>
+    `;
+    $("#item1").hide();
+    historic.filterChange({ keyCode: 13 });
+    expect(document.getElementById("item1").style.display).not.toBe("none");
+  });
+  it("getNodesThatContain dedupes multiple matches within the same fitem", () => {
+    document.body.innerHTML = `
+      <input id="filter" value="ALGO" />
+      <div class="collapsible">
+        <div id="item1" class="fitem">
+          <span>ALGO one</span>
+          <span>ALGO two</span>
+        </div>
+      </div>
+    `;
+    $("#item1").hide();
+    // Two text nodes match within the same .fitem, so the second match
+    // exercises isItemInArray's "already added" (skip) branch.
+    historic.filterChange({ keyCode: 13 });
+    expect(document.getElementById("item1").style.display).not.toBe("none");
+  });
   it("filterChange handles empty filter (resets visibility)", () => {
     document.body.innerHTML =
       '<input id="filter" value="" /><div class="fitem" style="display:none;"></div>';
     historic.filterChange({ keyCode: 13 });
     expect(document.querySelector(".fitem").style.display).not.toBe("none");
   });
-
   it("showMatchedNodes unhides intersecting nodes and returns false if none", () => {
     document.body.innerHTML = `
       <div class="collapsible">
@@ -479,19 +556,20 @@ describe("SECTION: Helper functions", () => {
     // Empty matches
     expect(historic.showMatchedNodes([])).toBe(false);
   });
-
-  it("showMatchedNodes reveals nfticon with matching id", () => {
+  it("showMatchedNodes reveals nfticon with matching id and skips non-matching ones", () => {
     document.body.innerHTML = `
     <div class="collapsible">
       <div id="match1" class="fitem" style="display:none;"></div>
       <div class="nfticon" id="tmatch1" style="display:none;"></div>
+      <div class="nfticon" id="tother" style="display:none;"></div>
     </div>
   `;
     historic.showMatchedNodes([["match1"], ["match1"]]);
     expect(document.getElementById("match1").style.display).not.toBe("none");
     expect(document.getElementById("tmatch1").style.display).not.toBe("none");
+    // "tother" doesn't match "t" + id, exercising the skip (false) branch
+    expect(document.getElementById("tother").style.display).toBe("none");
   });
-
   it("scrollToUnit handles normal, NFT, LOFTY, and unknown units", () => {
     document.body.innerHTML = `
       <div id="id-nft"></div>
@@ -511,12 +589,39 @@ describe("SECTION: Helper functions", () => {
     historic.scrollToUnit("ALGO");
     jest.runAllTimers();
   });
-
+  it("scrollToUnit skips scheduling a click when header's parent is already active", () => {
+    document.body.innerHTML = `
+      <div class="active">
+        <div class="mid">
+          <div class="inner">
+            <div class="unit">ALGO2</div>
+          </div>
+        </div>
+      </div>
+    `;
+    const triggerSpy = jest.spyOn($.fn, "trigger");
+    historic.scrollToUnit("ALGO2");
+    jest.runAllTimers();
+    expect(window.scrollToView).toHaveBeenCalled();
+    expect(triggerSpy).not.toHaveBeenCalledWith("click");
+    triggerSpy.mockRestore();
+  });
+  it("scrollToUnit uses the full duration delay when unmoved is falsy", () => {
+    document.body.innerHTML = `
+      <div class="active"><div><div class="unit">ALGO</div></div></div>
+    `;
+    window.scrollToView.mockReturnValueOnce(false);
+    expect(() => historic.scrollToUnit("ALGO")).not.toThrow();
+    jest.runAllTimers();
+    expect(window.scrollToView).toHaveBeenCalled();
+  });
   it("tabShow runs without crashing if charts are missing", () => {
     expect(() => historic.tabShow({ id: "tbars" })).not.toThrow();
     expect(() => historic.tabShow({ id: "tcandles" })).not.toThrow();
   });
-
+  it("tabShow does nothing for unrelated tab ids", () => {
+    expect(() => historic.tabShow({ id: "tsettings" })).not.toThrow();
+  });
   it("tabShow resizes existing charts", () => {
     // Force fresh creation so canvas.chart is attached by the mock
     historic.populateBarsChart({ data: { datasets: [] }, xmin: 0, xmax: 100 });
@@ -534,7 +639,6 @@ describe("SECTION: Helper functions", () => {
     const candlesCanvas = document.getElementById("id-candles");
     expect(candlesCanvas.chart.resize).toHaveBeenCalled();
   });
-
   it("toggleTotalNoNft sets state and calls generic function", () => {
     document.body.innerHTML =
       '<div class="totalnonft"><input type="checkbox" checked></div>';
@@ -542,7 +646,15 @@ describe("SECTION: Helper functions", () => {
     expect(localStorage.getItem("htotalnonft")).toBe("y");
     expect(window.setTotalNoNft).toHaveBeenCalledWith("y");
   });
-
+  it("toggleTotalNoNft clears state when unchecked", () => {
+    document.body.innerHTML =
+      '<div class="totalnonft"><input type="checkbox"></div>';
+    historic.toggleTotalNoNft.call($(".totalnonft input")[0]);
+    // jest-localstorage-mock returns null (not "") when reading back an
+    // empty-string value, so just assert it's falsy / cleared.
+    expect(localStorage.getItem("htotalnonft")).toBeFalsy();
+    expect(window.setTotalNoNft).toHaveBeenCalledWith("");
+  });
   it("openModalConfirmReset and resetData handle form resets", () => {
     document.body.innerHTML = `
       <button id="id-reset"></button>
