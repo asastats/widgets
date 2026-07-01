@@ -633,6 +633,8 @@ function readPanelCfg(panelEl) {
     network: el.dataset.network || "mainnet",
     referrer: el.dataset.referrer || "",
     feeBps: Number(el.dataset.feeBps || "0"),
+    explorerBase: el.dataset.explorerBase || "",
+    explorerTxPath: el.dataset.explorerTxPath || "",
   };
 }
 
@@ -764,9 +766,17 @@ function retargetForMode(panel, mode) {
   return { mode: "sell", ok: true };
 }
 
-/** allo.info explorer URL for a transaction id. */
-function alloTxUrl(txid) {
-  return "https://allo.info/tx/" + encodeURIComponent(txid);
+/**
+ * Explorer transaction URL for a txid. Defaults to Allo (the historical
+ * provider) when no base/path is supplied, so callers and tests that don't pass
+ * a provider keep their old behaviour. ``base`` is a trailing-slash provider
+ * root and ``path`` the transaction path segment (e.g. "tx/" for Allo,
+ * "transaction/" for Lora).
+ */
+function txExplorerUrl(txid, base, path) {
+  base = base || "https://allo.info/";
+  path = path || "tx/";
+  return base + path + encodeURIComponent(txid);
 }
 
 /**
@@ -782,7 +792,19 @@ function renderSwapSuccess(panel, txid) {
     status.textContent = "Swap submitted: ";
     var a = document.createElement("a");
     a.className = "id-swap-tx-link";
-    a.href = alloTxUrl(txid);
+    var cfg = readPanelCfg(panel) || {};
+    var base = cfg.explorerBase;
+    var path = cfg.explorerTxPath;
+    if (!base) {
+      var root =
+        (panel.closest && panel.closest("#id-swap-swap")) ||
+        document.getElementById("id-swap-swap");
+      if (root) {
+        base = root.dataset.explorerBase;
+        path = path || root.dataset.explorerTxPath;
+      }
+    }
+    a.href = txExplorerUrl(txid, base, path);
     a.target = "_blank";
     a.rel = "noopener noreferrer";
     a.textContent = txid;
@@ -1112,7 +1134,8 @@ if (typeof module !== "undefined" && module.exports) {
     clearQuote: clearQuote,
     walletOwns: walletOwns,
     applyOwnership: applyOwnership,
-    alloTxUrl: alloTxUrl,
+    alloTxUrl: txExplorerUrl,
+    txExplorerUrl: txExplorerUrl,
     renderSwapSuccess: renderSwapSuccess,
     markSwapDirty: markSwapDirty,
     decimalToBaseUnits: decimalToBaseUnits,

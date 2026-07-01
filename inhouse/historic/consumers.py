@@ -15,6 +15,25 @@ from .structs import UpdateStatus, ViewStatus
 from .wire import deserialize_assets_data
 
 
+def _preferred_explorer_for_user(user):
+    """Return the user's preferred explorer key, or ``""`` for anonymous users.
+
+    Runs in a sync context (touches the profile row). An empty string lets the
+    ``assets.html`` explorer tags fall back to the default provider, so the
+    widget degrades to Allo when there is no authenticated viewer.
+
+    :param user: the consumer scope's user (possibly anonymous/None)
+    :return: explorer key or empty string
+    :rtype: str
+    """
+    if user is None or not getattr(user, "is_authenticated", False):
+        return ""
+    profile = getattr(user, "profile", None)
+    if profile is None:
+        return ""
+    return profile.preferred_explorer_or_default()
+
+
 def _restore_event_phase_keys(events):
     """Restore integer phase keys lost when the events endpoint serialized to JSON.
 
@@ -282,6 +301,9 @@ class HistoricConsumer(AsyncWebsocketConsumer):
 
         assets_data = deserialize_assets_data(data["data"])
         consolidated = consolidated_view_charts_from_assets_data(assets_data)
+        preferred_explorer = await sync_to_async(_preferred_explorer_for_user)(
+            self.scope.get("user")
+        )
         html = get_template("historic/assets.html").render(
             context={
                 **data,
@@ -289,6 +311,7 @@ class HistoricConsumer(AsyncWebsocketConsumer):
                 **consolidated,
                 "label": message.get("label"),
                 "base_cdn_url": settings.BASE_CDN_URL,
+                "preferred_explorer": preferred_explorer,
             }
         )
         await self.send(text_data=html)

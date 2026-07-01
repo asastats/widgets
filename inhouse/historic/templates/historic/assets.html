@@ -13,7 +13,7 @@
 
 {% partialdef asainfo %}
 <span class="title">{{ item.info.name|escape }}</span><br />
-<a href="https://allo.info/{% if item.info.id != 0 %}asset/{{ item.info.id }}{% endif %}" target="_blank" title="Show in Allo">{% if item.info.id != 0 %}{{ item.info.id }}{% else %}Allo{% endif %}</a>{% if item.info.id != 0 %}&nbsp;<span class="copy">&nbsp;&#128203;&nbsp;</span>{% endif %} <br />
+<a href="{% if item.info.id != 0 %}{% explorer_url 'asset' item.info.id %}{% else %}{% explorer_base %}{% endif %}" target="_blank" title="Show in {% explorer_name %}">{% if item.info.id != 0 %}{{ item.info.id }}{% else %}{% explorer_name %}{% endif %}</a>{% if item.info.id != 0 %}&nbsp;<span class="copy">&nbsp;&#128203;&nbsp;</span>{% endif %} <br />
 <span>Unit name: {{ item.info.unit|escape }}</span> <br />
 <span>Total supply: {{ item.info.total|floatformat:'g' }}</span> <br />
 <span>Decimals: {{ item.info.decimals }}</span> <br />
@@ -79,7 +79,7 @@
 {% partialdef nftinfo %}
 <span>{% if nft.asset.unit %}{{ nft.asset.unit }}{% endif %}</span>&nbsp;<span>{{ nft.amount }}/{{ nft.asset.total }}</span> <br />
 <span class="title">{% autoescape on %}{{ nft.asset.name }}{% endautoescape %}</span><br />
-<a href="https://allo.info/asset/{{ nft.asset.id }}" target="_blank" title="Show in Allo">{{ nft.asset.id }}</a>&nbsp;<span class="copy">&nbsp;&#128203;&nbsp;</span> <br />
+<a href="{% explorer_url 'asset' nft.asset.id %}" target="_blank" title="Show in {% explorer_name %}">{{ nft.asset.id }}</a>&nbsp;<span class="copy">&nbsp;&#128203;&nbsp;</span> <br />
 {% if nft.title %}
   <span>Title: {{ nft.title }}</span> <br />
 {% endif %}

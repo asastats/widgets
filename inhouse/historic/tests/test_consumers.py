@@ -7,6 +7,7 @@ from django.conf import settings
 
 from widgets.inhouse.historic.consumers import (
     HistoricConsumer,
+    _preferred_explorer_for_user,
     _restore_event_phase_keys,
 )
 
@@ -19,6 +20,33 @@ def _consumer(mocker):
     consumer.bundle_group_name = "historic_BUNDLE"
     consumer.send = mocker.AsyncMock()
     return consumer
+
+
+class TestHistoricConsumersPreferredExplorerForUser:
+    """Testing class for :py:func:`...consumers._preferred_explorer_for_user`."""
+
+    def test_historic_consumers_user_is_none(self):
+        assert _preferred_explorer_for_user(None) == ""
+
+    def test_historic_consumers_user_is_not_authenticated(self, mocker):
+        user_mock = mocker.Mock()
+        user_mock.is_authenticated = False
+        assert _preferred_explorer_for_user(user_mock) == ""
+
+    def test_historic_consumers_user_has_no_profile(self, mocker):
+        user_mock = mocker.Mock()
+        user_mock.is_authenticated = True
+        user_mock.profile = None
+        assert _preferred_explorer_for_user(user_mock) == ""
+
+    def test_historic_consumers_user_has_profile_returns_preference(self, mocker):
+        user_mock = mocker.Mock()
+        user_mock.is_authenticated = True
+        profile_mock = mocker.Mock()
+        profile_mock.preferred_explorer_or_default.return_value = "allo"
+        user_mock.profile = profile_mock
+        assert _preferred_explorer_for_user(user_mock) == "allo"
+        profile_mock.preferred_explorer_or_default.assert_called_once()
 
 
 class TestHistoricConsumersRestoreEventPhaseKeys:
@@ -129,6 +157,8 @@ class TestHistoricConsumersProcessForTimestamp:
 
     def test_historic_consumers_process_for_timestamp_renders_html(self, mocker):
         consumer = _consumer(mocker)
+        user = mocker.MagicMock()
+        consumer.scope = {"user": user}
         consumer.view = mocker.MagicMock(bundle="BUNDLE")
         consumer.view.timestamp_for_x.return_value = 100
         engine = mocker.patch("widgets.inhouse.historic.consumers.engine_request")
@@ -142,6 +172,9 @@ class TestHistoricConsumersProcessForTimestamp:
             "widgets.inhouse.historic.consumers."
             "consolidated_view_charts_from_assets_data",
             return_value={"asachart": {}},
+        )
+        mocked_explorer = mocker.patch(
+            "widgets.inhouse.historic.consumers._preferred_explorer_for_user"
         )
         template = mocker.patch("widgets.inhouse.historic.consumers.get_template")
         template.return_value.render.return_value = "<div></div>"
@@ -161,6 +194,7 @@ class TestHistoricConsumersProcessForTimestamp:
                 "asachart": {},
                 "label": "ALGO",
                 "base_cdn_url": settings.BASE_CDN_URL,
+                "preferred_explorer": mocked_explorer.return_value,
             }
         )
 
