@@ -1,4 +1,4 @@
-name: Run Tests
+name: tests
 
 on:
   push:
@@ -15,7 +15,6 @@ jobs:
     # Runs JavaScript tests only.
     # Python tests for the widgets module are handled by the
     # parent "frontend" repo's CI/CD via submodule integration.
-
     runs-on: ubuntu-latest
 
     steps:
@@ -27,24 +26,40 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
-          cache-dependency-path: "inhouse/folks/package-lock.json"
+          cache-dependency-path: "inhouse/historic/package-lock.json"
 
       - name: Install dependencies (historic)
         run: |
           cd inhouse/historic
           npm install
 
-      - name: Run historic Javascript tests
+      - name: Run historic Javascript tests with coverage
         run: |
           cd inhouse/historic
-          npm run test
+          npm run test # Ensure this npm script generates coverage!
+
+      - name: Upload historic coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: inhouse/historic/tests/javascript/coverage
+          flags: historic-javascript
+          name: historic-coverage
 
       - name: Install dependencies (swapcore)
         run: |
           cd inhouse/swapcore
           npm install
 
-      - name: Run swapcore Javascript tests
+      - name: Run swapcore Javascript tests with coverage
         run: |
           cd inhouse/swapcore
           npm run test
+
+      - name: Upload swapcore coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: inhouse/swapcore/tests/javascript/coverage
+          flags: swapcore-javascript
+          name: swapcore-coverage
