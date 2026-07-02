@@ -1,0 +1,7 @@
+fixes:
+  # Strips the frontend's directory structure so Codecov can match 
+  # the files to the root of the submodule repository.
+  - "website/widgets/::"
+  
+  # Just in case your coverage tool outputs starting with 'widgets/' instead
+  - "widgets/::"
