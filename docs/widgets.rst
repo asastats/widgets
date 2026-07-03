@@ -7,19 +7,100 @@
   :show-inheritance:
 
 
-:mod:`widgets.inhouse.historic` -- Historic widget's package
-------------------------------------------------------------
+:mod:`widgets.inhouse.folks` -- Folks swap widget package (inherits swapcore)
+-----------------------------------------------------------------------------
 
-.. automodule:: inhouse.historic
+.. automodule:: inhouse.folks
   :members:
   :undoc-members:
   :show-inheritance:
 
 
-:mod:`widgets.inhouse.historic.assets` -- Historic widget's assets section processing module
---------------------------------------------------------------------------------------------
+:mod:`widgets.inhouse.folks.manifest` -- Folks widget's manifest module
+-----------------------------------------------------------------------
 
-.. automodule:: inhouse.historic.assets
+.. automodule:: inhouse.folks.manifest
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.folks.urls` -- Folks widget's URL configurations module
+-----------------------------------------------------------------------------
+
+.. automodule:: inhouse.folks.urls
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.folks.views` -- Folks widget's views module
+-----------------------------------------------------------------
+
+.. automodule:: inhouse.folks.views
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.folks.tests` -- Folks widget's unit-tests package
+-----------------------------------------------------------------------
+
+.. automodule:: inhouse.folks.tests
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.haystack` -- Haystack swap widget package (inherits swapcore)
+-----------------------------------------------------------------------------------
+
+.. automodule:: inhouse.haystack
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.haystack.manifest` -- Haystack widget's manifest module
+-----------------------------------------------------------------------------
+
+.. automodule:: inhouse.haystack.manifest
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.haystack.urls` -- Haystack widget's URL configurations module
+-----------------------------------------------------------------------------------
+
+.. automodule:: inhouse.haystack.urls
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.haystack.views` -- Haystack widget's views module
+-----------------------------------------------------------------------
+
+.. automodule:: inhouse.haystack.views
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.haystack.tests` -- Haystack widget's unit-tests package
+-----------------------------------------------------------------------------
+
+.. automodule:: inhouse.haystack.tests
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.historic` -- Historic widget's package
+------------------------------------------------------------
+
+.. automodule:: inhouse.historic
   :members:
   :undoc-members:
   :show-inheritance:
@@ -52,10 +133,19 @@
   :show-inheritance:
 
 
-:mod:`widgets.inhouse.historic.permissions` -- Historic widget's users' permissions module
-------------------------------------------------------------------------------------------
+:mod:`widgets.inhouse.historic.helpers` -- Historic widget's helpers module
+---------------------------------------------------------------------------
 
-.. automodule:: inhouse.historic.permissions
+.. automodule:: inhouse.historic.helpers
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.historic.manifest` -- Historic widget's manifest module
+-----------------------------------------------------------------------------
+
+.. automodule:: inhouse.historic.manifest
   :members:
   :undoc-members:
   :show-inheritance:
@@ -97,10 +187,64 @@
   :show-inheritance:
 
 
+:mod:`widgets.inhouse.historic.wire` -- Historic widget's wire module
+---------------------------------------------------------------------
+
+.. automodule:: inhouse.historic.wire
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
 :mod:`widgets.inhouse.historic.tests` -- Historic widget's unit-tests package
 -----------------------------------------------------------------------------
 
 .. automodule:: inhouse.historic.tests
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.swapcore` -- Abstract widget for swap/router widgets
+--------------------------------------------------------------------------
+
+.. automodule:: inhouse.swapcore
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.swapcore.manifest` -- Swapcore widget's manifest module
+-----------------------------------------------------------------------------
+
+.. automodule:: inhouse.swapcore.manifest
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.swapcore.urls` -- Swapcore widget's URL configurations module
+-----------------------------------------------------------------------------------
+
+.. automodule:: inhouse.swapcore.urls
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.swapcore.views` -- Swapcore widget's views module
+-----------------------------------------------------------------------
+
+.. automodule:: inhouse.swapcore.views
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.swapcore.tests` -- Swapcore widget's unit-tests package
+-----------------------------------------------------------------------------
+
+.. automodule:: inhouse.swapcore.tests
   :members:
   :undoc-members:
   :show-inheritance:

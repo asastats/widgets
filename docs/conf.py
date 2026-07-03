@@ -6,7 +6,6 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-
 import os
 import sys
 from unittest.mock import MagicMock
@@ -19,13 +18,13 @@ __version__ = widgets.__version__
 
 import django
 from django.conf import settings
+from django.views import View
 
 if not settings.configured:
     settings.configure(
         INSTALLED_APPS=[
             "django.contrib.auth",
             "django.contrib.contenttypes",
-            "inhouse.historic",  # your app if it has models
         ],
         DATABASES={
             "default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}
@@ -33,23 +32,21 @@ if not settings.configured:
     )
 django.setup()
 
-# Mock external/nonexistent dependencies
-MOCK_MODULES = [
-    "api",
-    "api.data",
-    "api.widgets",
-    "storage",
-    "storage.helpers",
-    "storage.ledger",
-    "storage.main",
-    "utils",
-    "utils.charts",
-    "utils.constants",
-    "utils.constants.storage",
-    "utils.constants.users",
-]
-for mod in MOCK_MODULES:
-    sys.modules[mod] = MagicMock()
+# --- MOCKING FIX FOR .as_view() AND MRO ---
+# Create an empty class for mixins to avoid Python MRO (Method Resolution Order)
+# conflicts when inheriting alongside standard Django views like TemplateView.
+class DummyMixin:
+    pass
+
+class MockSwapViews(MagicMock):
+    BaseSwapShellView = View
+
+class MockEnforcement(MagicMock):
+    WidgetAccessMixin = DummyMixin
+
+sys.modules["widgethost.swap_views"] = MockSwapViews()
+sys.modules["widgethost.enforcement"] = MockEnforcement()
+# ------------------------------------------
 
 # -- Project information -----------------------------------------------------
 
@@ -67,6 +64,15 @@ master_doc = "index"
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = ["sphinx.ext.autodoc"]
+
+# Use Sphinx's native mocking to handle the rest of the external dependencies.
+autodoc_mock_imports = [
+    "api",
+    "storage",
+    "utils",
+    "walletauth",
+    "widgethost",
+]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]

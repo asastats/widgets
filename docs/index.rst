@@ -12,6 +12,8 @@ Welcome to ASA Stats user widgets documentation!
 
    about
    development
+   widget_contract
+   runbooks
    howto
    widgets
 
