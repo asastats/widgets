@@ -6,19 +6,34 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
+import ast
 import os
 import sys
 from unittest.mock import MagicMock
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-
-import widgets
-
-__version__ = widgets.__version__
-
 import django
 from django.conf import settings
 from django.views import View
+
+
+def get_version():
+    init_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "__init__.py"
+    )
+    with open(init_path, "r", encoding="utf-8") as f:
+        tree = ast.parse(f.read(), filename=init_path)
+
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "__version__":
+                    return ast.literal_eval(node.value)
+
+    raise RuntimeError(f"Unable to find __version__ in {init_path}")
+
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
 
 if not settings.configured:
     settings.configure(
@@ -32,17 +47,21 @@ if not settings.configured:
     )
 django.setup()
 
+
 # --- MOCKING FIX FOR .as_view() AND MRO ---
 # Create an empty class for mixins to avoid Python MRO (Method Resolution Order)
 # conflicts when inheriting alongside standard Django views like TemplateView.
 class DummyMixin:
     pass
 
+
 class MockSwapViews(MagicMock):
     BaseSwapShellView = View
 
+
 class MockEnforcement(MagicMock):
     WidgetAccessMixin = DummyMixin
+
 
 sys.modules["widgethost.swap_views"] = MockSwapViews()
 sys.modules["widgethost.enforcement"] = MockEnforcement()
@@ -54,7 +73,7 @@ project = "ASA Stats user widgets"
 copyright = "2026, ASA Stats DAO"
 author = "Ivica Paleka"
 
-release = __version__
+release = get_version()
 
 # -- General configuration ---------------------------------------------------
 

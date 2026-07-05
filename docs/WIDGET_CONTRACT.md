@@ -117,7 +117,7 @@ audit must actually verify.
    a manifest is what marks a directory as a widget, replacing the hardcoded
    `INHOUSE_WIDGETS` list (`discover_widgets()` → `(INHOUSE_WIDGETS, THIRDPARTY_WIDGETS)`
    split by `origin`).
-2. **Validate** — manifest schema; `engine_endpoints ⊆` token `scopes`; `public`
+2. **Validate** — manifest schema; `engine_endpoints <=` token `scopes`; `public`
    declares no `engine_endpoints`.
 3. **Wire (unchanged host includes)** — the widget's own `urls.py`/`routing.py` are
    picked up by asastats's existing `widgets` URL and websocket includes. Discovery only
@@ -147,7 +147,7 @@ import.
   presentation over already-interpreted data and needs no proprietary code.
 - **Engine (closed):** storage, ledger evaluation, `ASA_PROGRAMS`, the DataFrame chart
   pipeline, and the asset interpretation, exposed as render-ready JSON: `process`,
-  `evaluate` (period; `null` ⇒ initial charts), `timestamp` (returns the interpreted
+  `evaluate` (period; `null` => initial charts), `timestamp` (returns the interpreted
   `assets_data` dict), `events`, `reset`. `ASA_PROGRAMS` and DataFrames never cross the
   boundary. Per-bundle `asset_values` cached to disk; the `StorageCarrier` held in a
   TTL-bounded in-process LRU; address count persisted to `meta.json` and re-checked

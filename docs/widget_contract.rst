@@ -146,7 +146,7 @@ In-process lifecycle (host registry)
    ``THIRDPARTY_WIDGETS`` (by ``origin``) in **both** ``widgets/constants.py`` and the
    frontend's ``config/settings/base.py``; the registry reads each listed widget's
    ``widget.toml``. The two lists must agree (see :doc:`development`, *Deployment*).
-#. **Validate** — manifest schema; ``engine_endpoints ⊆`` token ``scopes``; ``public``
+#. **Validate** — manifest schema; ``engine_endpoints <=`` token ``scopes``; ``public``
    declares no ``engine_endpoints``.
 #. **Wire (unchanged host includes)** — the widget's own ``urls.py``/``routing.py`` are
    picked up by ``asastats``'s existing ``widgets`` URL and websocket includes.
@@ -179,7 +179,7 @@ Historic mapped onto this contract
   data and needs no proprietary code.
 - **Engine (closed):** storage, ledger evaluation, ``ASA_PROGRAMS``, the DataFrame chart
   pipeline, and asset interpretation, exposed as render-ready JSON: ``process``,
-  ``evaluate`` (period; ``null`` ⇒ initial charts), ``timestamp`` (returns the interpreted
+  ``evaluate`` (period; ``null`` => initial charts), ``timestamp`` (returns the interpreted
   ``assets_data`` dict), ``events``, ``reset``. ``ASA_PROGRAMS`` and DataFrames never cross
   the boundary. Per-bundle ``asset_values`` cached to disk; the ``StorageCarrier`` held in
   a TTL-bounded in-process LRU; address count persisted to ``meta.json`` and re-checked
