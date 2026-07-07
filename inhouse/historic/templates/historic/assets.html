@@ -145,9 +145,66 @@
 </li>
 {% endpartialdef nftelement %}
 
-{% comment %} STRUCTURE {% endcomment %}
-{% autoescape off %}
+{% comment %} ---- PER-ITEM PARTIALS (one <li>; used by the streamed batches) ---- {% endcomment %}
+{% partialdef asaitem %}
+<li id="f{{ item.info.id }}" class="fitem">
+  <div class="collapsible-header token">
+    {% partial asaheader %}
+  </div>
+  <div class="collapsible-body">
+    <ul class="collection">
+      <li id="{{ item.info.id }}" class="collection-item fitem">
+        <div class="col s12 m9 push-m3 right-align asar">
+          {% for program in item.body %}
+            {% partial asaprogram %}
+          {% endfor %}
+        </div>
+        <div class="col s12 m3 pull-m9 left-align asal">
+          {% partial asainfo %}
+        </div>
+      </li>
+    </ul>
+  </div>
+</li>
+{% endpartialdef asaitem %}
 
+{% partialdef nftitem %}
+<li id="f{{ item.info|slugify }}" class="fitem">
+  <div class="collapsible-header nft">
+    {% partial nftheader %}
+  </div>
+  <div class="collapsible-body">
+    <ul class="collection">
+      {% for nft in item.body %}
+        {% partial nftelement %}
+      {% endfor %}
+    </ul>
+  </div>
+</li>
+{% endpartialdef nftitem %}
+
+{% partialdef notevalitem %}
+<li id="{{ item.info.id }}" class="collection-item fitem">
+  <div class="col s12 m9 push-m3 right-align asar">
+    {% for program in item.body %}
+      {% partial notevalasaprogram %}
+    {% endfor %}
+  </div>
+  <div class="col s12 m3 pull-m9 left-align asal">
+    {% partial asainfo %}
+  </div>
+</li>
+{% endpartialdef notevalitem %}
+
+{% comment %} ---- STREAMED SECTION BATCHES (OOB append into the scaffold lists) ---- {% endcomment %}
+{% partialdef asa_batch %}{% autoescape off %}<ul id="id-asa-list" hx-swap-oob="beforeend">{% for item in items %}{% if item.body %}{% partial asaitem %}{% endif %}{% endfor %}</ul>{% endautoescape %}{% endpartialdef asa_batch %}
+
+{% partialdef nft_batch %}{% autoescape off %}<ul id="id-nft-list" hx-swap-oob="beforeend">{% for item in items %}{% partial nftitem %}{% endfor %}</ul>{% endautoescape %}{% endpartialdef nft_batch %}
+
+{% partialdef noteval_batch %}{% autoescape off %}<ul id="id-noteval-list" hx-swap-oob="beforeend">{% for item in items %}{% partial notevalitem %}{% endfor %}</ul>{% endautoescape %}{% endpartialdef noteval_batch %}
+
+{% comment %} ---- SCAFFOLD (replaces #id-assets; carries charts + empty section lists) ---- {% endcomment %}
+{% partialdef scaffold %}{% autoescape off %}
 <div id="id-assets" class="row flex-stack" data-timestamp={{ timestamp }} data-label="{{ label }}">
 
   {{ asachart|json_script:"asachart" }}{{ nftchart|json_script:"nftchart" }}{{ ratiochart|json_script:"ratiochart" }}{{ distchart|json_script:"distchart" }}{{ consolidated|json_script:"consolidated" }}
@@ -220,78 +277,26 @@
     </div>
   </div>
 
-  {% comment %} ASA {% endcomment %}
+  {% comment %} ASA — streamed into #id-asa-list {% endcomment %}
   <div class="col s12">
-    <ul class="collapsible">
-      {% for item in data.asa %}
-        {% if item.body %}
-          <li id="f{{ item.info.id }}" class="fitem">
-            <div class="collapsible-header token">
-              {% partial asaheader %}
-            </div>
-            <div class="collapsible-body">
-              <ul class="collection">
-                <li id="{{ item.info.id }}" class="collection-item fitem">
-                  <div class="col s12 m9 push-m3 right-align asar">
-                    {% for program in item.body %}
-                      {% partial asaprogram %}
-                    {% endfor %}
-                  </div>
-                  <div class="col s12 m3 pull-m9 left-align asal">
-                    {% partial asainfo %}
-                  </div>
-                </li>
-              </ul>
-            </div>
-          </li>
-        {% endif %}
-      {% endfor %}
-    </ul>
+    <ul id="id-asa-list" class="collapsible"></ul>
   </div>
 
-  {% comment %} NFT {% endcomment %}
+  {% comment %} NFT — streamed into #id-nft-list {% endcomment %}
   {% if data.nft %}
   <div id="id-nft" class="col s12">
-    <ul class="collapsible">
-      {% for item in data.nft %}
-      <li id="f{{ item.info|slugify }}" class="fitem">
-        <div class="collapsible-header nft">
-          {% partial nftheader %}
-        </div>
-        <div class="collapsible-body">
-          <ul class="collection">
-            {% for nft in item.body %}
-              {% partial nftelement %}
-            {% endfor %}
-          </ul>
-        </div>
-      </li>
-      {% endfor %}
-    </ul>
+    <ul id="id-nft-list" class="collapsible"></ul>
   </div>
   {% endif %}
 
-  {% comment %} NOT EVALUATED {% endcomment %}
+  {% comment %} NOT EVALUATED — streamed into #id-noteval-list {% endcomment %}
   {% if data.noteval %}
   <div class="col s12">
     <ul class="collapsible notevalsec">
       <li>
         <div class="collapsible-header">{{ data.noteval|length }} not evaluated</div>
         <div class="collapsible-body">
-          <ul class="collection">
-          {% for item in data.noteval %}
-            <li id="{{ item.info.id }}" class="collection-item fitem">
-              <div class="col s12 m9 push-m3 right-align asar">
-                {% for program in item.body %}
-                  {% partial notevalasaprogram %}
-                {% endfor %}
-              </div>
-              <div class="col s12 m3 pull-m9 left-align asal">
-                {% partial asainfo %}
-              </div>
-            </li>
-          {% endfor %}
-          </ul>
+          <ul id="id-noteval-list" class="collection"></ul>
         </div>
       </li>
     </ul>
@@ -299,4 +304,4 @@
   {% endif %}
 
 </div>
-{% endautoescape %}
+{% endautoescape %}{% endpartialdef scaffold %}

@@ -5,7 +5,7 @@ import json
 from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.conf import settings
-from django.template.loader import get_template
+from django.template.loader import get_template, render_to_string
 
 from api.client import engine_request
 from .charts import consolidated_view_charts_from_assets_data
@@ -13,6 +13,11 @@ from .helpers import check_chart_period, group_name_from_bundle
 from .manifest import MANIFEST
 from .structs import UpdateStatus, ViewStatus
 from .wire import deserialize_assets_data
+
+# Rows per WebSocket frame when streaming the assets section. Frames must stay
+# under Daphne's payload cap (default 1 MiB); NFT rows are the heavy ones
+# (thumbnail + attributes + description), so they batch smaller. Tune to taste.
+HISTORIC_ASSETS_BATCH = {"asa": 40, "nft": 8, "noteval": 40}
 
 
 def _preferred_explorer_for_user(user):
@@ -264,7 +269,14 @@ class HistoricConsumer(AsyncWebsocketConsumer):
         )
 
     async def _process_for_timestamp(self, message):
-        """Request timestamp evaluation from the engine and send rendered HTML.
+        """Evaluate a timestamp and stream its assets section in OOB fragments.
+
+        The engine returns render-ready assets data. Rather than send the whole
+        section as one frame (which exceeds Daphne's ~1 MiB payload cap for large
+        portfolios), the scaffold is sent first, then each section is appended in
+        small ``hx-swap-oob`` batches, bracketed by ``assets_begin`` /
+        ``assets_end`` control messages so the client runs its one-time init once,
+        after every fragment has arrived.
 
         :param message: show timestamp message data sent by htmx
         :type message: dict
@@ -274,8 +286,10 @@ class HistoricConsumer(AsyncWebsocketConsumer):
         :type response: :class:`requests.Response`
         :var data: render-ready assets context or a show-update marker
         :type data: dict
-        :var html: rendered html of the assets section
-        :type html: str
+        :var assets_data: assets data rebuilt into display structs
+        :type assets_data: dict
+        :var context: template context shared by the scaffold and the batches
+        :type context: dict
         """
         timestamp = self.view.timestamp_for_x(message.get("x-val"))
 
@@ -304,21 +318,59 @@ class HistoricConsumer(AsyncWebsocketConsumer):
         preferred_explorer = await sync_to_async(_preferred_explorer_for_user)(
             self.scope.get("user")
         )
-        html = get_template("historic/assets.html").render(
-            context={
-                **data,
-                "data": assets_data,
-                **consolidated,
-                "label": message.get("label"),
-                "base_cdn_url": settings.BASE_CDN_URL,
-                "preferred_explorer": preferred_explorer,
-            }
-        )
-        await self.send(text_data=html)
+        context = {
+            **data,
+            "data": assets_data,
+            **consolidated,
+            "label": message.get("label"),
+            "base_cdn_url": settings.BASE_CDN_URL,
+            "preferred_explorer": preferred_explorer,
+        }
+
+        await self.send(text_data=json.dumps({"type": "assets_begin"}))
+        await self._stream_assets(context, assets_data)
+        await self.send(text_data=json.dumps({"type": "assets_end"}))
+
         await self.channel_layer.group_send(
             self.bundle_group_name,
             {"type": "historic.lock_no_blur", "message": {"locked": False}},
         )
+
+    async def _stream_assets(self, context, assets_data):
+        """Send the assets scaffold, then each section in OOB-append batches.
+
+        The scaffold (``#scaffold``) replaces ``#id-assets`` and carries the chart
+        data plus the empty target lists ``#id-asa-list`` / ``#id-nft-list`` /
+        ``#id-noteval-list``. Each batch partial renders a
+        ``<ul id="...-list" hx-swap-oob="beforeend">`` whose rows htmx appends to
+        the matching list.
+
+        :param context: base template context (charts, totals, label, cdn, explorer)
+        :type context: dict
+        :param assets_data: assets data rebuilt into display structs
+        :type assets_data: dict
+        :var size: number of rows per frame for the current section
+        :type size: int
+        :var items: section rows awaiting render
+        :type items: list
+        """
+        await self.send(
+            text_data=render_to_string("historic/assets.html#scaffold", context)
+        )
+        for section, partial in (
+            ("asa", "asa_batch"),
+            ("nft", "nft_batch"),
+            ("noteval", "noteval_batch"),
+        ):
+            size = HISTORIC_ASSETS_BATCH[section]
+            items = assets_data.get(section) or []
+            for start in range(0, len(items), size):
+                await self.send(
+                    text_data=render_to_string(
+                        f"historic/assets.html#{partial}",
+                        {**context, "items": items[start : start + size]},
+                    )
+                )
 
     # # BROADCASTING
     async def historic_process_altogether(self, event):

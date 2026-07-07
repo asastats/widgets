@@ -83,6 +83,10 @@ function resetHistoric() {
  * * * * * * * * * * * * * * * * * * * * * * * * * * *
  */
 
+// True while the assets section streams in OOB fragments; suppresses the
+// per-frame resetHistoric() so init runs once, on assets_end.
+var assetsStreaming = false;
+
 /**
  * Parse message received through websocket
  * @function messageReceived
@@ -103,10 +107,20 @@ function messageReceived(event) {
       setUILockedBlur(message.locked);
     } else if (message.type === "lock_no_blur") {
       setUILocked(message.locked);
+    } else if (message.type === "assets_begin") {
+      // Scaffold + OOB batches follow as HTML frames; defer init to the end.
+      assetsStreaming = true;
+    } else if (message.type === "assets_end") {
+      // Every assets fragment has arrived; init the complete #id-assets DOM.
+      assetsStreaming = false;
+      resetHistoric();
     }
   } catch (e) {
-    // raw HTML is received
-    resetHistoric();
+    // A streamed HTML fragment (scaffold or OOB batch) is swapped by htmx and
+    // init is deferred to assets_end; every other raw-HTML frame re-inits now.
+    if (!assetsStreaming) {
+      resetHistoric();
+    }
   }
 }
 

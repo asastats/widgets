@@ -205,6 +205,32 @@ describe("SECTION: Websocket communication", () => {
     historic.messageReceived({ detail: { message: "<div>Bad JSON</div>" } });
     expect(window.mainConsolidated).toHaveBeenCalled(); // mainConsolidated is called inside resetHistoric
   });
+  it("defers resetHistoric while assets are streaming (assets_begin)", () => {
+    window.mainConsolidated.mockClear();
+    // assets_begin flips the streaming flag on.
+    historic.messageReceived({
+      detail: { message: JSON.stringify({ type: "assets_begin" }) },
+    });
+    // A scaffold/batch fragment arrives as raw HTML: htmx swaps it and the
+    // one-time init is deferred, so resetHistoric (hence mainConsolidated)
+    // must not run yet.
+    historic.messageReceived({
+      detail: { message: '<ul id="id-asa-list"></ul>' },
+    });
+    expect(window.mainConsolidated).not.toHaveBeenCalled();
+    // Clear the module-level flag so later tests see streaming = false.
+    historic.messageReceived({
+      detail: { message: JSON.stringify({ type: "assets_end" }) },
+    });
+  });
+  it("handles assets_end message", () => {
+    window.mainConsolidated.mockClear();
+    historic.messageReceived({
+      detail: { message: JSON.stringify({ type: "assets_end" }) },
+    });
+    // assets_end clears streaming and runs the one-time init.
+    expect(window.mainConsolidated).toHaveBeenCalled();
+  });
 });
 /*
  * * * * * * * * * * * * * * * * * * * * * * * * * * *

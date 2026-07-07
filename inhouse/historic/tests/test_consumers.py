@@ -146,16 +146,22 @@ class TestHistoricConsumersProcessForTimestamp:
 
     def test_historic_consumers_process_for_timestamp_show_update(self, mocker):
         consumer = _consumer(mocker)
+        consumer.scope = {"user": mocker.MagicMock()}
         consumer.view = mocker.MagicMock(bundle="BUNDLE")
         consumer.view.timestamp_for_x.return_value = 100
         engine = mocker.patch("widgets.inhouse.historic.consumers.engine_request")
         engine.return_value.json.return_value = {"type": "show_update"}
-        async_to_sync(consumer._process_for_timestamp)({"x-val": "100"})
-        consumer.send.assert_awaited_once_with(
-            text_data=json.dumps({"type": "show_update"})
+        render = mocker.patch("widgets.inhouse.historic.consumers.render_to_string")
+
+        async_to_sync(consumer._process_for_timestamp)(
+            {"x-val": "100", "label": "ALGO"}
         )
 
-    def test_historic_consumers_process_for_timestamp_renders_html(self, mocker):
+        render.assert_not_called()
+        sent = [call.kwargs.get("text_data") for call in consumer.send.call_args_list]
+        assert sent == [json.dumps({"type": "show_update"})]
+
+    def test_historic_consumers_process_for_timestamp_streams_assets(self, mocker):
         consumer = _consumer(mocker)
         user = mocker.MagicMock()
         consumer.scope = {"user": user}
@@ -163,9 +169,9 @@ class TestHistoricConsumersProcessForTimestamp:
         consumer.view.timestamp_for_x.return_value = 100
         engine = mocker.patch("widgets.inhouse.historic.consumers.engine_request")
         engine.return_value.json.return_value = {"data": {}, "date": "x"}
-        assets_data = mocker.MagicMock()
-        mocked_assets_data = mocker.patch(
-            "widgets.inhouse.historic.consumers." "deserialize_assets_data",
+        assets_data = {"asa": [mocker.MagicMock()], "nft": [], "noteval": []}
+        deserialize = mocker.patch(
+            "widgets.inhouse.historic.consumers.deserialize_assets_data",
             return_value=assets_data,
         )
         consolidated = mocker.patch(
@@ -173,30 +179,34 @@ class TestHistoricConsumersProcessForTimestamp:
             "consolidated_view_charts_from_assets_data",
             return_value={"asachart": {}},
         )
-        mocked_explorer = mocker.patch(
-            "widgets.inhouse.historic.consumers._preferred_explorer_for_user"
+        explorer = mocker.patch(
+            "widgets.inhouse.historic.consumers._preferred_explorer_for_user",
+            return_value="",
         )
-        template = mocker.patch("widgets.inhouse.historic.consumers.get_template")
-        template.return_value.render.return_value = "<div></div>"
+        render = mocker.patch(
+            "widgets.inhouse.historic.consumers.render_to_string",
+            return_value="<div></div>",
+        )
+
         async_to_sync(consumer._process_for_timestamp)(
             {"x-val": "100", "label": "ALGO"}
         )
-        mocked_assets_data.assert_called_once_with({})
+
+        # Engine timestamp result is rebuilt into display structs and charted.
+        deserialize.assert_called_once_with({})
         consolidated.assert_called_once_with(assets_data)
-        context = template.return_value.render.call_args.kwargs["context"]
-        assert context["label"] == "ALGO"
-        assert context["asachart"] == {}
-        consumer.send.assert_awaited_once_with(text_data="<div></div>")
-        template.return_value.render.assert_called_with(
-            context={
-                "data": assets_data,
-                "date": "x",
-                "asachart": {},
-                "label": "ALGO",
-                "base_cdn_url": settings.BASE_CDN_URL,
-                "preferred_explorer": mocked_explorer.return_value,
-            }
-        )
+        explorer.assert_called_once_with(user)
+
+        # Scaffold plus a batch for the one ASA section are rendered as partials.
+        render.assert_any_call("historic/assets.html#scaffold", mocker.ANY)
+        render.assert_any_call("historic/assets.html#asa_batch", mocker.ANY)
+
+        # The stream is bracketed by the begin/end control messages, with the
+        # rendered fragments in between.
+        sent = [call.kwargs.get("text_data") for call in consumer.send.call_args_list]
+        assert sent[0] == json.dumps({"type": "assets_begin"})
+        assert sent[-1] == json.dumps({"type": "assets_end"})
+        assert "<div></div>" in sent
 
 
 class TestHistoricConsumersBroadcasting:
