@@ -33,6 +33,7 @@ beforeEach(() => {
   document.documentElement.innerHTML = html.toString();
   jest.clearAllMocks();
   localStorage.clear();
+  historic.clearAssetsPending(); // reset in-flight loading state between tests
   // Provide Chart.js mock for all chart tests
   global.Chart = jest.fn().mockImplementation((ctx, config) => {
     const chartInstance = {
@@ -205,31 +206,189 @@ describe("SECTION: Websocket communication", () => {
     historic.messageReceived({ detail: { message: "<div>Bad JSON</div>" } });
     expect(window.mainConsolidated).toHaveBeenCalled(); // mainConsolidated is called inside resetHistoric
   });
-  it("defers resetHistoric while assets are streaming (assets_begin)", () => {
-    window.mainConsolidated.mockClear();
-    // assets_begin flips the streaming flag on.
+});
+
+describe("SECTION: Assets loading state", () => {
+  beforeEach(() => {
+    // #id-assets exists in the fixture; the hidden show inputs do not.
+    document.body.innerHTML +=
+      '<input id="show-x-val" /><input id="show-label" />';
+    if (!document.getElementById("id-assets")) {
+      document.body.innerHTML += '<div id="id-assets"></div>';
+    }
+  });
+  it("submitShow shows an instant loading placeholder and sends the request", () => {
+    historic.submitShow(3, "ALGO", "12 Mar 2024");
+    const assets = document.getElementById("id-assets");
+    expect(assets.getAttribute("aria-busy")).toBe("true");
+    expect(assets.querySelector(".preloader-wrapper")).not.toBeNull();
+    expect(assets.textContent).toContain("12 Mar 2024");
+    expect(window.htmx.trigger).toHaveBeenCalledWith("#id-show", "submit");
+  });
+  it("submitShow without a point label shows a generic message", () => {
+    historic.submitShow(3, null, null);
+    expect(document.getElementById("id-assets").textContent).toContain(
+      "Loading portfolio",
+    );
+  });
+  it("barChartClicked echoes a string date label in the loading state", () => {
+    // labels[selectedIdx] is a string, so the whenLabel ternary takes its
+    // truthy branch and the date is echoed.
+    historic.barChartClicked({
+      chart: {
+        getElementsAtEventForMode: () => [{ index: 1, datasetIndex: 0 }],
+        data: {
+          datasets: [{ label: "ALGO" }],
+          labels: ["1 Jan 2024", "12 Mar 2024"],
+        },
+      },
+    });
+    expect(document.getElementById("id-assets").textContent).toContain(
+      "Loading portfolio for 12 Mar 2024",
+    );
+  });
+  it("submitShow stages the inputs before the in-flight guard", () => {
+    historic.submitShow(3, "ALGO", null);
+    // A second (guarded) call still updates the hidden inputs, but does not
+    // re-send: htmx.trigger stays at one call.
+    historic.submitShow(4, "USDC", null);
+    expect(document.getElementById("show-x-val").value).toBe("4");
+    expect(window.htmx.trigger).toHaveBeenCalledTimes(1);
+    // once the stream completes, a new request is allowed again
+    historic.clearAssetsPending();
+    historic.submitShow(5, "NFT", null);
+    expect(window.htmx.trigger).toHaveBeenCalledTimes(2);
+  });
+  it("assets_end clears the loading state so a new request is allowed", () => {
+    historic.submitShow(3, "ALGO", null);
+    expect(window.htmx.trigger).toHaveBeenCalledTimes(1);
+    historic.messageReceived({
+      detail: { message: JSON.stringify({ type: "assets_end" }) },
+    });
+    historic.submitShow(4, "USDC", null);
+    expect(window.htmx.trigger).toHaveBeenCalledTimes(2);
+  });
+  it("showUpdate stops the loading state and reveals the update tab", () => {
+    historic.submitShow(3, "ALGO", null);
+    historic.showUpdate();
+    const assets = document.getElementById("id-assets");
+    expect(assets.getAttribute("aria-busy")).toBeNull();
+    expect(assets.innerHTML).toBe("");
+    expect($.prototype.tabs).toHaveBeenCalledWith("select", "tupdate");
+  });
+  it("showAssetsError shows a retryable message", () => {
+    historic.submitShow(3, "ALGO", null);
+    historic.showAssetsError();
+    const assets = document.getElementById("id-assets");
+    expect(assets.getAttribute("aria-busy")).toBeNull();
+    expect(assets.textContent).toContain("try again");
+  });
+  it("assets_begin enters streaming and clears the watchdog", () => {
+    historic.submitShow(3, "ALGO", null); // arms the watchdog, requestPending = true
     historic.messageReceived({
       detail: { message: JSON.stringify({ type: "assets_begin" }) },
     });
-    // A scaffold/batch fragment arrives as raw HTML: htmx swaps it and the
-    // one-time init is deferred, so resetHistoric (hence mainConsolidated)
-    // must not run yet.
+    // While streaming, a raw-HTML fragment is swapped by htmx and NOT re-initialised.
+    window.mainConsolidated.mockClear();
     historic.messageReceived({
       detail: { message: '<ul id="id-asa-list"></ul>' },
     });
     expect(window.mainConsolidated).not.toHaveBeenCalled();
-    // Clear the module-level flag so later tests see streaming = false.
+    // assets_end ends streaming and runs the one-time init.
     historic.messageReceived({
       detail: { message: JSON.stringify({ type: "assets_end" }) },
     });
-  });
-  it("handles assets_end message", () => {
-    window.mainConsolidated.mockClear();
-    historic.messageReceived({
-      detail: { message: JSON.stringify({ type: "assets_end" }) },
-    });
-    // assets_end clears streaming and runs the one-time init.
     expect(window.mainConsolidated).toHaveBeenCalled();
+  });
+  it("repaints the chart to draw then erase the pending marker", () => {
+    document.body.innerHTML += '<canvas id="id-bars"></canvas>';
+    historic.populateBarsChart({
+      data: { datasets: [], labels: [] },
+      xmin: 0,
+      xmax: 100,
+    });
+    const chart = document.getElementById("id-bars").chart;
+    chart.render = jest.fn(); // production charts have render(); the mock does not
+    // A click sets the pending marker and calls submitShow -> drawPendingMarker.
+    historic.barChartClicked({
+      chart: {
+        getElementsAtEventForMode: () => [{ index: 3, datasetIndex: 0 }],
+        data: { datasets: [{ label: "ALGO" }], labels: [] },
+      },
+    });
+    expect(chart.render).toHaveBeenCalledTimes(1); // marker drawn
+    historic.clearAssetsPending();
+    expect(chart.render).toHaveBeenCalledTimes(2); // marker erased
+  });
+});
+
+describe("SECTION: Pending-segment marker plugin", () => {
+  function pendingBarsChart() {
+    document.body.innerHTML +=
+      '<canvas id="id-bars"></canvas><input id="show-x-val" /><input id="show-label" />';
+    historic.populateBarsChart({
+      data: { datasets: [], labels: [] },
+      xmin: 0,
+      xmax: 100,
+    });
+    const chart = document.getElementById("id-bars").chart;
+    // Point the module-level pendingMarker at this chart via the real click path.
+    historic.barChartClicked({
+      chart: {
+        getElementsAtEventForMode: () => [{ index: 3, datasetIndex: 0 }],
+        data: { datasets: [{ label: "ALGO" }], labels: [] },
+      },
+    });
+    return chart;
+  }
+  function spyCtx() {
+    return {
+      save: jest.fn(),
+      beginPath: jest.fn(),
+      moveTo: jest.fn(),
+      lineTo: jest.fn(),
+      setLineDash: jest.fn(),
+      stroke: jest.fn(),
+      restore: jest.fn(),
+    };
+  }
+
+  it("is a no-op when no segment is pending", () => {
+    historic.clearAssetsPending(); // pendingMarker = null
+    expect(() =>
+      historic.pendingMarkerPlugin.afterDraw({ id: "other" }),
+    ).not.toThrow();
+  });
+  it("draws a dashed line at the pending segment", () => {
+    const chart = pendingBarsChart();
+    // A different chart is ignored (pendingMarker.chart !== chart).
+    const other = { ctx: spyCtx() };
+    historic.pendingMarkerPlugin.afterDraw(other);
+    expect(other.ctx.stroke).not.toHaveBeenCalled();
+    chart.ctx = spyCtx();
+    chart.chartArea = { top: 0, bottom: 100 };
+    chart.scales = { x: { getPixelForValue: () => 42 } };
+    historic.pendingMarkerPlugin.afterDraw(chart);
+    expect(chart.ctx.stroke).toHaveBeenCalled();
+  });
+  it("skips drawing when the pixel is off-scale", () => {
+    const chart = pendingBarsChart();
+    chart.ctx = spyCtx();
+    chart.chartArea = { top: 0, bottom: 100 };
+    chart.scales = { x: { getPixelForValue: () => NaN } };
+    historic.pendingMarkerPlugin.afterDraw(chart);
+    expect(chart.ctx.stroke).not.toHaveBeenCalled();
+  });
+  it("swallows drawing errors so it never breaks the chart", () => {
+    const chart = pendingBarsChart();
+    chart.chartArea = { top: 0, bottom: 100 };
+    chart.scales = { x: { getPixelForValue: () => 42 } };
+    chart.ctx = {
+      save: () => {
+        throw new Error("boom");
+      },
+    };
+    expect(() => historic.pendingMarkerPlugin.afterDraw(chart)).not.toThrow();
   });
 });
 /*

@@ -87,6 +87,41 @@ function resetHistoric() {
 // per-frame resetHistoric() so init runs once, on assets_end.
 var assetsStreaming = false;
 
+// Instant-feedback state for a segment click: a "request in flight" guard, a
+// watchdog timer, and the pending-segment chart marker.
+var requestPending = false;
+var assetsTimeout = null;
+var pendingMarker = null;
+
+// Chart.js inline plugin: draws a dashed vertical line at the clicked segment
+// while its timestamp is being fetched. Defensive so it can never break a chart.
+var pendingMarkerPlugin = {
+  id: "pendingMarker",
+  afterDraw: function (chart) {
+    if (!pendingMarker || pendingMarker.chart !== chart) {
+      return;
+    }
+    try {
+      var x = chart.scales.x.getPixelForValue(pendingMarker.value);
+      if (x === null || isNaN(x)) {
+        return;
+      }
+      var ctx = chart.ctx;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(x, chart.chartArea.top);
+      ctx.lineTo(x, chart.chartArea.bottom);
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.45)";
+      ctx.stroke();
+      ctx.restore();
+    } catch (e) {
+      // Never let the marker interfere with chart rendering.
+    }
+  },
+};
+
 /**
  * Parse message received through websocket
  * @function messageReceived
@@ -108,11 +143,15 @@ function messageReceived(event) {
     } else if (message.type === "lock_no_blur") {
       setUILocked(message.locked);
     } else if (message.type === "assets_begin") {
+      // Server responded and streaming has started; stop the click watchdog.
+      clearAssetsTimeout();
       // Scaffold + OOB batches follow as HTML frames; defer init to the end.
       assetsStreaming = true;
     } else if (message.type === "assets_end") {
-      // Every assets fragment has arrived; init the complete #id-assets DOM.
+      // Every assets fragment has arrived; clear the loading state and init
+      // the now-complete #id-assets DOM.
       assetsStreaming = false;
+      clearAssetsPending();
       resetHistoric();
     }
   } catch (e) {
@@ -125,6 +164,110 @@ function messageReceived(event) {
 }
 
 /**
+ * Show an instant loading placeholder in the assets panel.
+ *
+ * Called synchronously on a segment click, before the WebSocket request is sent,
+ * so the click is acknowledged with zero latency. The incoming scaffold frame
+ * OOB-replaces #id-assets, so no explicit teardown is needed on success.
+ *
+ * @function showAssetsLoading
+ * @param {String} [whenText] human label of the clicked point, echoed if given
+ *
+ */
+function showAssetsLoading(whenText) {
+  var message = whenText
+    ? "Loading portfolio for " + whenText
+    : "Loading portfolio\u2026";
+  $("#id-assets")
+    .attr("aria-busy", "true")
+    .html(
+      '<div class="col s12 center-align assets-loading">' +
+        '<div class="preloader-wrapper active">' +
+        '<div class="spinner-layer">' +
+        '<div class="circle-clipper left"><div class="circle"></div></div>' +
+        '<div class="gap-patch"><div class="circle"></div></div>' +
+        '<div class="circle-clipper right"><div class="circle"></div></div>' +
+        "</div></div>" +
+        '<p class="assets-loading-text">' +
+        message +
+        "</p>" +
+        "</div>",
+    );
+}
+
+/**
+ * Replace the loading placeholder with a retryable error message.
+ * @function showAssetsError
+ *
+ */
+function showAssetsError() {
+  clearAssetsPending();
+  $("#id-assets")
+    .removeAttr("aria-busy")
+    .html(
+      '<div class="col s12 center-align assets-loading">' +
+        '<p class="assets-loading-text">Couldn\'t load this timestamp. Please try again.</p>' +
+        "</div>",
+    );
+}
+
+/**
+ * Start the click-to-response watchdog so the spinner never hangs.
+ * @function startAssetsTimeout
+ *
+ */
+function startAssetsTimeout() {
+  clearAssetsTimeout();
+  assetsTimeout = setTimeout(showAssetsError, 30000);
+}
+
+/**
+ * Cancel the click-to-response watchdog.
+ * @function clearAssetsTimeout
+ *
+ */
+function clearAssetsTimeout() {
+  if (assetsTimeout) {
+    clearTimeout(assetsTimeout);
+    assetsTimeout = null;
+  }
+}
+
+/**
+ * Redraw the chart holding the pending-segment marker.
+ * @function drawPendingMarker
+ *
+ */
+function drawPendingMarker() {
+  if (
+    pendingMarker &&
+    pendingMarker.chart &&
+    typeof pendingMarker.chart.render === "function"
+  ) {
+    // render() repaints (running the marker plugin) without the update
+    // lifecycle, so it never fires zoom/pan-complete callbacks.
+    pendingMarker.chart.render();
+  }
+}
+
+/**
+ * Clear the in-flight request state: pending flag, watchdog and chart marker.
+ * @function clearAssetsPending
+ *
+ */
+function clearAssetsPending() {
+  requestPending = false;
+  clearAssetsTimeout();
+  if (pendingMarker) {
+    var chart = pendingMarker.chart;
+    pendingMarker = null;
+    if (chart && typeof chart.render === "function") {
+      chart.render(); // repaint to erase the marker (no zoom/pan callbacks)
+    }
+  }
+}
+
+/**
  * Send x-axis value and label to fetch data for
  * @function submitShow
  *
@@ -132,11 +275,21 @@ function messageReceived(event) {
  * @param {Number} label label to reveal
  *
  */
-function submitShow(xVal, label) {
+function submitShow(xVal, label, whenText) {
   document.getElementById("show-x-val").value = xVal;
   document.getElementById("show-label").value = label;
 
+  if (requestPending) {
+    // A timestamp fetch is already in flight; the inputs are staged but we
+    // don't send a duplicate request or restart the loading state.
+    return;
+  }
+  requestPending = true;
+  showAssetsLoading(whenText);
+  drawPendingMarker();
+
   htmx.trigger("#id-show", "submit");
+  startAssetsTimeout();
 }
 
 /**
@@ -184,7 +337,13 @@ function barChartClicked(evt, elements) {
     console.log("Clicked dataset label:", label);
     console.log("Data index:", selectedIdx);
     if (shownTime != selectedIdx) {
-      return submitShow(selectedIdx, label);
+      var whenLabel = (evt.chart.data.labels || [])[selectedIdx];
+      pendingMarker = { chart: chartBars, value: selectedIdx };
+      return submitShow(
+        selectedIdx,
+        label,
+        typeof whenLabel === "string" ? whenLabel : null,
+      );
     }
 
     scrollToUnit(label);
@@ -245,6 +404,7 @@ function handleCandleClick(evt, xValue, chart, button) {
     console.log("Clicked x-axis value lt:", xValue, timestamp);
   }
 
+  pendingMarker = { chart: chartCandles, value: timestamp };
   return submitShow(timestamp, null);
   // evt.button === 2 // Right-click
   // evt.button === 0 // Left-click
@@ -588,6 +748,7 @@ function populateBarsChart(chartData) {
   chartBars = new Chart(ctxBars, {
     type: "bar",
     data: chartData.data,
+    plugins: [pendingMarkerPlugin],
     options: {
       indexAxis: "x",
       responsive: true,
@@ -662,6 +823,7 @@ function populateCandlesChart(chartData) {
   chartCandles = new Chart(ctxCandles, {
     type: "candlestick",
     data: chartData.data,
+    plugins: [pendingMarkerPlugin],
     options: {
       responsive: true,
       animation: {
@@ -817,6 +979,10 @@ function showMatchedNodes(matches) {
  *
  */
 function showUpdate() {
+  // The engine has no data for this timestamp yet: stop the loading state
+  // and reveal the update tab.
+  clearAssetsPending();
+  $("#id-assets").removeAttr("aria-busy").empty();
   $(".tabs").tabs("select", "tupdate");
 }
 
@@ -911,6 +1077,10 @@ if (typeof exports !== "undefined") {
     messageReceived,
     submitShow,
     submitView,
+    showAssetsLoading,
+    showAssetsError,
+    clearAssetsPending,
+    pendingMarkerPlugin,
     // * SECTION: Charts helper functions
     barChartClicked,
     handleCandleClick,
