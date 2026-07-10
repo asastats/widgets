@@ -1,10 +1,10 @@
 /**
- * @file ASA Stats Folks Smart Router widget — browser controller (engine-backed).
+ * @file ASA Stats Smart Router widget — browser controller (engine-backed).
  * @author ASA Stats
  *
- * Router-agnostic swap flow + the Folks adapter (wired against
- * @folks-router/js-sdk). Sibling router widgets reuse the RouterAdapter shape;
- * only the adapter implementation differs.
+ * Router-agnostic swap flow + the Folks or Haystack adapter (wired against
+ * @folks-router/js-sdk or @txnlab/haystack-router). Sibling router widgets
+ * reuse the RouterAdapter shape; only the adapter implementation differs.
  *
  * DATA FLOW (engine-backed):
  *  - The shell renders one collapsible per linked address. Opening a section

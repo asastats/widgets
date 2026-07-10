@@ -34,9 +34,9 @@
   {% endif %}
 </div>
 
-{# Requires the wallet swap bridge (window.asastatsSwap: activeAddress/
-   signAndSend/optIn, dispatching 'asastats:swap-ready') to be loaded on this
-   page -- it ships with the wallet bundle; ensure that bundle is included. #}
+{# Requires the wallet swap bridge (window.asastatsSwap: activeAddress/ #}
+{# signAndSend/optIn, dispatching 'asastats:swap-ready') to be loaded on this #}
+{# page -- it ships with the wallet bundle; ensure that bundle is included. #}
 <script src="{% static 'folks/folks-sdk.bundle.js' %}"></script>
 <script src="{% static 'swap/swap.js' %}"></script>
 {% endblock %}
