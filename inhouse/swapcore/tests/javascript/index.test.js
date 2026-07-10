@@ -1240,6 +1240,50 @@ describe("shared quote helpers", () => {
   });
 });
 
+describe("autoOpenFromQuery", () => {
+  // The module is imported as F, and autoOpenFromQuery calls the local
+  // openSwapModal (not the exported reference), so a spy on F.openSwapModal
+  // wouldn't intercept it. Assert by effect instead: with a #swap-modal panel
+  // and no #id-swap-enabled marker, openSwapModal writes the "not available"
+  // status into the panel -- observable proof it ran for the parsed asset id.
+  function swapModalDom() {
+    document.body.innerHTML =
+      '<div id="swap-modal"><div class="id-swap-panel"></div></div>';
+    return document.querySelector("#swap-modal .id-swap-panel");
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    document.body.innerHTML = "";
+    window.history.replaceState({}, "", "/");
+  });
+
+  it("opens the swap modal for ?swap_open and strips the param", () => {
+    const panel = swapModalDom();
+    window.history.replaceState({}, "", "/ADDR/?swap_open=511028589");
+    F.autoOpenFromQuery();
+    // openSwapModal ran (marker absent -> the standard not-available status).
+    expect(panel.innerHTML).toContain("not available");
+    expect(window.location.search).toBe("");
+  });
+
+  it("keeps other query params while stripping swap_open", () => {
+    swapModalDom();
+    window.history.replaceState({}, "", "/ADDR/?swap_open=123&x=1");
+    F.autoOpenFromQuery();
+    expect(window.location.search).toBe("?x=1");
+  });
+
+  it("does nothing without swap_open", () => {
+    const panel = swapModalDom();
+    window.history.replaceState({}, "", "/ADDR/");
+    F.autoOpenFromQuery();
+    // openSwapModal was not invoked, so the panel is untouched.
+    expect(panel.innerHTML).toBe("");
+    expect(window.location.search).toBe("");
+  });
+});
+
 describe("HaystackAdapter", () => {
   let client;
   beforeEach(() => {
@@ -1385,6 +1429,7 @@ describe("controller executeSwap delegates to router-owned execution", () => {
     );
   });
 });
+
 describe("fixed-output (buy) mode", () => {
   test("maxSent pads the input by slippage bps", () => {
     expect(F.maxSent(BigInt(1000000), 0.5)).toBe(BigInt(1005000));

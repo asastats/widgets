@@ -1008,6 +1008,24 @@ function openSwapModal(fromAsset) {
   });
 }
 
+/* istanbul ignore next -- boot-time query glue; openSwapModal is unit-tested */
+function autoOpenFromQuery() {
+  var params = new URLSearchParams(window.location.search);
+  var fromAsset = params.get("swap_open");
+  if (!fromAsset) return;
+  // Strip the param first so a refresh doesn't reopen the modal.
+  params.delete("swap_open");
+  var query = params.toString();
+  window.history.replaceState(
+    {},
+    document.title,
+    window.location.pathname + (query ? "?" + query : "") + window.location.hash
+  );
+  // Reuse the exact click path: openSwapModal reads the #id-swap-enabled marker,
+  // so an address that isn't the viewer's shows the standard disabled state.
+  openSwapModal(fromAsset);
+}
+
 /* istanbul ignore next -- delegated DOM glue; opens the modal for the clicked row */
 function handleSwapModalClick(ev) {
   var btn = ev.target.closest && ev.target.closest(".id-swap-swap-toggle");
@@ -1102,6 +1120,7 @@ function startSwap() {
   } else {
     window.addEventListener("asastats:swap-ready", mainSwap, { once: true });
   }
+  autoOpenFromQuery();
 }
 
 /* istanbul ignore else -- in the browser we self-start; under jest we export */
@@ -1153,6 +1172,7 @@ if (typeof module !== "undefined" && module.exports) {
     loadPanel: loadPanel,
     handleInlineSwapClick: handleInlineSwapClick,
     openSwapModal: openSwapModal,
+    autoOpenFromQuery: autoOpenFromQuery,
     handleSwapModalClick: handleSwapModalClick,
     wireSwapTabs: wireSwapTabs,
     wireSection: wireSection,
