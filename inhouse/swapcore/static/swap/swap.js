@@ -1114,13 +1114,25 @@ function startSwap() {
     }
   }
   wireSwapTabs();
-  // Shell page (accordion of addresses) still binds per-section after bridge.
+  // Shell page (accordion of addresses) binds per-section once the bridge is up.
+  whenSwapReady(mainSwap);
+  // Auto-open (post-login ?swap_open) must wait for the bridge too, so the
+  // panel's initial `owns` reads the resumed wallet session, not a null one.
+  whenSwapReady(autoOpenFromQuery);
+}
+
+/**
+ * Run `fn` once the swap bridge is available: immediately if it already is,
+ * otherwise on the next `asastats:swap-ready`. The bridge publishes
+ * `window.asastatsSwap` and dispatches that event only after the wallet manager
+ * resumes, so anything reading `walletOwns`/`activeAddress` must wait for it.
+ */
+function whenSwapReady(fn) {
   if (window.asastatsSwap) {
-    mainSwap();
+    fn();
   } else {
-    window.addEventListener("asastats:swap-ready", mainSwap, { once: true });
+    window.addEventListener("asastats:swap-ready", fn, { once: true });
   }
-  autoOpenFromQuery();
 }
 
 /* istanbul ignore else -- in the browser we self-start; under jest we export */
@@ -1173,6 +1185,7 @@ if (typeof module !== "undefined" && module.exports) {
     handleInlineSwapClick: handleInlineSwapClick,
     openSwapModal: openSwapModal,
     autoOpenFromQuery: autoOpenFromQuery,
+    whenSwapReady: whenSwapReady,
     handleSwapModalClick: handleSwapModalClick,
     wireSwapTabs: wireSwapTabs,
     wireSection: wireSection,

@@ -1284,6 +1284,37 @@ describe("autoOpenFromQuery", () => {
   });
 });
 
+describe("whenSwapReady", () => {
+  afterEach(() => {
+    delete window.asastatsSwap;
+  });
+
+  it("runs immediately when the swap bridge is already present", () => {
+    window.asastatsSwap = { activeAddress: () => "ADDR" };
+    const fn = jest.fn();
+    F.whenSwapReady(fn);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("defers until asastats:swap-ready when the bridge is absent", () => {
+    delete window.asastatsSwap;
+    const fn = jest.fn();
+    F.whenSwapReady(fn);
+    expect(fn).not.toHaveBeenCalled();
+    window.dispatchEvent(new CustomEvent("asastats:swap-ready"));
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs the deferred callback only once", () => {
+    delete window.asastatsSwap;
+    const fn = jest.fn();
+    F.whenSwapReady(fn);
+    window.dispatchEvent(new CustomEvent("asastats:swap-ready"));
+    window.dispatchEvent(new CustomEvent("asastats:swap-ready"));
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("HaystackAdapter", () => {
   let client;
   beforeEach(() => {
