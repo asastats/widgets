@@ -966,7 +966,7 @@ function handleInlineSwapClick(ev) {
   var from = btn.dataset.from || panelEl.dataset.from;
   loadPanel(panelEl, {
     fromAddress: address,
-    owns: true,
+    owns: walletOwns(address),
     holdingsUrl: inlineHoldingsUrl(marker.dataset.holdingsTmpl, address, from),
     from: from,
     quoteTimer: null,
