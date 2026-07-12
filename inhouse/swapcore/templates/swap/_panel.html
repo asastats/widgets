@@ -6,7 +6,7 @@
 {# All four cells live in ONE flex grid; CSS `order` controls the sequence per    #}
 {# breakpoint + mode so the amount always sits with its asset (under From on Sell, #}
 {# under "Buy (you receive)" on Buy) on both wide and stacked layouts.            #}
-<script type="application/json" class="id-swap-holdings">{{ holdings_json|safe }}</script>
+<script type="application/json" class="id-swap-holdings">{{ holdings_json }}</script>
 <div class="id-swap-form" data-address="{{ address }}">
   <div class="row id-swap-grid">
     <div class="input-field col s12 m6 id-swap-source-col">

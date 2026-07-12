@@ -10,13 +10,45 @@ widget; only this generic data is consolidated.
 import json
 
 from api.client import fetch_account_holdings, fetch_asset_matches
+from django.utils.decorators import method_decorator
+from django.utils.safestring import mark_safe
+from django.views.decorators.cache import never_cache
 from django.views.generic.base import TemplateView
 from walletauth.gating import is_linked_to_user
 from widgethost.enforcement import WidgetAccessMixin
 
 from .manifest import MANIFEST
 
+#: Characters that must be escaped when embedding JSON inside a <script> element
+#: (and the JS line separators). Prevents a crafted asset name/unit from breaking
+#: out of the ``<script type="application/json">`` island. Mirrors Django's
+#: ``django.utils.html.json_script`` escaping.
+_JSON_SCRIPT_ESCAPES = {
+    ord(">"): "\\u003e",
+    ord("<"): "\\u003c",
+    ord("&"): "\\u0026",
+    ord("\u2028"): "\\u2028",
+    ord("\u2029"): "\\u2029",
+}
 
+
+def holdings_json_island(holdings):
+    """Return holdings as an HTML-safe JSON string for a ``<script>`` island.
+
+    ``json.dumps`` does not escape ``</script>``; an engine-supplied asset name
+    or unit containing ``</script>`` would otherwise break out of the island and
+    (under a permissive CSP) execute. Escaping ``< > &`` closes that, and the
+    result is still valid JSON so ``JSON.parse`` round-trips it losslessly.
+
+    :param holdings: flattened holdings list
+    :type holdings: list
+    :return: escaped JSON, marked safe for direct template output
+    :rtype: django.utils.safestring.SafeString
+    """
+    return mark_safe(json.dumps(holdings).translate(_JSON_SCRIPT_ESCAPES))
+
+
+@method_decorator(never_cache, name="dispatch")
 class SwapHoldingsView(WidgetAccessMixin, TemplateView):
     """htmx partial: fresh holdings for one linked address via ``account:holdings``.
 
@@ -56,7 +88,7 @@ class SwapHoldingsView(WidgetAccessMixin, TemplateView):
         ]
         context["address"] = self.address
         context["holdings"] = holdings
-        context["holdings_json"] = json.dumps(holdings)
+        context["holdings_json"] = holdings_json_island(holdings)
         return context
 
     def test_func(self):
@@ -70,6 +102,7 @@ class SwapHoldingsView(WidgetAccessMixin, TemplateView):
         )
 
 
+@method_decorator(never_cache, name="dispatch")
 class SwapAssetsView(WidgetAccessMixin, TemplateView):
     """htmx partial: ranked asset metadata for a query via ``assets:lookup``.
 

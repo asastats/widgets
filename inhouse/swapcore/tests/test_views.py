@@ -1,6 +1,14 @@
 """Testing module for :py:mod:`widgets.inhouse.swapcore.views` module."""
 
-from widgets.inhouse.swapcore.views import SwapAssetsView, SwapHoldingsView
+import json
+
+from django.http import HttpResponse
+from django.test import RequestFactory
+from widgets.inhouse.swapcore.views import (
+    SwapAssetsView,
+    SwapHoldingsView,
+    holdings_json_island,
+)
 
 
 class TestInhouseSwapcoreViewsSwapHoldingsView:
@@ -80,6 +88,36 @@ class TestInhouseSwapcoreViewsSwapHoldingsView:
         assert "router_id" not in context
 
 
+class TestInhouseSwapcoreViewsHoldingsJsonIsland:
+    """Testing class for :py:func:`...swapcore.views.holdings_json_island`."""
+
+    def test_inhouse_swapcore_views_holdings_json_island_escapes_breakout(self):
+        evil = [
+            {
+                "id": 1,
+                "unit": "X",
+                "decimals": 0,
+                "amount": 1,
+                "name": "</script><script>alert(document.cookie)</script>",
+            }
+        ]
+        out = str(holdings_json_island(evil))
+        assert "</script>" not in out
+        assert "<script>" not in out
+        assert "\\u003c" in out
+        assert "\\u003e" in out
+
+    def test_inhouse_swapcore_views_holdings_json_island_round_trips(self):
+        evil = [{"id": 1, "unit": "X", "name": "</script>&<\u2028\u2029"}]
+        out = str(holdings_json_island(evil))
+        assert json.loads(out) == evil
+
+    def test_inhouse_swapcore_views_holdings_json_island_escapes_ampersand(self):
+        out = str(holdings_json_island([{"name": "a & b"}]))
+        assert "&" not in out
+        assert "\\u0026" in out
+
+
 class TestInhouseSwapcoreViewsSwapAssetsView:
     """Testing class for :py:class:`widgets.inhouse.swapcore.views.SwapAssetsView`."""
 
@@ -115,3 +153,29 @@ class TestInhouseSwapcoreViewsSwapAssetsView:
         fetch.assert_not_called()
         assert context["query"] == ""
         assert context["assets"] == []
+
+
+class TestInhouseSwapcoreViewsCaching:
+    """Testing class for the no-store guarantee on the swap partials."""
+
+    def _run(self, view_class, mocker, **extra_kwargs):
+        mocker.patch.object(view_class, "test_func", return_value=True)
+        mocker.patch.object(view_class, "get_context_data", return_value={})
+        mocker.patch.object(
+            view_class, "render_to_response", return_value=HttpResponse("ok")
+        )
+        request = RequestFactory().get("/x/")
+        request.user = mocker.MagicMock(is_authenticated=True)
+        return view_class.as_view()(request, **extra_kwargs)
+
+    def test_inhouse_swapcore_views_holdings_is_never_cached(self, mocker):
+        response = self._run(SwapHoldingsView, mocker)
+        cache_control = response["Cache-Control"]
+        assert "no-store" in cache_control
+        assert "private" in cache_control
+
+    def test_inhouse_swapcore_views_assets_is_never_cached(self, mocker):
+        response = self._run(SwapAssetsView, mocker)
+        cache_control = response["Cache-Control"]
+        assert "no-store" in cache_control
+        assert "private" in cache_control
