@@ -4,7 +4,7 @@
 {% partialdef asaheader %}
 <span>&nbsp;{{ item.header.amount }}&nbsp;&nbsp;<span class="unit">{{ item.header.label|escape }}</span></span>
 <div class="icondiv">
-  <img src="{{ base_cdn_url }}/{{ item.header.icon }}" alt="{{ item.info.name }} logo" class="circle asaicon" onerror="this.onerror=null; this.src='{{ base_cdn_url }}/icons/empty.png';" />
+  <img src="{{ base_cdn_url }}/{{ item.header.icon }}" alt="{{ item.info.name }} logo" class="circle asaicon" data-fallback="{{ base_cdn_url }}/icons/empty.png" />
 </div>
 <div class="right">
   &nbsp;<span class="val" data-val="{{ item.header.total }}">{{ item.header.total|floatformat:'2g' }} ALGO</span>
@@ -68,7 +68,7 @@
 </div>
 <div class="nftmid col s12 center-align">
   {% for elem in item.body %}
-    <img id="t{{ elem.asset.id }}" src="{{ base_cdn_url }}{{ elem.asset.tpath }}" alt="{{ elem.asset.name }} thumbnail" class="nfticon" data-path="{{ base_cdn_url }}{{ elem.asset.path }}" onerror="this.onerror=null; this.src='{{ base_cdn_url }}/thumbnails/nftt.png';" />
+    <img id="t{{ elem.asset.id }}" src="{{ base_cdn_url }}{{ elem.asset.tpath }}" alt="{{ elem.asset.name }} thumbnail" class="nfticon" data-path="{{ base_cdn_url }}{{ elem.asset.path }}" data-fallback="{{ base_cdn_url }}/thumbnails/nftt.png" />
   {% endfor %}
 </div>
 <div class="nftright col s6 right-align">

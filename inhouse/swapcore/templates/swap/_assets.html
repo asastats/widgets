@@ -8,7 +8,7 @@
       data-decimals="{{ asset.decimals }}">
     <img src="{{ BASE_CDN_URL }}/icons/{{ asset.id }}t.png" alt="{{ asset.name }} logo"
          class="circle swapicon"
-         onerror="this.onerror=null; this.src='{{ BASE_CDN_URL }}/icons/empty.png';" />
+         data-fallback="{{ BASE_CDN_URL }}/icons/empty.png" />
     <div class="swap-asset-text">
       <span>{{ asset.unit }}</span> &middot; <span>{{ asset.name }}</span>
     </div>

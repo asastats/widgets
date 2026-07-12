@@ -26,7 +26,7 @@
     </div>
     <div class="input-field col s12 m6 id-swap-target-col">
       <input type="text" class="id-swap-to-search" placeholder="To asset: name, unit, or ID"
-             onfocus="this.select()"
+             data-select-on-focus
              hx-get="{% url 'swap_assets' %}"
              hx-trigger="keyup changed delay:300ms"
              hx-target="next .id-swap-to-results"
