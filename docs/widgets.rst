@@ -7,6 +7,51 @@
   :show-inheritance:
 
 
+:mod:`widgets.inhouse.asastats` -- ASA Stats swap widget package (inherits swapcore)
+------------------------------------------------------------------------------------
+
+.. automodule:: inhouse.asastats
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.asastats.manifest` -- ASA Stats widget's manifest module
+------------------------------------------------------------------------------
+
+.. automodule:: inhouse.asastats.manifest
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.asastats.urls` -- ASA Stats widget's URL configurations module
+------------------------------------------------------------------------------------
+
+.. automodule:: inhouse.asastats.urls
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.asastats.views` -- ASA Stats widget's views module
+------------------------------------------------------------------------
+
+.. automodule:: inhouse.asastats.views
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.asastats.tests` -- ASA Stats widget's unit-tests package
+------------------------------------------------------------------------------
+
+.. automodule:: inhouse.asastats.tests
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
 :mod:`widgets.inhouse.folks` -- Folks swap widget package (inherits swapcore)
 -----------------------------------------------------------------------------
 

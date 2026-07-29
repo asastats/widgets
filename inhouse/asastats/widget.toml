@@ -1,0 +1,41 @@
+id = "asastats"
+name = "ASA Stats Smart Router"
+version = "0.1.0"
+
+# Our own router, so the fee is ours and there is nobody to pay out.
+origin = "inhouse"
+
+# Engine-backed, and more so than the other two routers. Folks and Haystack
+# quote in the browser against their own APIs; ours quotes in the engine,
+# because the routing lives there - the pair graph, the pool reads and the
+# allocator. Nothing about a quote is computed client-side.
+capability = "engine-backed"
+revenue_account = ""
+
+# The two generic scopes every router needs, plus the two only this one does:
+#   account:holdings -> GET /api/v2/internal/accounts/{address}/holdings/
+#   assets:lookup    -> GET /api/v2/internal/assets/{id}/ | ?q=...
+#   router:quote     -> POST /api/v2/internal/router/quote/
+#   router:group     -> POST /api/v2/internal/router/group/
+# The router pair does not exist at the engine yet; see runbook.rst. Until it
+# is implemented and granted in the deployment token's scopes, this widget
+# validates but cannot quote.
+engine_endpoints = [
+    "account:holdings",
+    "assets:lookup",
+    "router:quote",
+    "router:group",
+]
+
+# Host-injected context, matching the other routers'.
+data = ["portfolio:bundle", "profile:permission", "walletauth:linked_addresses"]
+
+# No external host: unlike Folks and Haystack the browser talks only to us.
+hosts = []
+
+category = "swap"
+
+# A swap is a single-user action rather than one scaled by address count, and
+# ownership is gated by walletauth:linked_addresses plus the live signature.
+# 0 = any authenticated profile, mirroring the other routers.
+required_permission = 0

@@ -19,5 +19,6 @@ generic belongs in :doc:`development` or :doc:`widget_contract` instead.
 .. toctree::
    :maxdepth: 1
 
+   runbooks/asastats
    runbooks/folks
    runbooks/haystack
