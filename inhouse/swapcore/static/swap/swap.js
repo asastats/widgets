@@ -177,7 +177,6 @@ var FolksAdapter = {
   },
 };
 
-/** Router registry — one entry per swap widget. */
 /**
  * Haystack order router (@txnlab/haystack-router). Unlike Folks it uses a config
  * object (apiKey + referrer), a `newQuote`/`newSwap().execute()` composer flow,
@@ -271,7 +270,102 @@ var HaystackAdapter = {
   },
 };
 
-var ROUTERS = { folks: FolksAdapter, haystack: HaystackAdapter };
+/**
+ * ASA Stats' own smart router. Unlike the other two there is no vendor SDK in
+ * the browser: the routing is ours and it runs in the engine, so the adapter
+ * posts to this widget's own endpoints and the widget proxies them under its
+ * declared scopes.
+ *
+ * Two consequences worth knowing when reading this. Amounts cross as decimal
+ * *strings* rather than numbers, because the controller works in BigInt base
+ * units and JSON has no integer wide enough to be trusted with them. And there
+ * is no client-side fee, referrer or slippage arithmetic to tamper with - the
+ * quote arrives already carrying its own floor, computed against pool reserves
+ * the browser never saw.
+ */
+var AsastatsAdapter = {
+  /** Django's CSRF cookie, required because these are same-origin POSTs. */
+  _csrfToken: function () {
+    var match = /(?:^|;\s*)csrftoken=([^;]*)/.exec(document.cookie || "");
+    return match ? decodeURIComponent(match[1]) : "";
+  },
+
+  _post: async function (url, address, body) {
+    if (!url) throw new Error("this deployment has no ASA Stats router endpoint");
+    // the address rides in the query string because the view gates on it
+    // before the body is read at all
+    var response = await fetch(url + "?address=" + encodeURIComponent(address), {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": AsastatsAdapter._csrfToken(),
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error("ASA Stats router request failed (" + response.status + ")");
+    }
+    return await response.json();
+  },
+
+  getQuote: async function (p, cfg) {
+    var buy = p.mode === "buy";
+    var quoted = await AsastatsAdapter._post(cfg.quoteUrl, p.fromAddress, {
+      from_asset_id: p.fromAssetId,
+      to_asset_id: p.toAssetId,
+      amount: String(p.amount), // fixed input (sell) or fixed output (buy)
+      mode: buy ? "buy" : "sell",
+      slippage_pct: p.slippagePct || 0,
+    });
+    // `raw` carries the engine's own quote back to buildSwapGroup, so the
+    // group is built from the allocation that was actually quoted rather than
+    // from one re-derived against reserves that have since moved.
+    var raw = { quote: quoted };
+    if (buy) {
+      return makeQuote({
+        mode: "buy",
+        amountIn: BigInt(quoted.amount_in),
+        amountOut: BigInt(quoted.minimum_received),
+        // exact rather than a tolerance: our legs are fixed-input, so nothing
+        // can make the group spend more than it was built to spend
+        maximumSent: BigInt(quoted.maximum_sent),
+        priceImpactPct: quoted.price_impact_pct,
+        routeLabel: quoted.route_label,
+        feesTotal: quoted.fees_total,
+        raw: raw,
+      });
+    }
+    return makeQuote({
+      mode: "sell",
+      amountOut: BigInt(quoted.amount_out),
+      amountIn: BigInt(quoted.amount_in),
+      minimumReceived: BigInt(quoted.minimum_received),
+      priceImpactPct: quoted.price_impact_pct,
+      routeLabel: quoted.route_label,
+      feesTotal: quoted.fees_total,
+      raw: raw,
+    });
+  },
+
+  // All-user-signed, so the controller's own signAndSend path applies and this
+  // does not need to own execution the way Haystack does. The engine refuses to
+  // build a group containing a Tinyman v1 leg for exactly that reason: v1 pays
+  // out from the pool's own logic signature, which the wallet cannot sign for.
+  buildSwapGroup: async function (quote, fromAddress, cfg) {
+    var built = await AsastatsAdapter._post(cfg.groupUrl, fromAddress, {
+      quote: quote.raw.quote,
+    });
+    return (built.transactions || []).map(b64ToBytes);
+  },
+};
+
+/** Router registry — one entry per swap widget. */
+var ROUTERS = {
+  folks: FolksAdapter,
+  haystack: HaystackAdapter,
+  asastats: AsastatsAdapter,
+};
 
 var QUOTE_DEBOUNCE_MS = 400;
 
@@ -281,6 +375,10 @@ function swapConfig(root) {
     network: root.dataset.network || "mainnet",
     referrer: root.dataset.referrer || "",
     feeBps: Number(root.dataset.feeBps || "0"),
+    // Only the ASA Stats router uses these: its quoting runs in our engine, so
+    // the browser posts to us instead of to a vendor SDK. Empty for the others.
+    quoteUrl: root.dataset.quoteUrl || "",
+    groupUrl: root.dataset.groupUrl || "",
   };
 }
 
@@ -666,6 +764,8 @@ function markerCfg(marker) {
     referrer: marker.dataset.referrer || "",
     feeBps: Number(marker.dataset.feeBps || "0"),
     apiKey: marker.dataset.apiKey || "",
+    quoteUrl: marker.dataset.quoteUrl || "",
+    groupUrl: marker.dataset.groupUrl || "",
   };
 }
 
@@ -1140,6 +1240,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     FolksAdapter: FolksAdapter,
     HaystackAdapter: HaystackAdapter,
+    AsastatsAdapter: AsastatsAdapter,
     ROUTERS: ROUTERS,
     makeQuote: makeQuote,
     routeLabelFrom: routeLabelFrom,

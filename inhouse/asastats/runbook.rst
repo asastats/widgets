@@ -28,6 +28,30 @@ are ``router.quote.quote_fixed_input`` and ``router.quote.quote_fixed_output``, 
 whose group builder is ``router.legs.legs_for_quote`` followed by
 ``router.build.assemble``.
 
+Browser-side tests
+------------------
+
+``AsastatsAdapter`` lives in ``inhouse/swapcore/static/swap/swap.js`` beside the other
+two adapters and is covered by ``describe("AsastatsAdapter")`` in
+``inhouse/swapcore/tests/javascript/index.test.js``. Run it with ``npm test`` from
+``inhouse/swapcore``; ``swap.js`` is at 100% statements, branches, functions and lines.
+
+Unlike Folks and Haystack there is no vendor SDK to stub — the adapter posts to our own
+endpoints — so the tests stub ``fetch`` instead.
+
+Coverage is not the interesting number, and should not be read as one. The check worth
+repeating after a change is that the tests still *bite*: mutate the adapter one way at a
+time — ``BigInt`` to ``Number``, drop ``credentials: "same-origin"``, drop the CSRF
+header, drop the unconfigured-endpoint guard, stop encoding the address, ignore
+``response.ok`` — and confirm the suite fails on each. All nine such mutations were
+caught when the tests were written.
+
+One of them is a trap worth knowing about. The large-amount test uses
+``58180000000000001`` and not ``58180000000000000``: both exceed
+``Number.MAX_SAFE_INTEGER``, but the round one is exactly representable as a double and
+round trips through ``Number()`` unharmed, so a test using it passes against the very
+regression it exists to catch.
+
 Endpoint contract
 -----------------
 
@@ -43,16 +67,23 @@ doubles: an ALGO amount above about nine quadrillion microALGO would lose precis
 silently, and a router that is occasionally wrong about large trades is worse than one
 that refuses them.
 
-``router:group`` takes ``{address, quote}`` and returns ``{transactions: [...]}``,
-base64, ungrouped-then-grouped by ``router.build.assemble``, unsigned.
+``router:group`` takes ``{address, quote}`` and returns ``{transactions: [...], quote:
+{...}}`` — base64, grouped by ``router.build.assemble``, unsigned, alongside the quote
+actually built from, which may be marginally better than the one sent.
 
 Two rules the engine side must hold to
 --------------------------------------
 
-**Quote and group must agree.** The group has to be built from the allocation that was
-quoted, not from one re-derived at build time — otherwise the ``minimum_received`` the
-user was shown belongs to a different set of legs than the ones they sign. Pass the
-quote back rather than the parameters.
+**The group must honour the floor the user was shown.** Send the quote back rather than
+the parameters, and the engine re-derives the allocation against current reserves and
+then checks the result still clears that floor — ``409 Conflict`` if it does not, and
+the user is asked to quote again.
+
+Re-deriving rather than replaying the quoted allocation is deliberate. Replaying it
+means signing a group built against reserves that have since moved; re-deriving and
+re-checking guarantees the user gets at least what they were promised or nothing at
+all. It also keeps the endpoint stateless, so it does not matter which worker takes the
+second request.
 
 **No Tinyman v1 leg may reach this path.** v1 pays out with a top-level transaction sent
 by the pool's own logic signature, so a group containing one is not all-user-signed and

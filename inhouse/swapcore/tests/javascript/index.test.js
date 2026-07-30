@@ -44,6 +44,21 @@ describe("pure helpers", () => {
       network: "testnet",
       referrer: "REF",
       feeBps: 25,
+      // only the ASA Stats router uses these; empty for Folks and Haystack
+      quoteUrl: "",
+      groupUrl: "",
+    });
+  });
+  test("swapConfig reads the ASA Stats router endpoints", () => {
+    const root = document.createElement("div");
+    root.dataset.quoteUrl = "/api/v2/internal/router/quote/";
+    root.dataset.groupUrl = "/api/v2/internal/router/group/";
+    expect(F.swapConfig(root)).toEqual({
+      network: "mainnet",
+      referrer: "",
+      feeBps: 0,
+      quoteUrl: "/api/v2/internal/router/quote/",
+      groupUrl: "/api/v2/internal/router/group/",
     });
   });
   test("swapConfig defaults", () => {
@@ -51,6 +66,8 @@ describe("pure helpers", () => {
       network: "mainnet",
       referrer: "",
       feeBps: 0,
+      quoteUrl: "",
+      groupUrl: "",
     });
   });
   test("readPanelHoldings parses the island", () => {
@@ -399,6 +416,212 @@ describe("FolksAdapter", () => {
     );
     expect(group).toHaveLength(2);
     expect(Array.from(group[0])).toEqual([65, 66]); // "AB"
+  });
+});
+
+/*
+ * Unlike Folks and Haystack there is no vendor SDK to stub here: quoting runs
+ * in the ASA Stats engine and the browser posts to our own endpoints, so what
+ * these stub is `fetch`.
+ *
+ * Amounts cross that wire as decimal *strings* and must come back as BigInt.
+ * That is the whole reason for the wire format - the controller works in base
+ * units, and a JSON number is a double, so an amount above 2^53 would lose
+ * precision silently. `survives a value above Number.MAX_SAFE_INTEGER` is the
+ * test that would catch a regression to Number().
+ */
+describe("AsastatsAdapter", () => {
+  const CFG = {
+    quoteUrl: "/api/v2/internal/router/quote/",
+    groupUrl: "/api/v2/internal/router/group/",
+  };
+  const SELL = {
+    amount_in: "1000000",
+    amount_out: "2500000",
+    minimum_received: "2487500",
+    maximum_sent: "0",
+    price_impact_pct: 0.12,
+    route_label: "Tinyman, Pact",
+    fees_total: 3000,
+  };
+
+  /** Install a `fetch` that answers every call with `payload`. */
+  function stubFetch(payload, ok) {
+    global.fetch = jest.fn(async () => ({
+      ok: ok === undefined ? true : ok,
+      status: ok === false ? 502 : 200,
+      json: async () => payload,
+    }));
+    return global.fetch;
+  }
+
+  beforeEach(() => {
+    document.cookie = "csrftoken=TOKEN123";
+  });
+  afterEach(() => {
+    delete global.fetch;
+    document.cookie = "csrftoken=; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  });
+
+  test("getQuote (sell) maps the wire fields onto a quote", async () => {
+    const fetchMock = stubFetch(SELL);
+    const q = await F.AsastatsAdapter.getQuote(
+      {
+        fromAddress: "ADDR",
+        fromAssetId: 0,
+        toAssetId: 393537671,
+        amount: BigInt(1000000),
+        slippagePct: 0.5,
+        mode: "sell",
+      },
+      CFG,
+    );
+
+    expect(q.mode).toBe("sell");
+    expect(q.amountIn).toBe(BigInt(1000000));
+    expect(q.amountOut).toBe(BigInt(2500000));
+    expect(q.minimumReceived).toBe(BigInt(2487500));
+    expect(q.priceImpactPct).toBe(0.12);
+    expect(q.routeLabel).toBe("Tinyman, Pact");
+    expect(q.feesTotal).toBe(3000);
+    // the engine's own quote rides back so the group is built from the
+    // allocation that was quoted, not one re-derived from moved reserves
+    expect(q.raw.quote).toEqual(SELL);
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body).toEqual({
+      from_asset_id: 0,
+      to_asset_id: 393537671,
+      amount: "1000000",
+      mode: "sell",
+      slippage_pct: 0.5,
+    });
+  });
+
+  test("getQuote (buy) maps amount_in and maximum_sent", async () => {
+    const payload = Object.assign({}, SELL, {
+      amount_in: "402000",
+      minimum_received: "1000000",
+      maximum_sent: "404010",
+    });
+    const fetchMock = stubFetch(payload);
+    const q = await F.AsastatsAdapter.getQuote(
+      {
+        fromAddress: "ADDR",
+        fromAssetId: 0,
+        toAssetId: 31566704,
+        amount: BigInt(1000000),
+        slippagePct: 0.5,
+        mode: "buy",
+      },
+      CFG,
+    );
+
+    expect(q.mode).toBe("buy");
+    expect(q.amountIn).toBe(BigInt(402000));
+    // fixed output: what the user asked to receive
+    expect(q.amountOut).toBe(BigInt(1000000));
+    expect(q.maximumSent).toBe(BigInt(404010));
+    // exact rather than a tolerance - the legs are fixed-input, so nothing
+    // can make the group spend more than it was built to spend
+    expect(q.minimumReceived).toBeUndefined();
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).mode).toBe("buy");
+  });
+
+  test("survives a value above Number.MAX_SAFE_INTEGER", async () => {
+    // Above 2^53 *and* not exactly representable as a double. The trailing
+    // digit matters: 58180000000000000 is over MAX_SAFE_INTEGER but round
+    // trips through Number() intact, so it would pass even against the bug
+    // this test exists to catch.
+    const huge = "58180000000000001";
+    stubFetch(Object.assign({}, SELL, { amount_out: huge }));
+    const q = await F.AsastatsAdapter.getQuote(
+      { fromAddress: "A", fromAssetId: 1, toAssetId: 2, amount: BigInt(1) },
+      CFG,
+    );
+
+    expect(q.amountOut).toBe(BigInt(huge));
+    expect(q.amountOut.toString()).toBe(huge);
+    // the failure this guards against: Number() would round it
+    expect(Number(huge).toString()).not.toBe(huge);
+  });
+
+  test("getQuote defaults slippage to 0 when not given", async () => {
+    const fetchMock = stubFetch(SELL);
+    await F.AsastatsAdapter.getQuote(
+      { fromAddress: "A", fromAssetId: 1, toAssetId: 2, amount: BigInt(1) },
+      CFG,
+    );
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).slippage_pct).toBe(0);
+  });
+
+  test("buildSwapGroup decodes the returned base64 to bytes", async () => {
+    const fetchMock = stubFetch({ transactions: [btoa("AB"), btoa("CD")] });
+    const group = await F.AsastatsAdapter.buildSwapGroup(
+      { raw: { quote: SELL } },
+      "ADDR",
+      CFG,
+    );
+
+    expect(group).toHaveLength(2);
+    expect(group[0]).toBeInstanceOf(Uint8Array);
+    expect(Array.from(group[0])).toEqual([65, 66]); // "AB"
+    expect(Array.from(group[1])).toEqual([67, 68]); // "CD"
+    // the quote goes back, not the parameters
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      quote: SELL,
+    });
+    expect(fetchMock.mock.calls[0][0]).toContain(CFG.groupUrl);
+  });
+
+  test("buildSwapGroup returns [] when the response carries no transactions", async () => {
+    stubFetch({});
+    await expect(
+      F.AsastatsAdapter.buildSwapGroup({ raw: { quote: SELL } }, "ADDR", CFG),
+    ).resolves.toEqual([]);
+  });
+
+  test("_post sends CSRF, same-origin credentials and the address in the query", async () => {
+    const fetchMock = stubFetch(SELL);
+    await F.AsastatsAdapter._post(CFG.quoteUrl, "ADDR+/=", { a: 1 });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    // the view gates on the address before the body is read at all
+    expect(url).toBe(CFG.quoteUrl + "?address=ADDR%2B%2F%3D");
+    expect(init.method).toBe("POST");
+    expect(init.credentials).toBe("same-origin");
+    expect(init.headers["Content-Type"]).toBe("application/json");
+    expect(init.headers["X-CSRFToken"]).toBe("TOKEN123");
+    expect(init.body).toBe(JSON.stringify({ a: 1 }));
+  });
+
+  test("_post sends an empty CSRF header when the cookie is absent", async () => {
+    document.cookie = "csrftoken=; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    const fetchMock = stubFetch(SELL);
+    await F.AsastatsAdapter._post(CFG.quoteUrl, "ADDR", {});
+    expect(fetchMock.mock.calls[0][1].headers["X-CSRFToken"]).toBe("");
+  });
+
+  test("_post throws on a non-ok response", async () => {
+    stubFetch({ detail: "no route" }, false);
+    await expect(
+      F.AsastatsAdapter._post(CFG.quoteUrl, "ADDR", {}),
+    ).rejects.toThrow("ASA Stats router request failed (502)");
+  });
+
+  test("an unconfigured deployment throws instead of fetching undefined", async () => {
+    const fetchMock = stubFetch(SELL);
+    await expect(
+      F.AsastatsAdapter.getQuote(
+        { fromAddress: "A", fromAssetId: 1, toAssetId: 2, amount: BigInt(1) },
+        { quoteUrl: "", groupUrl: "" },
+      ),
+    ).rejects.toThrow("this deployment has no ASA Stats router endpoint");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("the registry offers it under `asastats`", () => {
+    expect(F.ROUTERS.asastats).toBe(F.AsastatsAdapter);
   });
 });
 
@@ -788,13 +1011,14 @@ describe("modal swap helpers", () => {
   test("markerCfg: defaults when only router set", () => {
     const m = document.createElement("span");
     m.dataset.router = "folks";
-    // ADDED apiKey: "" to match updated return object
     expect(F.markerCfg(m)).toEqual({
       router: "folks",
       network: "mainnet",
       referrer: "",
       feeBps: 0,
       apiKey: "",
+      quoteUrl: "",
+      groupUrl: "",
     });
   });
   test("markerCfg: explicit network/referrer/feeBps", () => {
@@ -803,13 +1027,25 @@ describe("modal swap helpers", () => {
     m.dataset.network = "testnet";
     m.dataset.referrer = "ADDR";
     m.dataset.feeBps = "30";
-    // ADDED apiKey: "" to match updated return object
     expect(F.markerCfg(m)).toEqual({
       router: "folks",
       network: "testnet",
       referrer: "ADDR",
       feeBps: 30,
       apiKey: "",
+      quoteUrl: "",
+      groupUrl: "",
+    });
+  });
+  test("markerCfg: carries the ASA Stats router endpoints", () => {
+    const m = document.createElement("span");
+    m.dataset.router = "asastats";
+    m.dataset.quoteUrl = "/q/";
+    m.dataset.groupUrl = "/g/";
+    expect(F.markerCfg(m)).toMatchObject({
+      router: "asastats",
+      quoteUrl: "/q/",
+      groupUrl: "/g/",
     });
   });
   test("applyPercent: 50/25/100 of 1000.0 @ 6dp", () => {
