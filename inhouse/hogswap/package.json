@@ -1,0 +1,14 @@
+{
+  "name": "asastats-widget-hogswap",
+  "private": true,
+  "scripts": {
+    "build:sdk": "esbuild hogswap-sdk-entry.js --bundle --format=iife --global-name=HogswapRouter --inject:./buffer-shim.js --minify --outfile=static/hogswap/hogswap-sdk.bundle.js"
+  },
+  "dependencies": {
+    "buffer": "^6.0.3",
+    "hogswap-js-sdk": "1.4.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
+  }
+}

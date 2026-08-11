@@ -44,7 +44,10 @@ describe("pure helpers", () => {
       network: "testnet",
       referrer: "REF",
       feeBps: 25,
-      // only the ASA Stats router uses these; empty for Folks and Haystack
+      // Haystack's and HOGSWAP's rate-limit keys, and HOGSWAP's optional host
+      apiKey: "",
+      baseUrl: "",
+      // only the ASA Stats router uses these; empty for the vendor SDKs
       quoteUrl: "",
       groupUrl: "",
     });
@@ -57,6 +60,8 @@ describe("pure helpers", () => {
       network: "mainnet",
       referrer: "",
       feeBps: 0,
+      apiKey: "",
+      baseUrl: "",
       quoteUrl: "/api/v2/internal/router/quote/",
       groupUrl: "/api/v2/internal/router/group/",
     });
@@ -66,6 +71,8 @@ describe("pure helpers", () => {
       network: "mainnet",
       referrer: "",
       feeBps: 0,
+      apiKey: "",
+      baseUrl: "",
       quoteUrl: "",
       groupUrl: "",
     });
@@ -625,6 +632,264 @@ describe("AsastatsAdapter", () => {
   });
 });
 
+describe("HogswapAdapter", () => {
+  const CFG = { baseUrl: "", apiKey: "" };
+  const SELL_QUOTE = {
+    quote_id: "q-1",
+    amount_in: 1000000,
+    expected_out: 2500000,
+    min_out_at_slippage: 2487500,
+    network_fee_microalgo: 4000,
+    legs: [
+      { dex_name: "Tinyman v2", pool_id: 1 },
+      { dex_name: "Pact CP", pool_id: 2 },
+      { dex_name: "Tinyman v2", pool_id: 3 },
+    ],
+  };
+
+  /** Install a HOGSWAP SDK whose client answers with `overrides`. */
+  function mockHogswap(overrides = {}) {
+    class QuoteExpiredError extends Error {}
+    const client = {
+      swapQuote: jest.fn().mockResolvedValue(overrides.quote || SELL_QUOTE),
+      exactOutQuote: jest.fn().mockResolvedValue(overrides.quote || SELL_QUOTE),
+      execute:
+        overrides.execute ||
+        jest.fn().mockResolvedValue({ txnsB64: ["QUJD", "REVG"] }),
+    };
+    window.HogswapRouter = {
+      HogswapClient: jest.fn().mockImplementation(() => client),
+      QuoteExpiredError,
+    };
+    return client;
+  }
+
+  beforeEach(() => {
+    F.HogswapAdapter._clients = {};
+  });
+  afterEach(() => {
+    delete window.HogswapRouter;
+  });
+
+  test("getQuote (sell) uses the router's own on-chain floor", async () => {
+    const client = mockHogswap();
+    const q = await F.HogswapAdapter.getQuote(
+      {
+        fromAddress: "ADDR",
+        fromAssetId: 0,
+        toAssetId: 31566704,
+        amount: BigInt(1000000),
+        slippagePct: 0.5,
+        mode: "sell",
+      },
+      CFG,
+    );
+    expect(client.swapQuote).toHaveBeenCalled();
+    expect(q.amountOut).toBe(BigInt(2500000));
+    // theirs, not one recomputed here: their contract enforces this number
+    expect(q.minimumReceived).toBe(BigInt(2487500));
+    expect(q.routeLabel).toBe("Tinyman v2, Pact CP");
+    expect(q.raw.quoteId).toBe("q-1");
+  });
+
+  test("getQuote (buy) asks for an exact output", async () => {
+    const client = mockHogswap();
+    const q = await F.HogswapAdapter.getQuote(
+      {
+        fromAddress: "ADDR",
+        fromAssetId: 0,
+        toAssetId: 31566704,
+        amount: BigInt(2500000),
+        slippagePct: 0.5,
+        mode: "buy",
+      },
+      CFG,
+    );
+    expect(client.exactOutQuote).toHaveBeenCalled();
+    expect(client.swapQuote).not.toHaveBeenCalled();
+    expect(q.amountIn).toBe(BigInt(1000000));
+    // exact-out already sizes the input to cover its own floor
+    expect(q.maximumSent).toBe(BigInt(1000000));
+  });
+
+  test("slippage is sent in basis points and never zero", async () => {
+    const client = mockHogswap();
+    // the API rejects 0 outright, and the controller may legitimately offer it
+    await F.HogswapAdapter.getQuote(
+      { fromAssetId: 0, toAssetId: 1, amount: BigInt(1), slippagePct: 0, mode: "sell" },
+      CFG,
+    );
+    expect(client.swapQuote.mock.calls[0][0].slippageBps).toBe(1);
+    await F.HogswapAdapter.getQuote(
+      { fromAssetId: 0, toAssetId: 1, amount: BigInt(1), slippagePct: 0.5, mode: "sell" },
+      CFG,
+    );
+    expect(client.swapQuote.mock.calls[1][0].slippageBps).toBe(50);
+  });
+
+  test("the sender is passed so the HOG discount is priced", async () => {
+    const client = mockHogswap();
+    await F.HogswapAdapter.getQuote(
+      {
+        fromAddress: "WALLET",
+        fromAssetId: 0,
+        toAssetId: 1,
+        amount: BigInt(1),
+        slippagePct: 0.5,
+        mode: "sell",
+      },
+      CFG,
+    );
+    expect(client.swapQuote.mock.calls[0][0].sender).toBe("WALLET");
+  });
+
+  test("buildSwapGroup decodes the unsigned group", async () => {
+    const client = mockHogswap();
+    const quote = { raw: { quoteId: "q-1", params: {} } };
+    const group = await F.HogswapAdapter.buildSwapGroup(quote, "ADDR", CFG);
+    expect(client.execute).toHaveBeenCalledWith({
+      quoteId: "q-1",
+      userAddress: "ADDR",
+    });
+    expect(group).toHaveLength(2);
+    expect(Array.from(group[0])).toEqual([65, 66, 67]);
+  });
+
+  test("an expired quote is re-issued rather than failing the swap", async () => {
+    // A quote lives 30 seconds and a user reading a wallet dialog outlasts it
+    // easily. Refusing would be safe and useless; the replacement carries its
+    // own on-chain floor, so the fill is still bounded by the chosen tolerance.
+    const client = mockHogswap();
+    const Expired = window.HogswapRouter.QuoteExpiredError;
+    client.execute = jest.fn(async ({ quoteId }) => {
+      if (quoteId === "q-1") throw new Expired("stale");
+      return { txnsB64: ["QUJD"] };
+    });
+    client.swapQuote.mockResolvedValue({ ...SELL_QUOTE, quote_id: "q-2" });
+
+    const quote = {
+      raw: { quoteId: "q-1", params: { mode: "sell", amount: BigInt(1) } },
+    };
+    const group = await F.HogswapAdapter.buildSwapGroup(quote, "ADDR", CFG);
+    // re-quoted, then executed against the replacement rather than the stale id
+    expect(client.swapQuote).toHaveBeenCalled();
+    expect(client.execute).toHaveBeenLastCalledWith({
+      quoteId: "q-2",
+      userAddress: "ADDR",
+    });
+    expect(group).toHaveLength(1);
+  });
+
+  test("a failure that is not an expiry is not retried", async () => {
+    const client = mockHogswap();
+    client.execute = jest.fn(async () => {
+      throw new Error("router down");
+    });
+    const quote = { raw: { quoteId: "q-1", params: {} } };
+    await expect(
+      F.HogswapAdapter.buildSwapGroup(quote, "ADDR", CFG),
+    ).rejects.toThrow("router down");
+    expect(client.swapQuote).not.toHaveBeenCalled();
+  });
+});
+
+describe("HogswapAdapter defensive paths", () => {
+  // Every one of these guards a field the HOGSWAP API is documented to return
+  // and could stop returning. Two of them prevent an outright crash rather than
+  // a cosmetic wrong value, which is why they are asserted and not deleted.
+  const CFG = { baseUrl: "", apiKey: "" };
+  const BASE = {
+    quote_id: "q-1",
+    amount_in: 1000000,
+    expected_out: 2500000,
+    min_out_at_slippage: 2487500,
+    network_fee_microalgo: 4000,
+    legs: [{ dex_name: "Pact CP" }],
+  };
+
+  function mockHogswap(quote, execute) {
+    const client = {
+      swapQuote: jest.fn().mockResolvedValue(quote),
+      exactOutQuote: jest.fn().mockResolvedValue(quote),
+      execute: execute || jest.fn().mockResolvedValue({ txnsB64: ["QUJD"] }),
+    };
+    window.HogswapRouter = {
+      HogswapClient: jest.fn().mockImplementation(() => client),
+      QuoteExpiredError: class extends Error {},
+    };
+    return client;
+  }
+
+  const SELL = {
+    fromAssetId: 0,
+    toAssetId: 1,
+    amount: BigInt(1000000),
+    slippagePct: 0.5,
+    mode: "sell",
+  };
+
+  afterEach(() => {
+    delete window.HogswapRouter;
+  });
+
+  test("the client cache initialises itself on first use", async () => {
+    // `_clients` is null until something asks for a client; every other test
+    // starts it at {} in a beforeEach, so the lazy branch is only reached here
+    F.HogswapAdapter._clients = null;
+    mockHogswap(BASE);
+    await F.HogswapAdapter.getQuote(SELL, CFG);
+    expect(F.HogswapAdapter._clients).not.toBeNull();
+    expect(Object.keys(F.HogswapAdapter._clients)).toHaveLength(1);
+  });
+
+  test("a missing amount reads as zero rather than throwing", async () => {
+    // BigInt(NaN) is a RangeError, so without the fallback an absent field
+    // takes down the quote instead of degrading it
+    F.HogswapAdapter._clients = {};
+    mockHogswap({ ...BASE, expected_out: undefined });
+    const q = await F.HogswapAdapter.getQuote(SELL, CFG);
+    expect(q.amountOut).toBe(BigInt(0));
+  });
+
+  test("a quote with no legs still has a route label", async () => {
+    F.HogswapAdapter._clients = {};
+    mockHogswap({ ...BASE, legs: [] });
+    const q = await F.HogswapAdapter.getQuote(SELL, CFG);
+    expect(q.routeLabel).toBe("HOGSWAP");
+  });
+
+  test("legs with no venue names still have a route label", async () => {
+    F.HogswapAdapter._clients = {};
+    mockHogswap({ ...BASE, legs: [{ pool_id: 1 }, { pool_id: 2 }] });
+    const q = await F.HogswapAdapter.getQuote(SELL, CFG);
+    expect(q.routeLabel).toBe("HOGSWAP");
+  });
+
+  test("a missing network fee reads as zero on both sides", async () => {
+    // Number(undefined) is NaN, which would render to the user as "NaN"
+    F.HogswapAdapter._clients = {};
+    mockHogswap({ ...BASE, network_fee_microalgo: undefined });
+    const sell = await F.HogswapAdapter.getQuote(SELL, CFG);
+    expect(sell.feesTotal).toBe(0);
+
+    F.HogswapAdapter._clients = {};
+    mockHogswap({ ...BASE, network_fee_microalgo: undefined });
+    const buy = await F.HogswapAdapter.getQuote({ ...SELL, mode: "buy" }, CFG);
+    expect(buy.feesTotal).toBe(0);
+  });
+
+  test("an execute answering with no transactions yields an empty group", async () => {
+    F.HogswapAdapter._clients = {};
+    mockHogswap(BASE, jest.fn().mockResolvedValue({}));
+    const group = await F.HogswapAdapter.buildSwapGroup(
+      { raw: { quoteId: "q-1", params: SELL } },
+      "ADDR",
+      CFG,
+    );
+    expect(group).toEqual([]);
+  });
+});
+
 describe("error branches", () => {
   afterEach(() => {
     delete global.fetch;
@@ -1017,6 +1282,7 @@ describe("modal swap helpers", () => {
       referrer: "",
       feeBps: 0,
       apiKey: "",
+      baseUrl: "",
       quoteUrl: "",
       groupUrl: "",
     });
@@ -1033,6 +1299,7 @@ describe("modal swap helpers", () => {
       referrer: "ADDR",
       feeBps: 30,
       apiKey: "",
+      baseUrl: "",
       quoteUrl: "",
       groupUrl: "",
     });

@@ -250,6 +250,51 @@
   :show-inheritance:
 
 
+:mod:`widgets.inhouse.hogswap` -- HOGSWAP swap widget package (inherits swapcore)
+---------------------------------------------------------------------------------
+
+.. automodule:: inhouse.hogswap
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.hogswap.manifest` -- HOGSWAP widget's manifest module
+----------------------------------------------------------------------------
+
+.. automodule:: inhouse.hogswap.manifest
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.hogswap.urls` -- HOGSWAP widget's URL configurations module
+---------------------------------------------------------------------------------
+
+.. automodule:: inhouse.hogswap.urls
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.hogswap.views` -- HOGSWAP widget's views module
+----------------------------------------------------------------------
+
+.. automodule:: inhouse.hogswap.views
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.hogswap.tests` -- HOGSWAP widget's unit-tests package
+----------------------------------------------------------------------------
+
+.. automodule:: inhouse.hogswap.tests
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
 :mod:`widgets.inhouse.swapcore` -- Abstract widget for swap/router widgets
 --------------------------------------------------------------------------
 

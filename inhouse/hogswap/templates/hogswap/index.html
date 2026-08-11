@@ -1,0 +1,42 @@
+{% extends 'base.html' %}{% load static %}{% load core_extras %}
+{% block title %}Swap (HOGSWAP Router) - {{ WEBSITE_NAME }}{% endblock %}
+{% block content %}
+{# Page context + non-secret router config handed to the shared controller via #}
+{# data-*. The #id-swap-swap id is the controller's router-agnostic shell hook. #}
+<div id="id-swap-swap"
+     data-router="{{ router_id }}"
+     data-bundle="{{ bundle }}"
+     data-addresses="{{ addresses }}"
+     data-base-url="{{ hogswap_base_url }}"
+     data-api-key="{{ hogswap_api_key }}"
+     data-explorer-base="{% explorer_base %}"
+     data-explorer-tx-path="{% explorer_tx_path %}">
+
+  <h1 class="center-align">Swap</h1>
+
+  {% if linked_addresses %}
+  <ul class="collapsible" id="id-swap-addresses">
+    {% for address in linked_addresses %}
+    <li data-address="{{ address }}">
+      <div class="collapsible-header">{{ address|short_address }}</div>
+      <div class="collapsible-body">
+        <div class="id-swap-panel" id="id-swap-panel-{{ forloop.counter }}"
+             data-holdings-url="{% url 'swap_holdings' address %}"></div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <blockquote id="id-swap-locked">
+    Connect the wallet that owns an address on this page to swap from it.
+  </blockquote>
+  {% endif %}
+</div>
+
+{# Shared controller + this router's SDK bundle. HOGSWAP returns an unsigned  #}
+{# group, so the controller's own signAndSend path applies and only the       #}
+{# bridge's plain `signer` is needed - no router-specific signer as Haystack  #}
+{# requires.                                                                  #}
+<script src="{% static 'hogswap/hogswap-sdk.bundle.js' %}"></script>
+<script src="{% static 'swap/swap.js' %}"></script>
+{% endblock %}

@@ -360,11 +360,156 @@ var AsastatsAdapter = {
   },
 };
 
+/**
+ * HOGSWAP (hogswap-js-sdk). Quotes over its own REST API and returns an
+ * *unsigned* group from `/execute`, so unlike Haystack it does not own
+ * execution: the controller's signAndSend path applies, as it does for our own
+ * router.
+ *
+ * Three things about this router that the other adapters do not have to deal
+ * with, all of them documented rather than discovered:
+ *
+ * - **A quote expires in 30 seconds** and `/execute` refuses a stale one. The
+ *   controller quotes as the user types and builds only when they click, which
+ *   is easily longer than that, so `buildSwapGroup` re-quotes once when the
+ *   quote has expired rather than failing the swap.
+ * - **Slippage is in basis points and must be 1-5000.** Zero is rejected
+ *   outright, and the controller is free to offer it, so it is clamped.
+ * - **Amounts arrive as JSON numbers**, not strings. Everything here works in
+ *   BigInt base units, so they are converted once on the way in.
+ *
+ * There is no referrer or integrator fee parameter in this SDK: what the user
+ * pays is HOGSWAP's own 5 bps, waived in proportion to the HOG their wallet
+ * holds. Nothing accrues to us, which is why the widget manifest's
+ * `revenue_account` is empty in fact and not merely by convention.
+ */
+var HogswapAdapter = {
+  _clients: null,
+
+  _clientFor: function (cfg) {
+    var key = (cfg.baseUrl || "") + "|" + (cfg.apiKey || "");
+    HogswapAdapter._clients = HogswapAdapter._clients || {};
+    if (!HogswapAdapter._clients[key]) {
+      HogswapAdapter._clients[key] = new window.HogswapRouter.HogswapClient({
+        // both optional: an empty base URL means the SDK's own default, and
+        // the free tier needs no key
+        baseUrl: cfg.baseUrl || undefined,
+        apiKey: cfg.apiKey || undefined,
+      });
+    }
+    return HogswapAdapter._clients[key];
+  },
+
+  /** Whole base units as BigInt, from the JSON numbers this API returns. */
+  _units: function (value) {
+    return BigInt(Math.round(Number(value || 0)));
+  },
+
+  /** Slippage in the 1-5000 basis points the API accepts. */
+  _bps: function (slippagePct) {
+    var bps = Math.round((slippagePct || 0) * 100);
+    return Math.max(1, Math.min(5000, bps));
+  },
+
+  /** Ask for a quote in whichever direction the caller fixed. */
+  _quote: function (client, p) {
+    var common = {
+      assetIn: p.fromAssetId,
+      assetOut: p.toAssetId,
+      slippageBps: HogswapAdapter._bps(p.slippagePct),
+      // prices this wallet's HOG fee discount rather than the list rate
+      sender: p.fromAddress || undefined,
+    };
+    if (p.mode === "buy") {
+      return client.exactOutQuote(
+        Object.assign({ amountOut: Number(p.amount) }, common)
+      );
+    }
+    return client.swapQuote(Object.assign({ amountIn: Number(p.amount) }, common));
+  },
+
+  getQuote: async function (p, cfg) {
+    var client = HogswapAdapter._clientFor(cfg);
+    var q = await HogswapAdapter._quote(client, p);
+    // `raw` keeps the quote id and the parameters, so buildSwapGroup can both
+    // execute this quote and re-issue it if it has expired by then
+    var raw = { quoteId: q.quote_id, params: p, quote: q };
+    var label = "HOGSWAP";
+    if (q.legs && q.legs.length) {
+      // one entry per pool crossed; name the venues rather than count them
+      var names = [];
+      for (var i = 0; i < q.legs.length; i++) {
+        var name = q.legs[i].dex_name;
+        if (name && names.indexOf(name) === -1) names.push(name);
+      }
+      if (names.length) label = names.join(", ");
+    }
+    if (p.mode === "buy") {
+      return makeQuote({
+        mode: "buy",
+        amountIn: HogswapAdapter._units(q.amount_in),
+        amountOut: p.amount,
+        // exact rather than a tolerance: exact-out already sizes the input so
+        // its own on-chain floor covers the target, so nothing can make the
+        // group spend more than this
+        maximumSent: HogswapAdapter._units(q.amount_in),
+        priceImpactPct: 0,
+        routeLabel: label,
+        feesTotal: Number(q.network_fee_microalgo || 0),
+        raw: raw,
+      });
+    }
+    return makeQuote({
+      mode: "sell",
+      amountOut: HogswapAdapter._units(q.expected_out),
+      amountIn: p.amount,
+      // the router's own floor, which its contract enforces, rather than one
+      // recomputed here - showing a number the chain will not act on would be
+      // worse than showing theirs
+      minimumReceived: HogswapAdapter._units(q.min_out_at_slippage),
+      priceImpactPct: 0,
+      routeLabel: label,
+      feesTotal: Number(q.network_fee_microalgo || 0),
+      raw: raw,
+    });
+  },
+
+  /**
+   * All-user-signed, so the controller signs and submits. `/execute` returns
+   * base64 msgpack transactions in group order.
+   *
+   * The re-quote on expiry is deliberate and worth understanding: a quote lives
+   * 30 seconds and a user reading a confirmation dialog can easily outlast it.
+   * Refusing would be safe and useless. Re-quoting risks a price that moved
+   * since the screen was drawn - but the replacement carries its own
+   * `min_out_at_slippage`, enforced by their contract, so the user cannot be
+   * filled below the tolerance they chose. Better a fresh honest price than a
+   * dead quote.
+   */
+  buildSwapGroup: async function (quote, fromAddress, cfg) {
+    var client = HogswapAdapter._clientFor(cfg);
+    var quoteId = quote.raw.quoteId;
+    var built;
+    try {
+      built = await client.execute({ quoteId: quoteId, userAddress: fromAddress });
+    } catch (e) {
+      if (!(e instanceof window.HogswapRouter.QuoteExpiredError)) throw e;
+      var fresh = await HogswapAdapter._quote(client, quote.raw.params);
+      built = await client.execute({
+        quoteId: fresh.quote_id,
+        userAddress: fromAddress,
+      });
+    }
+    return (built.txnsB64 || []).map(b64ToBytes);
+  },
+};
+
 /** Router registry — one entry per swap widget. */
 var ROUTERS = {
   folks: FolksAdapter,
   haystack: HaystackAdapter,
   asastats: AsastatsAdapter,
+  hogswap: HogswapAdapter,
 };
 
 var QUOTE_DEBOUNCE_MS = 400;
@@ -375,6 +520,15 @@ function swapConfig(root) {
     network: root.dataset.network || "mainnet",
     referrer: root.dataset.referrer || "",
     feeBps: Number(root.dataset.feeBps || "0"),
+    // Haystack's and HOGSWAP's rate-limit keys. Read here as well as in
+    // `markerCfg` because a router's own shell page configures itself from this
+    // element: without it Haystack's shell built an unkeyed client while the
+    // inline modal built a keyed one, from the same template value.
+    apiKey: root.dataset.apiKey || "",
+    // HOGSWAP only, and optional there: empty means the SDK's own default host,
+    // which is what production uses. It exists so a staging deployment can be
+    // pointed elsewhere without a code change.
+    baseUrl: root.dataset.baseUrl || "",
     // Only the ASA Stats router uses these: its quoting runs in our engine, so
     // the browser posts to us instead of to a vendor SDK. Empty for the others.
     quoteUrl: root.dataset.quoteUrl || "",
@@ -764,6 +918,7 @@ function markerCfg(marker) {
     referrer: marker.dataset.referrer || "",
     feeBps: Number(marker.dataset.feeBps || "0"),
     apiKey: marker.dataset.apiKey || "",
+    baseUrl: marker.dataset.baseUrl || "",
     quoteUrl: marker.dataset.quoteUrl || "",
     groupUrl: marker.dataset.groupUrl || "",
   };
@@ -1241,6 +1396,7 @@ if (typeof module !== "undefined" && module.exports) {
     FolksAdapter: FolksAdapter,
     HaystackAdapter: HaystackAdapter,
     AsastatsAdapter: AsastatsAdapter,
+    HogswapAdapter: HogswapAdapter,
     ROUTERS: ROUTERS,
     makeQuote: makeQuote,
     routeLabelFrom: routeLabelFrom,

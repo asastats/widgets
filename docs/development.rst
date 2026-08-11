@@ -191,7 +191,7 @@ developer, expect these steps and supply what they need:
    .. code-block:: python
 
      # widgets/constants.py  AND  frontend/website/config/settings/base.py
-     INHOUSE_WIDGETS = ["historic", "folks", "haystack", "swapcore"]
+     INHOUSE_WIDGETS = ["historic", "folks", "haystack", "hogswap", "swapcore"]
      THIRDPARTY_WIDGETS = []
 
 #. **Grant the engine token (engine-backed widgets).** The widget's ``engine_endpoints``

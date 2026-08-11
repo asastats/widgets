@@ -1,0 +1,28 @@
+id = "hogswap"
+name = "HOGSWAP Router"
+version = "0.1.0"
+
+# Written by the ASA Stats team -> inhouse (fees 100% ours, empty revenue_account).
+# The router itself is LiquiHog's; what is ours is this widget around it.
+origin = "inhouse"
+
+# Engine-backed: fetches fresh holdings + asset metadata via api.client.engine_request.
+capability = "engine-backed"
+revenue_account = ""
+
+# Identical generic, data-named scopes as every router widget.
+engine_endpoints = ["account:holdings", "assets:lookup"]
+
+data = ["portfolio:bundle", "profile:permission", "walletauth:linked_addresses"]
+
+# The browser calls HOGSWAP's REST API directly for both the quote and the
+# unsigned group. Unlike Haystack nothing is submitted for us: `/execute`
+# returns unsigned transactions, the wallet signs them and the shared
+# controller submits through the wallet bridge - so no node host is needed
+# here, and this list is one entry rather than two.
+hosts = ["https://hogswap-v1.liquihog.dev"]
+
+category = "swap"
+
+# A swap is a single-user action; ownership is gated by walletauth + live signature.
+required_permission = 0

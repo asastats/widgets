@@ -11,6 +11,7 @@ class TestWidgetsConstants:
             "historic",
             "folks",
             "haystack",
+            "hogswap",
             "swapcore",
         ]
 

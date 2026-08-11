@@ -22,3 +22,4 @@ generic belongs in :doc:`development` or :doc:`widget_contract` instead.
    runbooks/asastats
    runbooks/folks
    runbooks/haystack
+   runbooks/hogswap
