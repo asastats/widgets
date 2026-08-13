@@ -348,15 +348,28 @@ var AsastatsAdapter = {
     });
   },
 
-  // All-user-signed, so the controller's own signAndSend path applies and this
-  // does not need to own execution the way Haystack does. The engine refuses to
-  // build a group containing a Tinyman v1 leg for exactly that reason: v1 pays
-  // out from the pool's own logic signature, which the wallet cannot sign for.
+   // The engine may return a partially signed group: the backend signs the
+   // quote authorization and the wallet signs the user's transactions. Direct
+   // groups remain arrays for the legacy bridge; routed groups return metadata
+   // for signAndSendPartial. The engine refuses Tinyman v1 legs because those
+   // require a provider logic signature as well.
   buildSwapGroup: async function (quote, fromAddress, cfg) {
     var built = await AsastatsAdapter._post(cfg.groupUrl, fromAddress, {
       quote: quote.raw.quote,
     });
-    return (built.transactions || []).map(b64ToBytes);
+    var transactions = (built.transactions || []).map(b64ToBytes);
+    if (built.signed_transactions && built.quote_signer_index !== undefined) {
+      var signedTransactions = {};
+      Object.keys(built.signed_transactions).forEach(function (index) {
+        signedTransactions[index] = b64ToBytes(built.signed_transactions[index]);
+      });
+      return {
+        transactions: transactions,
+        signedTransactions: signedTransactions,
+        quoteSignerIndex: Number(built.quote_signer_index),
+      };
+    }
+    return transactions;
   },
 };
 
@@ -709,6 +722,17 @@ async function executeSwap(panel, ctx) {
         ctx.fromAddress,
         ctx.cfg
       );
+      if (!Array.isArray(group)) {
+        if (typeof window.asastatsSwap.signAndSendPartial !== "function") {
+          throw new Error("The connected wallet does not support quote-signed groups");
+        }
+        setPanelStatus(panel, "Awaiting signature…");
+        txid = await window.asastatsSwap.signAndSendPartial(group);
+        renderSwapSuccess(panel, txid);
+        markSwapDirty(panel);
+        submitted = true;
+        return;
+      }
       var userNeedsOptIn = !isOptedIn(fresh, params.toAssetId);
       setPanelStatus(
         panel,

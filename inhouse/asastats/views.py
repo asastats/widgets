@@ -167,9 +167,9 @@ class AsastatsQuoteView(_RouterEndpoint):
 class AsastatsGroupView(_RouterEndpoint):
     """JSON endpoint: build the transaction group a quote implies.
 
-    Returns the group unsigned, for the wallet to sign - the ASA Stats router's
-    groups are all user-signed, so the adapter can use `buildSwapGroup` rather
-    than owning execution the way Haystack must.
+    Returns user transactions unsigned plus a backend-signed quote authorization
+    for routed groups. The wallet bridge signs only the user's transactions and
+    submits the complete mixed-signature group.
 
     **One case is refused rather than mis-built.** A Tinyman v1 leg is paid out
     by the pool's own logic signature, so a group containing one is not

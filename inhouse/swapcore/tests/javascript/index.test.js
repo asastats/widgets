@@ -330,6 +330,72 @@ describe("executeSwap", () => {
     // The separate optIn call is gone, order is just build -> sign
     expect(order).toEqual(["build", "sign"]);
   });
+
+  test("backend-signed group uses the partial-signing wallet bridge", async () => {
+    const panel = mountPanel([]);
+    ready(panel);
+    global.fetch = jest.fn(async () => ({
+      text: async () => panelHTML([{ id: 0, amount: 5000000 }]),
+    }));
+    window.asastatsSwap = {
+      activeAddress: () => "ADDR",
+      signAndSend: jest.fn(),
+      signAndSendPartial: jest.fn(async () => "PARTIAL-TXID"),
+    };
+    const partial = {
+      transactions: [new Uint8Array([1]), new Uint8Array([2])],
+      signedTransactions: { "1": new Uint8Array([3]) },
+      quoteSignerIndex: 1,
+    };
+    const ctx = {
+      fromAddress: "ADDR",
+      owns: true,
+      cfg: {},
+      holdingsUrl: "/u",
+      lastQuote: { raw: {} },
+      adapter: { buildSwapGroup: jest.fn(async () => partial) },
+    };
+
+    await F.executeSwap(panel, ctx);
+
+    expect(window.asastatsSwap.signAndSendPartial).toHaveBeenCalledWith(partial);
+    expect(window.asastatsSwap.signAndSend).not.toHaveBeenCalled();
+    expect(panel.querySelector(".id-swap-status").textContent).toContain(
+      "PARTIAL-TXID",
+    );
+  });
+
+  test("backend-signed group fails clearly without partial bridge support", async () => {
+    const panel = mountPanel([]);
+    ready(panel);
+    global.fetch = jest.fn(async () => ({
+      text: async () => panelHTML([{ id: 0, amount: 5000000 }]),
+    }));
+    window.asastatsSwap = {
+      activeAddress: () => "ADDR",
+      signAndSend: jest.fn(),
+    };
+    const partial = {
+      transactions: [new Uint8Array([1]), new Uint8Array([2])],
+      signedTransactions: { "1": new Uint8Array([3]) },
+      quoteSignerIndex: 1,
+    };
+    const ctx = {
+      fromAddress: "ADDR",
+      owns: true,
+      cfg: {},
+      holdingsUrl: "/u",
+      lastQuote: { raw: {} },
+      adapter: { buildSwapGroup: jest.fn(async () => partial) },
+    };
+
+    await F.executeSwap(panel, ctx);
+
+    expect(window.asastatsSwap.signAndSend).not.toHaveBeenCalled();
+    expect(panel.querySelector(".id-swap-status").textContent).toContain(
+      "does not support quote-signed groups",
+    );
+  });
   test("insufficient balance aborts before building", async () => {
     const panel = mountPanel([]);
     ready(panel);
@@ -579,6 +645,27 @@ describe("AsastatsAdapter", () => {
       quote: SELL,
     });
     expect(fetchMock.mock.calls[0][0]).toContain(CFG.groupUrl);
+  });
+
+  test("buildSwapGroup preserves a backend-signed quote authorization", async () => {
+    stubFetch({
+      transactions: [btoa("AB"), btoa("CD")],
+      quote_signer_index: 1,
+      signed_transactions: { "1": btoa("SIGNED") },
+    });
+
+    const group = await F.AsastatsAdapter.buildSwapGroup(
+      { raw: { quote: SELL } },
+      "ADDR",
+      CFG,
+    );
+
+    expect(group.transactions).toHaveLength(2);
+    expect(Array.from(group.transactions[0])).toEqual([65, 66]);
+    expect(Array.from(group.signedTransactions["1"])).toEqual(
+      [83, 73, 71, 78, 69, 68],
+    );
+    expect(group.quoteSignerIndex).toBe(1);
   });
 
   test("buildSwapGroup returns [] when the response carries no transactions", async () => {
