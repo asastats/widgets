@@ -1,24 +1,27 @@
 {% load core_extras %}
-<ul class="collection id-swap-asset-options">
+{# Rows for the target-asset search, rendered into .id-swap-to-results inside    #}
+{# the picker sheet. selectTarget reads the data-* attributes, so those stay     #}
+{# exactly as they were; only the row's presentation changed.                    #}
+<ul class="swap-rows id-swap-asset-options">
   {% for asset in assets %}
-  <li class="collection-item id-swap-asset-option valign-wrapper" style="cursor:pointer;"
+  <li class="swap-row id-swap-asset-option"
       data-id="{{ asset.id }}"
       data-unit="{{ asset.unit }}"
       data-name="{{ asset.name }}"
-      data-decimals="{{ asset.decimals }}">
-    <img src="{{ BASE_CDN_URL }}/icons/{{ asset.id }}t.png" alt="{{ asset.name }} logo"
-         class="circle swapicon"
-         data-fallback="{{ BASE_CDN_URL }}/icons/empty.png" />
-    <div class="swap-asset-text">
-      <span>{{ asset.unit }}</span> &middot; <span>{{ asset.name }}</span>
-    </div>
-    {% if asset.verified %}
-    <span class="swap-asset-id verified">#{{ asset.id }}</span>
-    {% else %}
-    <span class="swap-asset-id unverified">#{{ asset.id }}</span>
-    {% endif %}
+      data-decimals="{{ asset.decimals }}"
+      data-icon="{{ BASE_CDN_URL }}/icons/{{ asset.id }}t.png">
+    <img src="{{ BASE_CDN_URL }}/icons/{{ asset.id }}t.png" alt=""
+         class="swap-tok swapicon"
+         data-fallback="{{ BASE_CDN_URL }}/icons/empty.png">
+    <span class="swap-row-text">
+      <span class="swap-row-unit">
+        {{ asset.unit }}
+        <span class="swap-idpill swap-num {% if asset.verified %}verified{% else %}unverified{% endif %}">#{{ asset.id }}</span>
+      </span>
+      <span class="swap-row-name">{{ asset.name }}</span>
+    </span>
   </li>
   {% empty %}
-  {% if query %}<li class="collection-item">No assets match "{{ query }}".</li>{% endif %}
+  {% if query %}<li class="swap-row swap-row-empty">No assets match "{{ query }}".</li>{% endif %}
   {% endfor %}
 </ul>

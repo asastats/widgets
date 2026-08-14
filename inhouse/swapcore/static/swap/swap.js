@@ -42,8 +42,14 @@ function makeQuote(q) {
     minimumReceived: q.minimumReceived,
     // maximumSent: input ceiling after slippage (buy only).
     maximumSent: q.maximumSent,
-    priceImpactPct: q.priceImpactPct || 0,
+    // null -- NOT 0 -- when the router does not report one. Some routers never
+    // compute price impact, and rendering their silence as a confident "0%" is
+    // a claim we would be making on their behalf.
+    priceImpactPct: q.priceImpactPct == null ? null : q.priceImpactPct,
     routeLabel: q.routeLabel,
+    // [{name, pct}] per venue, when the router breaks the route down. `pct` is
+    // null for routers that name their venues without weighting them.
+    routeParts: q.routeParts || [],
     feesTotal: q.feesTotal || 0,
     raw: q.raw || {},
   };
@@ -53,6 +59,26 @@ function makeQuote(q) {
 function routeLabelFrom(flattened) {
   var names = flattened ? Object.keys(flattened) : [];
   return names.length ? names.join(", ") : "";
+}
+
+/**
+ * The same map as [{name, pct}], keeping the split the label throws away. A
+ * route that is 62% Tinyman and 38% Pact is a materially different trade from
+ * one that is 99/1, and the router already told us which it is.
+ */
+function routePartsFrom(flattened) {
+  if (!flattened) return [];
+  return Object.keys(flattened).map(function (name) {
+    var pct = Number(flattened[name]);
+    return { name: name, pct: isNaN(pct) ? null : pct };
+  });
+}
+
+/** [{name, pct:null}] from an ordered list of venue names (one per hop). */
+function routePartsFromNames(names) {
+  return (names || []).map(function (name) {
+    return { name: name, pct: null };
+  });
 }
 
 /** Minimum-received (base units) for a fixed-input quote at `slippagePct`. */
@@ -221,6 +247,7 @@ var HaystackAdapter = {
     var impact =
       sq.userPriceImpact != null ? sq.userPriceImpact : sq.marketPriceImpact;
     var label = routeLabelFrom(sq.flattenedRoute) || "Haystack Router";
+    var parts = routePartsFrom(sq.flattenedRoute);
     var raw = { swapQuote: sq, slippagePct: p.slippagePct || 0 };
     if (buy) {
       return makeQuote({
@@ -230,6 +257,7 @@ var HaystackAdapter = {
         maximumSent: maxSent(computed, p.slippagePct),
         priceImpactPct: impact,
         routeLabel: label,
+        routeParts: parts,
         feesTotal: 0,
         raw: raw,
       });
@@ -241,6 +269,7 @@ var HaystackAdapter = {
       minimumReceived: minReceived(computed, p.slippagePct),
       priceImpactPct: impact,
       routeLabel: label,
+      routeParts: parts,
       feesTotal: 0,
       raw: raw,
     });
@@ -448,15 +477,19 @@ var HogswapAdapter = {
     // execute this quote and re-issue it if it has expired by then
     var raw = { quoteId: q.quote_id, params: p, quote: q };
     var label = "HOGSWAP";
+    var names = [];
     if (q.legs && q.legs.length) {
       // one entry per pool crossed; name the venues rather than count them
-      var names = [];
       for (var i = 0; i < q.legs.length; i++) {
         var name = q.legs[i].dex_name;
         if (name && names.indexOf(name) === -1) names.push(name);
       }
       if (names.length) label = names.join(", ");
     }
+    var parts = routePartsFromNames(names);
+    // This API returns no price impact at all, so the quote carries null and the
+    // panel omits the row. It previously carried 0, which told every HOGSWAP
+    // user their trade moved the price by exactly nothing.
     if (p.mode === "buy") {
       return makeQuote({
         mode: "buy",
@@ -466,8 +499,9 @@ var HogswapAdapter = {
         // its own on-chain floor covers the target, so nothing can make the
         // group spend more than this
         maximumSent: HogswapAdapter._units(q.amount_in),
-        priceImpactPct: 0,
+        priceImpactPct: null,
         routeLabel: label,
+        routeParts: parts,
         feesTotal: Number(q.network_fee_microalgo || 0),
         raw: raw,
       });
@@ -480,8 +514,9 @@ var HogswapAdapter = {
       // recomputed here - showing a number the chain will not act on would be
       // worse than showing theirs
       minimumReceived: HogswapAdapter._units(q.min_out_at_slippage),
-      priceImpactPct: 0,
+      priceImpactPct: null,
       routeLabel: label,
+      routeParts: parts,
       feesTotal: Number(q.network_fee_microalgo || 0),
       raw: raw,
     });
@@ -526,6 +561,16 @@ var ROUTERS = {
 };
 
 var QUOTE_DEBOUNCE_MS = 400;
+
+//: How long a quote is treated as current. HOGSWAP expires its own at 30s and
+//: refuses a stale one at /execute; the others do not expire, but re-pricing a
+//: minute-old number costs one request and stops the panel showing a price the
+//: chain would no longer give.
+var QUOTE_TTL_MS = 30000;
+
+//: Automatic re-prices before the panel gives up and waits for the user. Ten
+//: covers five minutes of reading; an abandoned modal then stops on its own.
+var QUOTE_AUTO_REFRESH_LIMIT = 10;
 
 /** Read non-secret router config from the shell root element. */
 function swapConfig(root) {
@@ -588,6 +633,7 @@ function selectTarget(panel, optionEl, ctx) {
   toHidden.value = optionEl.dataset.id;
   toHidden.dataset.decimals = optionEl.dataset.decimals || "0";
   toHidden.dataset.unit = optionEl.dataset.unit || "";
+  toHidden.dataset.icon = optionEl.dataset.icon || "";
   var opted = isOptedIn(readPanelHoldings(panel), optionEl.dataset.id);
   toHidden.dataset.optedIn = opted ? "1" : "0";
   panel.querySelector(".id-swap-optin-notice").style.display = opted
@@ -597,6 +643,9 @@ function selectTarget(panel, optionEl, ctx) {
     (optionEl.dataset.unit || "ASA") + " (#" + optionEl.dataset.id + ")";
   var results = panel.querySelector(".id-swap-to-results");
   if (results) results.innerHTML = "";
+  // The pill now carries the choice, so the sheet has done its job.
+  syncAssetButtons(panel);
+  closeAssetPicker(panel);
   scheduleQuote(panel, ctx);
 }
 
@@ -632,20 +681,51 @@ function readQuoteParams(panel, fromAddress) {
 
 function scheduleQuote(panel, ctx) {
   clearTimeout(ctx.quoteTimer);
+  // A fresh edit restarts the automatic re-pricing budget: the cap exists to
+  // stop an abandoned modal quoting forever, not to limit an active user.
+  ctx.requotes = 0;
   ctx.quoteTimer = setTimeout(function () {
     refreshQuote(panel, ctx);
   }, QUOTE_DEBOUNCE_MS);
 }
 
+/**
+ * Re-price the standing quote when it goes stale.
+ *
+ * A HOGSWAP quote lives 30 seconds and `buildSwapGroup` already re-quotes behind
+ * the user's back when they click after that. Doing it in the open means the
+ * price on screen is the price they get, and the ring in the summary says when
+ * it will change. Capped, because a modal left open overnight must not keep
+ * asking; paused while the tab is hidden and while a swap is being signed.
+ */
+function scheduleRequote(panel, ctx) {
+  clearTimeout(ctx.requoteTimer);
+  ctx.requotes = ctx.requotes || 0;
+  if (ctx.requotes >= QUOTE_AUTO_REFRESH_LIMIT) return;
+  ctx.requoteTimer = setTimeout(function () {
+    if (ctx.swapping) return;
+    if (typeof document !== "undefined" && document.hidden) {
+      scheduleRequote(panel, ctx); // look again in another TTL
+      return;
+    }
+    if (panel.isConnected === false) return;
+    ctx.requotes += 1;
+    refreshQuote(panel, ctx);
+  }, QUOTE_TTL_MS);
+}
+
 async function refreshQuote(panel, ctx) {
   var params = readQuoteParams(panel, ctx.fromAddress);
   var btn = panel.querySelector(".id-swap-swap-btn");
+  clearTimeout(ctx.requoteTimer);
   clearQuote(panel); // drop any stale quote line before the new result arrives
   if (!params) {
     if (btn) btn.disabled = true;
+    setCtaLabel(panel, ctaLabelFor(panel));
     return;
   }
   setPanelStatus(panel, "Fetching best route…");
+  setCtaLabel(panel, "Finding the best route", true);
   try {
     ctx.lastQuote = await ctx.adapter.getQuote(params, ctx.cfg);
     if (quoteIsEmpty(ctx.lastQuote)) {
@@ -655,6 +735,7 @@ async function refreshQuote(panel, ctx) {
         true
       );
       if (btn) btn.disabled = true;
+      setCtaLabel(panel, "No route available");
       return;
     }
     renderQuote(panel, ctx.lastQuote);
@@ -662,14 +743,25 @@ async function refreshQuote(panel, ctx) {
     if (affordErr) {
       setPanelStatus(panel, affordErr, true);
       if (btn) btn.disabled = true;
+      setCtaLabel(panel, shortfallLabel(panel));
       return;
     }
     setPanelStatus(panel, "");
     applyOwnership(panel, walletOwns(ctx.fromAddress));
+    scheduleRequote(panel, ctx);
   } catch (e) {
     setPanelStatus(panel, "Could not fetch a quote: " + (e && e.message), true);
     if (btn) btn.disabled = true;
+    setCtaLabel(panel, "Quote unavailable");
   }
+}
+
+/** "Not enough USDC" for the source the user cannot cover. */
+function shortfallLabel(panel) {
+  var sel = panel.querySelector(".id-swap-from");
+  var opt = sel && sel.options[sel.selectedIndex];
+  var unit = (opt && opt.dataset.unit) || "";
+  return unit ? "Not enough " + unit : "Not enough to cover this";
 }
 
 async function executeSwap(panel, ctx) {
@@ -685,7 +777,12 @@ async function executeSwap(panel, ctx) {
   var btn = panel.querySelector(".id-swap-swap-btn");
   if (btn) btn.disabled = true;
   var submitted = false;
+  // Hold the automatic re-pricing: swapping the quote out from under a group
+  // that is already being built is the one moment it must not happen.
+  ctx.swapping = true;
+  clearTimeout(ctx.requoteTimer);
   setPanelStatus(panel, "Re-checking balance…");
+  setCtaLabel(panel, "Re-checking balance", true);
   try {
     var fresh = await fetchHoldings(ctx.holdingsUrl);
     var from = fresh.filter(function (h) {
@@ -695,12 +792,14 @@ async function executeSwap(panel, ctx) {
       ctx.lastQuote.mode === "buy" ? ctx.lastQuote.maximumSent : params.amount;
     if (!from || BigInt(from.amount) < requiredInput) {
       setPanelStatus(panel, "Insufficient balance — it may have changed.", true);
+      setCtaLabel(panel, shortfallLabel(panel));
       return;
     }
     var txid;
     if (typeof ctx.adapter.executeSwap === "function") {
       // Router owns build + opt-in + sign + submit (e.g. Haystack's composer).
       setPanelStatus(panel, "Awaiting signature…");
+      setCtaLabel(panel, "Check your wallet", true);
       txid = await ctx.adapter.executeSwap(
         {
           params: params,
@@ -717,6 +816,7 @@ async function executeSwap(panel, ctx) {
       // user's target-asset opt-in if needed, and the per-referrer escrow's
       // logic-sig opt-in if a referrer is set and its escrow isn't opted in yet.
       setPanelStatus(panel, "Building transaction…");
+      setCtaLabel(panel, "Building transaction", true);
       var group = await ctx.adapter.buildSwapGroup(
         ctx.lastQuote,
         ctx.fromAddress,
@@ -727,6 +827,7 @@ async function executeSwap(panel, ctx) {
           throw new Error("The connected wallet does not support quote-signed groups");
         }
         setPanelStatus(panel, "Awaiting signature…");
+        setCtaLabel(panel, "Check your wallet", true);
         txid = await window.asastatsSwap.signAndSendPartial(group);
         renderSwapSuccess(panel, txid);
         markSwapDirty(panel);
@@ -740,6 +841,7 @@ async function executeSwap(panel, ctx) {
           ? "Awaiting signature (may include opt-in)…"
           : "Awaiting signature…"
       );
+      setCtaLabel(panel, "Check your wallet", true);
       txid = await window.asastatsSwap.signAndSend(group, {
         outputAssetId: params.toAssetId,
         userNeedsOptIn: userNeedsOptIn,
@@ -751,52 +853,199 @@ async function executeSwap(panel, ctx) {
     submitted = true;
   } catch (e) {
     setPanelStatus(panel, "Swap failed or cancelled: " + (e && e.message), true);
+    setCtaLabel(panel, "Try again");
   } finally {
+    ctx.swapping = false;
     // Keep the button disabled after a successful submit (the amount was
     // cleared); on failure, restore it to the owner's normal state.
     if (btn) btn.disabled = submitted || !ctx.owns;
+    if (submitted) setCtaLabel(panel, "Swap submitted");
+    else if (btn) btn.classList.remove("is-busy");
   }
 }
 
+/**
+ * A short exchange rate ("0.23368") from the two sides of a quote, or "" when
+ * there isn't one to state. Both sides are optional: an adapter is free to
+ * return only the side it computed, and a missing rate costs a line of text
+ * whereas a thrown BigInt conversion costs the whole panel.
+ */
+function rateBetween(amountIn, inDecimals, amountOut, outDecimals) {
+  if (amountIn == null || amountOut == null) return "";
+  var paid = Number(baseUnitsToDecimal(amountIn, inDecimals));
+  var got = Number(baseUnitsToDecimal(amountOut, outDecimals));
+  if (!paid || !got || !isFinite(paid) || !isFinite(got)) return "";
+  var rate = got / paid;
+  // Six significant figures reads the same for a 20,000:1 pair as for a 1:1 one.
+  return String(Number(rate.toPrecision(6)));
+}
+
+/** The severity class for a price impact, or "" when there is nothing to warn about. */
+function impactSeverity(pct) {
+  if (pct >= 3) return "bad";
+  if (pct >= 1) return "warn";
+  return "good";
+}
+
+/** One <dt>/<dd> pair in the quote's detail list. */
+function quoteRow(label, value, severity) {
+  var row = document.createElement("div");
+  row.className = "swap-drow";
+  var dt = document.createElement("dt");
+  dt.textContent = label;
+  var dd = document.createElement("dd");
+  if (severity) dd.className = severity;
+  if (typeof value === "string") dd.textContent = value;
+  else dd.appendChild(value);
+  row.appendChild(dt);
+  row.appendChild(dd);
+  return row;
+}
+
+/** The route as one pill per venue, carrying the split when the router gave one. */
+function routePills(q) {
+  var wrap = document.createElement("div");
+  wrap.className = "swap-hops";
+  var parts = q.routeParts && q.routeParts.length
+    ? q.routeParts
+    : routePartsFromNames(
+        String(q.routeLabel || "")
+          .split(",")
+          .map(function (s) { return s.trim(); })
+          .filter(Boolean)
+      );
+  parts.forEach(function (part) {
+    var pill = document.createElement("span");
+    pill.className = "swap-hop";
+    pill.appendChild(document.createTextNode(part.name));
+    if (part.pct != null) {
+      var pct = document.createElement("i");
+      pct.textContent = Number(Number(part.pct).toFixed(1)) + "%";
+      pill.appendChild(pct);
+    }
+    wrap.appendChild(pill);
+  });
+  return wrap;
+}
+
+/**
+ * Render the quote as a table rather than a sentence.
+ *
+ * The computed side -- what you receive on a sell, what you must spend on a buy
+ * -- is mirrored into the leg's read-only amount field, so the number the user
+ * is actually deciding on is the largest thing on screen instead of a clause in
+ * the middle of a string. Everything that qualifies it (the slippage bound, the
+ * impact, the fee, the venues) sits under a rate line that can be collapsed.
+ *
+ * Built with createElement throughout: asset units and venue names come from the
+ * engine and the routers, and none of them are escaped on the way in.
+ */
 function renderQuote(panel, q) {
   var out = panel.querySelector(".id-swap-quote");
   if (!out) return;
   var fromSel = panel.querySelector(".id-swap-from");
   var fromOpt = fromSel && fromSel.options[fromSel.selectedIndex];
-  if (q.mode === "buy") {
-    // Fixed-output: show the required INPUT (and the slippage-padded ceiling) in
-    // the source asset's units.
-    var fromDec = Number((fromOpt && fromOpt.dataset.decimals) || "0");
-    var fromUnit = (fromOpt && fromOpt.dataset.unit) || "";
-    out.textContent =
-      "≈ " +
-      baseUnitsToDecimal(q.amountIn, fromDec) +
-      " " +
-      fromUnit +
-      " (max " +
-      baseUnitsToDecimal(q.maximumSent, fromDec) +
-      ", impact " +
-      q.priceImpactPct +
-      "%, " +
-      baseUnitsToDecimal(BigInt(q.feesTotal), 6) +
-      " ALGO fee) via " +
-      q.routeLabel;
-    return;
-  }
-  // Fixed-input: show the OUTPUT received (and the slippage floor) in target units.
+  var fromDec = Number((fromOpt && fromOpt.dataset.decimals) || "0");
+  var fromUnit = (fromOpt && fromOpt.dataset.unit) || "";
   var toHidden = panel.querySelector(".id-swap-to");
   var toDec = Number((toHidden && toHidden.dataset.decimals) || "0");
-  out.textContent =
-    "≈ " +
-    baseUnitsToDecimal(q.amountOut, toDec) +
-    " (min " +
-    baseUnitsToDecimal(q.minimumReceived, toDec) +
-    ", impact " +
-    q.priceImpactPct +
-    "%, " +
-    baseUnitsToDecimal(BigInt(q.feesTotal), 6) +
-    " ALGO fee) via " +
-    q.routeLabel;
+  var toUnit = (toHidden && toHidden.dataset.unit) || "";
+  var buy = q.mode === "buy";
+
+  // Mirror the computed side into the other leg's read-only field.
+  var computed = buy
+    ? baseUnitsToDecimal(q.amountIn, fromDec)
+    : baseUnitsToDecimal(q.amountOut, toDec);
+  var outField = panel.querySelector(".id-swap-out");
+  if (outField) outField.value = computed;
+
+  out.textContent = "";
+
+  // --- summary: the rate, a freshness ring, and the disclosure control -------
+  var summary = document.createElement("button");
+  summary.type = "button";
+  summary.className = "swap-quote-sum";
+  summary.setAttribute("aria-expanded", panel.dataset.quoteOpen === "1" ? "true" : "false");
+
+  var ring = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  ring.setAttribute("class", "swap-fresh");
+  ring.setAttribute("viewBox", "0 0 20 20");
+  ring.setAttribute("aria-hidden", "true");
+  ["track", "head"].forEach(function (role) {
+    var c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    c.setAttribute("class", "swap-fresh-" + role);
+    c.setAttribute("cx", "10");
+    c.setAttribute("cy", "10");
+    c.setAttribute("r", "7.5");
+    c.setAttribute("fill", "none");
+    if (role === "head") {
+      c.setAttribute("stroke-linecap", "round");
+      c.setAttribute("transform", "rotate(-90 10 10)");
+      c.setAttribute("stroke-dasharray", "47.1");
+    }
+    ring.appendChild(c);
+  });
+  summary.appendChild(ring);
+
+  var rate = rateBetween(q.amountIn, fromDec, q.amountOut, toDec);
+  var rateEl = document.createElement("span");
+  rateEl.className = "swap-quote-rate";
+  rateEl.textContent = rate
+    ? "1 " + fromUnit + " = " + rate + " " + toUnit
+    : "Quote ready";
+  summary.appendChild(rateEl);
+
+  var chev = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  chev.setAttribute("class", "swap-chev");
+  chev.setAttribute("viewBox", "0 0 24 24");
+  chev.setAttribute("aria-hidden", "true");
+  var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "m6 9 6 6 6-6");
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "2.4");
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("stroke-linejoin", "round");
+  chev.appendChild(path);
+  summary.appendChild(chev);
+  out.appendChild(summary);
+
+  // --- details --------------------------------------------------------------
+  var details = document.createElement("dl");
+  details.className = "swap-quote-det";
+  details.appendChild(
+    buy
+      ? quoteRow("Maximum sent", baseUnitsToDecimal(q.maximumSent, fromDec) + " " + fromUnit)
+      : quoteRow(
+          "Minimum received",
+          baseUnitsToDecimal(q.minimumReceived, toDec) + " " + toUnit
+        )
+  );
+  if (q.priceImpactPct != null) {
+    var impact = Number(q.priceImpactPct);
+    details.appendChild(
+      quoteRow("Price impact", impact.toFixed(2) + "%", impactSeverity(impact))
+    );
+  }
+  details.appendChild(
+    quoteRow("Network fee", baseUnitsToDecimal(BigInt(q.feesTotal), 6) + " ALGO")
+  );
+  details.appendChild(quoteRow("Route", routePills(q)));
+  out.appendChild(details);
+
+  out.dataset.open = panel.dataset.quoteOpen === "1" ? "1" : "0";
+  renderVenueCount(panel, q);
+}
+
+/** Name the breadth of the search in the modal footer, from the quote itself. */
+function renderVenueCount(panel, q) {
+  var modal = panel.closest && panel.closest(".modal");
+  var el = modal && modal.querySelector(".id-swap-venues");
+  if (!el) return;
+  var count = (q && q.routeParts && q.routeParts.length) || 0;
+  el.textContent = count
+    ? "Best route across " + count + (count === 1 ? " venue" : " venues")
+    : "";
 }
 
 /**
@@ -841,13 +1090,52 @@ function updateSourceMax(panel) {
   }
   var dec = Number(opt.dataset.decimals || "0");
   var unit = opt.dataset.unit || "";
+  // Sits in the leg header under a "Balance" label, so it states the holding and
+  // nothing else -- the em dash it used to carry belonged to the old sentence.
   maxEl.textContent =
-    " — " + baseUnitsToDecimal(BigInt(opt.dataset.amount), dec) + " " + unit;
+    baseUnitsToDecimal(BigInt(opt.dataset.amount), dec) + (unit ? " " + unit : "");
 }
 
 function clearQuote(panel) {
   var el = panel.querySelector(".id-swap-quote");
   if (el) el.textContent = "";
+  // The computed leg is part of the quote: leaving a stale figure in it while
+  // the new one is in flight is worse than showing nothing.
+  var outField = panel.querySelector(".id-swap-out");
+  if (outField) outField.value = "";
+  renderVenueCount(panel, null);
+}
+
+/**
+ * Label the primary action with the next step, without touching whether it is
+ * enabled -- that stays with the caller that knows (applyOwnership, refreshQuote,
+ * executeSwap), so a label change can never accidentally arm the button.
+ */
+function setCtaLabel(panel, label, busy) {
+  var btn = panel.querySelector(".id-swap-swap-btn");
+  if (!btn) return "";
+  btn.classList.toggle("is-busy", !!busy);
+  btn.textContent = "";
+  if (busy) {
+    var spinner = document.createElement("span");
+    spinner.className = "swap-spinner";
+    btn.appendChild(spinner);
+  }
+  btn.appendChild(document.createTextNode(label));
+  return label;
+}
+
+/**
+ * What the primary action should say right now: the step still missing, or the
+ * swap it is about to perform. Naming the next step on the button is the whole
+ * point -- a disabled control labelled "Swap" tells the user nothing.
+ */
+function ctaLabelFor(panel) {
+  var to = panel.querySelector(".id-swap-to");
+  var amount = panel.querySelector(".id-swap-amount");
+  if (!to || !to.value) return "Select a token";
+  if (!amount || !amount.value) return "Enter an amount";
+  return to.dataset.optedIn === "0" ? "Opt in and swap" : "Swap";
 }
 
 function setPanelStatus(panel, msg, isError) {
@@ -980,12 +1268,52 @@ function setAmountFromPercent(panel, pct) {
   return value;
 }
 
-/** Flip the source/target columns between "sell" (default) and "buy". */
+/**
+ * Flip the source/target columns between "sell" (default) and "buy".
+ *
+ * Also moves the one editable amount field into the leg whose amount the user
+ * fixes in this mode, and puts the read-only field in the leg it vacates. Moving
+ * the element rather than keeping one per leg is what lets `readQuoteParams`
+ * stay a single `.id-swap-amount` query: an input keeps its value and its
+ * listeners across a re-parent.
+ */
 function applySwapMode(formEl, mode) {
   if (!formEl) return "sell";
   var buy = mode === "buy";
   formEl.classList.toggle("swap-mode-buy", buy);
+  positionAmountField(formEl, buy);
+  markModeControls(formEl, buy ? "buy" : "sell");
   return buy ? "buy" : "sell";
+}
+
+/** Put .id-swap-amount in the fixed leg and .id-swap-out in the computed one. */
+function positionAmountField(formEl, buy) {
+  var amount = formEl.querySelector(".id-swap-amount");
+  var out = formEl.querySelector(".id-swap-out");
+  var paySlot = formEl.querySelector(".id-swap-slot-pay");
+  var getSlot = formEl.querySelector(".id-swap-slot-get");
+  if (!amount || !out || !paySlot || !getSlot) return false;
+  if (buy) {
+    getSlot.appendChild(amount);
+    paySlot.appendChild(out);
+  } else {
+    paySlot.appendChild(amount);
+    getSlot.appendChild(out);
+  }
+  return true;
+}
+
+/** Reflect the active mode on the segmented control (Materialize no longer does). */
+function markModeControls(formEl, mode) {
+  // closest() yields an Element or null, and the document stands in for null,
+  // so the host always has querySelectorAll -- no guard needed.
+  var host = (formEl.closest && formEl.closest(".modal")) || document;
+  Array.prototype.forEach.call(
+    host.querySelectorAll("[data-swap-mode]"),
+    function (tab) {
+      tab.setAttribute("aria-selected", String(tab.dataset.swapMode === mode));
+    }
+  );
 }
 
 /**
@@ -1031,6 +1359,7 @@ function retargetForMode(panel, mode) {
     }
     if (!src) return { mode: "buy", ok: false, reason: "no-source" };
     fromSel.value = src;
+    syncAssetButtons(panel);
     return { mode: "buy", ok: true };
   }
   // Sell: the anchor is the From again; the To returns to a free search picker.
@@ -1040,8 +1369,9 @@ function retargetForMode(panel, mode) {
   toHidden.dataset.unit = "";
   toHidden.dataset.optedIn = "";
   toSearch.value = "";
-  toSearch.placeholder = "To asset: name, unit, or ID";
+  toSearch.placeholder = "Search name, unit or asset ID";
   panel.querySelector(".id-swap-optin-notice").style.display = "none";
+  syncAssetButtons(panel);
   return { mode: "sell", ok: true };
 }
 
@@ -1095,6 +1425,8 @@ function renderSwapSuccess(panel, txid) {
   if (pct) pct.value = "";
   var quote = panel.querySelector(".id-swap-quote");
   if (quote) quote.textContent = "";
+  var outField = panel.querySelector(".id-swap-out");
+  if (outField) outField.value = "";
 }
 
 /**
@@ -1130,7 +1462,279 @@ function applyOwnership(panel, owns) {
   if (btn) btn.disabled = !owns;
   var notice = panel.querySelector(".id-swap-connect-notice");
   if (notice) notice.style.display = owns ? "none" : "block";
+  setCtaLabel(panel, owns ? ctaLabelFor(panel) : "Connect wallet to swap");
   return !!owns;
+}
+
+/* ------------------------------------------------------------------ pills */
+
+/**
+ * Paint one asset pill. The `<select>` and the hidden target input remain the
+ * source of truth for every other function; these buttons only display them, so
+ * nothing here can put the panel into a state the controller cannot read back.
+ */
+function setAssetPill(panel, side, unit, icon) {
+  var btn = panel.querySelector(".id-swap-" + side + "-btn");
+  var label = panel.querySelector(".id-swap-" + side + "-unit");
+  if (!btn || !label) return false;
+  var chosen = !!unit;
+  label.textContent = chosen
+    ? unit
+    : side === "from"
+      ? "Select"
+      : "Select token";
+  btn.classList.toggle("swap-assetbtn-empty", !chosen);
+  var img = panel.querySelector(".id-swap-" + side + "-icon");
+  if (img) {
+    var fallback = img.dataset.fallback || "";
+    var next = chosen && icon ? icon : fallback;
+    if (img.getAttribute("src") !== next) img.setAttribute("src", next);
+  }
+  return chosen;
+}
+
+/** Mirror the current source + target selections into both pills. */
+function syncAssetButtons(panel) {
+  var sel = panel.querySelector(".id-swap-from");
+  var opt = sel && sel.options[sel.selectedIndex];
+  setAssetPill(
+    panel,
+    "from",
+    opt ? opt.dataset.unit || String(opt.value) : "",
+    opt ? opt.dataset.icon : ""
+  );
+  var to = panel.querySelector(".id-swap-to");
+  var hasTarget = !!(to && to.value);
+  setAssetPill(
+    panel,
+    "to",
+    hasTarget ? to.dataset.unit || "#" + to.value : "",
+    to ? to.dataset.icon : ""
+  );
+  var flip = panel.querySelector(".id-swap-flip");
+  if (flip) {
+    var able = canFlipAssets(panel);
+    flip.disabled = !able;
+    flip.title = able
+      ? "Swap the two assets"
+      : "You can only swap into this direction from an asset you hold";
+  }
+  return hasTarget;
+}
+
+/* ----------------------------------------------------------------- picker */
+
+/** Format one holding row for the source picker. */
+function ownedRow(option, selected) {
+  var li = document.createElement("li");
+  li.className = "swap-row id-swap-own-option";
+  li.dataset.id = option.value;
+  if (selected) li.classList.add("is-selected");
+
+  var img = document.createElement("img");
+  img.className = "swap-tok";
+  img.alt = "";
+  if (option.dataset.icon) img.src = option.dataset.icon;
+  li.appendChild(img);
+
+  var text = document.createElement("span");
+  text.className = "swap-row-text";
+  var unit = document.createElement("span");
+  unit.className = "swap-row-unit";
+  unit.textContent = option.dataset.unit || option.value;
+  var pill = document.createElement("span");
+  pill.className = "swap-idpill swap-num";
+  pill.textContent = "#" + option.value;
+  unit.appendChild(pill);
+  text.appendChild(unit);
+  var name = document.createElement("span");
+  name.className = "swap-row-name";
+  name.textContent = option.dataset.name || "";
+  text.appendChild(name);
+  li.appendChild(text);
+
+  var bal = document.createElement("span");
+  bal.className = "swap-row-bal swap-num";
+  bal.textContent = baseUnitsToDecimal(
+    BigInt(option.dataset.amount || "0"),
+    Number(option.dataset.decimals || "0")
+  );
+  li.appendChild(bal);
+  return li;
+}
+
+/**
+ * Render the holdings the address can spend, straight from the `<select>`. No
+ * round trip: this list is the same data the panel was already delivered with.
+ * The current target is left out, since an asset cannot be swapped for itself.
+ */
+function renderOwnedList(panel) {
+  var host = panel.querySelector(".id-swap-own-results");
+  var sel = panel.querySelector(".id-swap-from");
+  if (!host || !sel) return 0;
+  var to = panel.querySelector(".id-swap-to");
+  var excluded = to ? to.value : "";
+  host.textContent = "";
+  var list = document.createElement("ul");
+  list.className = "swap-rows";
+  var shown = 0;
+  for (var i = 0; i < sel.options.length; i++) {
+    var option = sel.options[i];
+    if (excluded && option.value === excluded) continue;
+    list.appendChild(ownedRow(option, option.value === sel.value));
+    shown += 1;
+  }
+  if (!shown) {
+    var empty = document.createElement("p");
+    empty.className = "swap-row-empty";
+    empty.textContent = "You hold nothing else to spend on this swap.";
+    host.appendChild(empty);
+    return 0;
+  }
+  host.appendChild(list);
+  return shown;
+}
+
+/** Open the picker sheet over the panel for the given side ("from"/"to"). */
+function openAssetPicker(panel, side) {
+  var picker = panel.querySelector(".id-swap-picker");
+  if (!picker) return false;
+  picker.dataset.side = side;
+  picker.hidden = false;
+  var title = panel.querySelector(".id-swap-picker-title");
+  if (title) {
+    title.textContent =
+      side === "from" ? "Select a token to pay with" : "Select a token to receive";
+  }
+  if (side === "from") renderOwnedList(panel);
+  var search = panel.querySelector(".id-swap-to-search");
+  if (side === "to" && search && search.focus) search.focus();
+  return true;
+}
+
+function closeAssetPicker(panel) {
+  var picker = panel.querySelector(".id-swap-picker");
+  if (picker) picker.hidden = true;
+}
+
+/** Choose the source asset, keeping the `<select>` authoritative. */
+function selectSource(panel, assetId) {
+  var sel = panel.querySelector(".id-swap-from");
+  if (!sel) return false;
+  var option = sel.querySelector('option[value="' + assetId + '"]');
+  if (!option) return false;
+  sel.value = assetId;
+  // In Sell the source IS the anchor, so a deliberate pick re-anchors the panel;
+  // otherwise switching to Buy and back would snap to the asset first clicked.
+  var form = panel.querySelector(".id-swap-form");
+  if (!form || !form.classList.contains("swap-mode-buy")) {
+    panel.dataset.anchorId = String(assetId);
+  }
+  syncAssetButtons(panel);
+  updateSourceMax(panel);
+  closeAssetPicker(panel);
+  return true;
+}
+
+/* ------------------------------------------------------------------- flip */
+
+/**
+ * Whether the two sides can trade places. The source has to be something the
+ * address actually holds, so a target that isn't in the holdings cannot become
+ * one -- the control says so up front instead of failing at quote time.
+ */
+function canFlipAssets(panel) {
+  var sel = panel.querySelector(".id-swap-from");
+  var to = panel.querySelector(".id-swap-to");
+  if (!sel || !to || !to.value) return false;
+  return !!sel.querySelector('option[value="' + to.value + '"]');
+}
+
+/** Trade the two sides over: sell back what you just bought. */
+function flipAssets(panel) {
+  if (!canFlipAssets(panel)) return false;
+  var sel = panel.querySelector(".id-swap-from");
+  var to = panel.querySelector(".id-swap-to");
+  var wasFrom = sel.options[sel.selectedIndex];
+  var nextFrom = to.value;
+
+  to.value = wasFrom ? wasFrom.value : "";
+  to.dataset.decimals = (wasFrom && wasFrom.dataset.decimals) || "0";
+  to.dataset.unit = (wasFrom && wasFrom.dataset.unit) || "";
+  to.dataset.icon = (wasFrom && wasFrom.dataset.icon) || "";
+  // It was a holding a moment ago, so the account is opted in by definition.
+  to.dataset.optedIn = "1";
+
+  sel.value = nextFrom;
+  panel.dataset.anchorId = String(nextFrom);
+
+  var notice = panel.querySelector(".id-swap-optin-notice");
+  if (notice) notice.style.display = "none";
+  var search = panel.querySelector(".id-swap-to-search");
+  if (search) {
+    search.value = "";
+    search.placeholder = "Search name, unit or asset ID";
+  }
+  var results = panel.querySelector(".id-swap-to-results");
+  if (results) results.innerHTML = "";
+
+  syncAssetButtons(panel);
+  updateSourceMax(panel);
+  return true;
+}
+
+/* -------------------------------------------------------------- slippage */
+
+/** The advice for a tolerance that will cost the user something either way. */
+function slippageWarning(value) {
+  if (value >= 5) {
+    return (
+      "At " + value + "% a swap can fill far below the price you were quoted."
+    );
+  }
+  if (value > 0 && value < 0.1) {
+    return "Below 0.1% most swaps fail before they confirm, and you pay the fee anyway.";
+  }
+  return "";
+}
+
+/**
+ * Set the tolerance from the modal header. The value the controller reads stays
+ * the hidden `.id-swap-slippage` input inside the panel, so `readQuoteParams`
+ * remains one panel-scoped query; this writes it and lets the panel's own
+ * `input` listener re-quote.
+ */
+function applySlippage(modal, value, quiet) {
+  if (!modal) return 0.5;
+  var next = Number(value);
+  if (isNaN(next) || next < 0) next = 0.5;
+  modal.dataset.slippage = String(next);
+
+  var label = modal.querySelector(".id-swap-slip-value");
+  if (label) label.textContent = next + "%";
+  Array.prototype.forEach.call(
+    modal.querySelectorAll(".id-swap-slip-preset"),
+    function (chip) {
+      chip.setAttribute(
+        "aria-pressed",
+        String(Number(chip.dataset.slippage) === next)
+      );
+    }
+  );
+  var warn = modal.querySelector(".id-swap-slip-warn");
+  if (warn) {
+    var message = slippageWarning(next);
+    warn.hidden = !message;
+    warn.textContent = message;
+  }
+  var input = modal.querySelector(".id-swap-slippage");
+  if (input && input.value !== String(next)) {
+    input.value = String(next);
+    // `quiet` is for a freshly loaded panel: adopt the tolerance without asking
+    // for a quote the user hasn't given us the fields for yet.
+    if (!quiet) input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  return next;
 }
 
 /* istanbul ignore next -- DOM event wiring; logic is covered via applyImpliedSource, applyPercent/setAmountFromPercent, and the scheduleQuote/selectTarget/executeSwap tests */
@@ -1156,15 +1760,67 @@ function bindPanel(panelEl, ctx) {
   // retargetForMode instead of reusing the previous session's anchor.
   delete panelEl.dataset.anchorId;
   updateSourceMax(panelEl);
+  // A freshly loaded panel adopts the tolerance already showing in the header.
+  var modal = panelEl.closest && panelEl.closest(".modal");
+  if (modal) applySlippage(modal, modal.dataset.slippage || "0.5", true);
+  syncAssetButtons(panelEl);
+  // The panel starts in Sell, so seat the amount field in the leg it belongs to.
+  positionAmountField(panelEl, false);
+  setCtaLabel(panelEl, ctaLabelFor(panelEl));
+
   panelEl.addEventListener("click", function (ev) {
-    var opt = ev.target.closest && ev.target.closest(".id-swap-asset-option");
+    var closest = ev.target.closest ? ev.target.closest.bind(ev.target) : null;
+    if (!closest) return;
+
+    var opt = closest(".id-swap-asset-option");
     if (opt) { selectTarget(panelEl, opt, ctx); return; }
-    var pb = ev.target.closest && ev.target.closest(".id-swap-pct-btn");
+
+    var own = closest(".id-swap-own-option");
+    if (own) {
+      selectSource(panelEl, own.dataset.id);
+      scheduleQuote(panelEl, ctx);
+      return;
+    }
+
+    var pick = closest("[data-swap-pick]");
+    if (pick) { openAssetPicker(panelEl, pick.dataset.swapPick); return; }
+
+    if (closest(".id-swap-picker-close")) { closeAssetPicker(panelEl); return; }
+
+    if (closest(".id-swap-flip")) {
+      if (flipAssets(panelEl)) scheduleQuote(panelEl, ctx);
+      return;
+    }
+
+    var summary = closest(".swap-quote-sum");
+    if (summary) {
+      var open = panelEl.dataset.quoteOpen === "1";
+      panelEl.dataset.quoteOpen = open ? "0" : "1";
+      summary.setAttribute("aria-expanded", String(!open));
+      var quote = panelEl.querySelector(".id-swap-quote");
+      if (quote) quote.dataset.open = open ? "0" : "1";
+      return;
+    }
+
+    var pb = closest(".id-swap-pct-btn");
     if (pb) {
       setAmountFromPercent(panelEl, Number(pb.dataset.pct || "0"));
       scheduleQuote(panelEl, ctx);
     }
   });
+
+  // Asset icons come from the CDN by id; plenty of ASAs have none.
+  panelEl.addEventListener(
+    "error",
+    function (ev) {
+      var img = ev.target;
+      if (!img || img.tagName !== "IMG") return;
+      var fallback = img.dataset.fallback;
+      if (fallback && img.getAttribute("src") !== fallback) img.src = fallback;
+    },
+    true
+  );
+
   var pctInput = panelEl.querySelector(".id-swap-pct");
   if (pctInput) {
     pctInput.addEventListener("input", function () {
@@ -1321,6 +1977,7 @@ function wireSwapTabs() {
     var tab = ev.target.closest && ev.target.closest("[data-swap-mode]");
     if (!tab) return;
     applySwapMode(modal.querySelector(".id-swap-form"), tab.dataset.swapMode);
+    closeAssetPicker(modal);
     // The amount's meaning flips with the mode (source vs target), so clear the
     // amount + percentage + stale quote and re-gate the button until a fresh,
     // mode-correct quote arrives.
@@ -1337,6 +1994,10 @@ function wireSwapTabs() {
     if (amt) amt.value = "";
     if (pct) pct.value = "";
     if (quote) quote.textContent = "";
+    var outField = panel.querySelector(".id-swap-out");
+    if (outField) outField.value = "";
+    syncAssetButtons(panel);
+    setCtaLabel(panel, ctaLabelFor(panel));
     if (status) {
       status.textContent = res.ok
         ? ""
@@ -1380,24 +2041,53 @@ function startSwap() {
         if (modal.dataset.swapDirty === "1") window.location.reload();
       };
     }
-    var tabsEl = modal.querySelector(".tabs");
-    if (tabsEl && window.M.Tabs) {
-      var tabs = window.M.Tabs.getInstance(tabsEl) || window.M.Tabs.init(tabsEl);
-      // Tabs initialised while the modal is display:none compute a zero-width
-      // indicator and don't mark the active tab. Recompute once it's visible.
-      if (modalInst) {
-        modalInst.options.onOpenEnd = function () {
-          tabs.updateTabIndicator();
-        };
-      }
-    }
+    // The mode control is a plain segmented control now, not Materialize tabs,
+    // so the zero-width-indicator workaround that tabs initialised inside a
+    // display:none modal needed is gone with them.
   }
   wireSwapTabs();
+  wireSlippage();
   // Shell page (accordion of addresses) binds per-section once the bridge is up.
   whenSwapReady(mainSwap);
   // Auto-open (post-login ?swap_open) must wait for the bridge too, so the
   // panel's initial `owns` reads the resumed wallet session, not a null one.
   whenSwapReady(autoOpenFromQuery);
+}
+
+/**
+ * Wire the header's tolerance control. It lives in the modal shell rather than
+ * the panel so it survives the panel being replaced (or failing to load), and
+ * writes through to the hidden input the panel owns.
+ */
+/* istanbul ignore next -- modal-level DOM glue; applySlippage carries the logic */
+function wireSlippage() {
+  var modal = document.getElementById("swap-modal");
+  if (!modal) return;
+  applySlippage(modal, modal.dataset.slippage || "0.5", true);
+
+  var toggle = modal.querySelector(".id-swap-slip-toggle");
+  var popover = modal.querySelector("#swap-slippage-pop");
+  if (toggle && popover) {
+    toggle.addEventListener("click", function () {
+      var open = toggle.getAttribute("aria-expanded") === "true";
+      toggle.setAttribute("aria-expanded", String(!open));
+      popover.hidden = open;
+    });
+  }
+  modal.addEventListener("click", function (ev) {
+    var chip = ev.target.closest && ev.target.closest(".id-swap-slip-preset");
+    if (!chip) return;
+    var custom = modal.querySelector(".id-swap-slip-custom");
+    if (custom) custom.value = "";
+    applySlippage(modal, chip.dataset.slippage);
+  });
+  var custom = modal.querySelector(".id-swap-slip-custom");
+  if (custom) {
+    custom.addEventListener("input", function () {
+      var typed = parseFloat(custom.value);
+      if (!isNaN(typed)) applySlippage(modal, typed);
+    });
+  }
 }
 
 /**
@@ -1424,6 +2114,30 @@ if (typeof module !== "undefined" && module.exports) {
     ROUTERS: ROUTERS,
     makeQuote: makeQuote,
     routeLabelFrom: routeLabelFrom,
+    routePartsFrom: routePartsFrom,
+    routePartsFromNames: routePartsFromNames,
+    rateBetween: rateBetween,
+    impactSeverity: impactSeverity,
+    routePills: routePills,
+    renderVenueCount: renderVenueCount,
+    setCtaLabel: setCtaLabel,
+    ctaLabelFor: ctaLabelFor,
+    shortfallLabel: shortfallLabel,
+    scheduleRequote: scheduleRequote,
+    positionAmountField: positionAmountField,
+    markModeControls: markModeControls,
+    setAssetPill: setAssetPill,
+    syncAssetButtons: syncAssetButtons,
+    ownedRow: ownedRow,
+    renderOwnedList: renderOwnedList,
+    openAssetPicker: openAssetPicker,
+    closeAssetPicker: closeAssetPicker,
+    selectSource: selectSource,
+    canFlipAssets: canFlipAssets,
+    flipAssets: flipAssets,
+    slippageWarning: slippageWarning,
+    applySlippage: applySlippage,
+    wireSlippage: wireSlippage,
     minReceived: minReceived,
     maxSent: maxSent,
     quoteIsEmpty: quoteIsEmpty,

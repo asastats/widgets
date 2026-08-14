@@ -13,6 +13,7 @@ function panelHTML(holdings) {
         <div class="id-swap-to-results"></div>
         <input type="hidden" class="id-swap-to" data-decimals="" data-unit="" data-opted-in="">
         <input class="id-swap-amount">
+        <input class="id-swap-out" readonly>
         <input class="id-swap-slippage" value="0.5">
         <div class="id-swap-quote"></div>
         <div class="id-swap-status"></div>
@@ -776,6 +777,15 @@ describe("HogswapAdapter", () => {
     // theirs, not one recomputed here: their contract enforces this number
     expect(q.minimumReceived).toBe(BigInt(2487500));
     expect(q.routeLabel).toBe("Tinyman v2, Pact CP");
+    // Three legs, two distinct venues, and no weights offered -- so the pills
+    // name them without inventing a split.
+    expect(q.routeParts).toEqual([
+      { name: "Tinyman v2", pct: null },
+      { name: "Pact CP", pct: null },
+    ]);
+    // This API reports no price impact. Carrying null (not 0) is what stops the
+    // panel telling every HOGSWAP user their trade moved the price by nothing.
+    expect(q.priceImpactPct).toBe(null);
     expect(q.raw.quoteId).toBe("q-1");
   });
 
@@ -1824,9 +1834,17 @@ describe("shared quote helpers", () => {
       minimumReceived: BigInt(1),
       routeLabel: "X",
     });
-    expect(q.priceImpactPct).toBe(0);
+    // null, not 0: an unreported impact is not a zero impact, and the panel
+    // omits the row rather than claiming the trade moves no price.
+    expect(q.priceImpactPct).toBe(null);
+    expect(q.routeParts).toEqual([]);
     expect(q.feesTotal).toBe(0);
     expect(q.raw).toEqual({});
+  });
+
+  test("makeQuote keeps a reported impact, including a genuine zero", () => {
+    expect(F.makeQuote({ priceImpactPct: 0 }).priceImpactPct).toBe(0);
+    expect(F.makeQuote({ priceImpactPct: 1.25 }).priceImpactPct).toBe(1.25);
   });
 });
 
@@ -2143,10 +2161,18 @@ describe("fixed-output (buy) mode", () => {
       feesTotal: 3000,
       routeLabel: "Folks Router",
     });
-    const txt = panel.querySelector(".id-swap-quote").textContent;
-    expect(txt).toContain("2 ALGO");
-    expect(txt).toContain("(max 2.01");
-    expect(txt).toContain("via Folks Router");
+    // Buy mirrors the REQUIRED INPUT into the read-only leg, and the ceiling
+    // becomes its own labelled row rather than a parenthetical.
+    expect(panel.querySelector(".id-swap-out").value).toBe("2");
+    const rows = [...panel.querySelectorAll(".swap-drow")].map(
+      (r) => `${r.querySelector("dt").textContent}=${r.querySelector("dd").textContent}`,
+    );
+    expect(rows).toContain("Maximum sent=2.01 ALGO");
+    expect(rows).toContain("Price impact=0.10%");
+    expect(rows).toContain("Network fee=0.003 ALGO");
+    expect(
+      [...panel.querySelectorAll(".swap-hop")].map((h) => h.textContent),
+    ).toEqual(["Folks Router"]);
   });
 
   test("affordabilityError: sell '', buy ok '', buy short message, no holdings ''", () => {
@@ -2305,8 +2331,13 @@ describe("fixed-output (buy) — fallback branches", () => {
       feesTotal: 0,
       routeLabel: "R",
     });
-    const txt = panel.querySelector(".id-swap-quote").textContent;
-    expect(txt).toContain("≈ 2 "); // raw base units (0 decimals), empty unit
+    // Raw base units (0 decimals) mirrored into the read-only leg, and the
+    // ceiling row carries no unit because the option that names one is absent.
+    expect(panel.querySelector(".id-swap-out").value).toBe("2");
+    const rows = [...panel.querySelectorAll(".swap-drow")].map(
+      (r) => `${r.querySelector("dt").textContent}=${r.querySelector("dd").textContent}`,
+    );
+    expect(rows).toContain("Maximum sent=3 ");
   });
 
   test("affordabilityError buy-short: empty from dataset falls back", () => {
@@ -2417,9 +2448,7 @@ describe("updateSourceMax (max-owned in helper text)", () => {
     const panel = panelWithMax();
     panel.querySelector(".id-swap-from").value = "0"; // ALGO 6dp, amount 5000000
     F.updateSourceMax(panel);
-    expect(panel.querySelector(".id-swap-from-max").textContent).toBe(
-      " — 5 ALGO",
-    );
+    expect(panel.querySelector(".id-swap-from-max").textContent).toBe("5 ALGO");
   });
   test("clears the span when the option has no amount", () => {
     const panel = panelWithMax();
@@ -2453,9 +2482,8 @@ describe("fixed-output / max — remaining guards", () => {
     opt.dataset.unit = ""; // amount stays 5000000
     panel.querySelector(".id-swap-from").value = "0";
     F.updateSourceMax(panel);
-    expect(panel.querySelector(".id-swap-from-max").textContent).toBe(
-      " — 5000000 ",
-    );
+    // No unit to append, so no trailing separator either.
+    expect(panel.querySelector(".id-swap-from-max").textContent).toBe("5000000");
   });
 });
 
@@ -2675,5 +2703,838 @@ describe("status styling + stale-quote clearing", () => {
         .classList.contains("id-swap-status-error"),
     ).toBe(false);
     delete window.asastatsSwap;
+  });
+});
+
+/* ==========================================================================
+ * The redesigned panel
+ *
+ * Everything below covers behaviour the two-leg layout introduced. The DOM the
+ * production template ships is richer than `panelHTML`, so these mount their
+ * own fixture where the extra elements matter.
+ * ========================================================================== */
+
+function legPanel(options = {}) {
+  const holdings = options.holdings || [
+    { id: 0, unit: "ALGO", decimals: 6, amount: 5000000, name: "Algorand" },
+    { id: 31566704, unit: "USDC", decimals: 6, amount: 2500000, name: "USD Coin" },
+  ];
+  const rows = holdings
+    .map(
+      (h) =>
+        `<option value="${h.id}" data-decimals="${h.decimals}" data-unit="${h.unit}"` +
+        ` data-name="${h.name}" data-amount="${h.amount}"` +
+        ` data-icon="/icons/${h.id}t.png">${h.unit}</option>`,
+    )
+    .join("");
+  document.body.innerHTML = `
+    <div id="swap-modal" class="modal swap-modal">
+      <div class="modal-content swap-shell">
+        <button class="id-swap-slip-toggle" aria-expanded="false"></button>
+        <span class="id-swap-slip-value"></span>
+        <div id="swap-slippage-pop" hidden>
+          <button class="id-swap-slip-preset" data-slippage="0.1"></button>
+          <button class="id-swap-slip-preset" data-slippage="0.5"></button>
+          <button class="id-swap-slip-preset" data-slippage="1"></button>
+          <input class="id-swap-slip-custom">
+          <p class="id-swap-slip-warn" hidden></p>
+        </div>
+        <button data-swap-mode="sell" aria-selected="true"></button>
+        <button data-swap-mode="buy" aria-selected="false"></button>
+        <div class="id-swap-panel">
+          <script type="application/json" class="id-swap-holdings">${JSON.stringify(holdings)}</script>
+          <div class="id-swap-form swap-form" data-address="ADDR">
+            <input type="hidden" class="id-swap-slippage" value="0.5">
+            <div class="swap-amt-slot id-swap-slot-pay">
+              <input class="id-swap-amount">
+            </div>
+            <select class="id-swap-from">${rows}</select>
+            <button class="id-swap-from-btn" data-swap-pick="from">
+              <img class="id-swap-from-icon" data-fallback="/icons/empty.png">
+              <span class="id-swap-from-unit"></span>
+            </button>
+            <button class="id-swap-flip"></button>
+            <div class="swap-amt-slot id-swap-slot-get">
+              <input class="id-swap-out" readonly>
+            </div>
+            <input type="hidden" class="id-swap-to" data-decimals="" data-unit="" data-opted-in="">
+            <button class="id-swap-to-btn" data-swap-pick="to">
+              <img class="id-swap-to-icon" data-fallback="/icons/empty.png">
+              <span class="id-swap-to-unit"></span>
+            </button>
+            <span class="id-swap-from-max"></span>
+            <div class="id-swap-quote"></div>
+            <div class="id-swap-status"></div>
+            <div class="id-swap-optin-notice" style="display:none;"></div>
+            <div class="id-swap-connect-notice" style="display:none;"></div>
+            <button class="id-swap-swap-btn"></button>
+            <div class="swap-picker id-swap-picker" hidden>
+              <h3 class="id-swap-picker-title"></h3>
+              <input class="id-swap-to-search">
+              <div class="id-swap-to-results"></div>
+              <div class="id-swap-own-results"></div>
+            </div>
+          </div>
+        </div>
+        <span class="id-swap-venues"></span>
+      </div>
+    </div>`;
+  const panel = document.querySelector(".id-swap-panel");
+  panel.querySelector(".id-swap-from").value = "0";
+  return panel;
+}
+
+function setTarget(panel, id, unit, decimals, optedIn) {
+  const to = panel.querySelector(".id-swap-to");
+  to.value = String(id);
+  to.dataset.unit = unit;
+  to.dataset.decimals = String(decimals);
+  to.dataset.optedIn = optedIn ? "1" : "0";
+  return to;
+}
+
+describe("route parts (the split the label threw away)", () => {
+  test("routePartsFrom keeps each venue's percentage", () => {
+    expect(F.routePartsFrom({ Tinyman: 62, Pact: 38 })).toEqual([
+      { name: "Tinyman", pct: 62 },
+      { name: "Pact", pct: 38 },
+    ]);
+  });
+  test("routePartsFrom tolerates a missing map and non-numeric weights", () => {
+    expect(F.routePartsFrom(null)).toEqual([]);
+    expect(F.routePartsFrom({ Tinyman: "n/a" })).toEqual([
+      { name: "Tinyman", pct: null },
+    ]);
+  });
+  test("routePartsFromNames carries names without inventing weights", () => {
+    expect(F.routePartsFromNames(["Tinyman", "Pact"])).toEqual([
+      { name: "Tinyman", pct: null },
+      { name: "Pact", pct: null },
+    ]);
+    expect(F.routePartsFromNames(undefined)).toEqual([]);
+  });
+  test("routePills falls back to splitting the label when there are no parts", () => {
+    const pills = F.routePills({ routeLabel: "Tinyman, Pact", routeParts: [] });
+    expect([...pills.querySelectorAll(".swap-hop")].map((p) => p.textContent)).toEqual(
+      ["Tinyman", "Pact"],
+    );
+  });
+  test("routePills renders the percentage when the router gave one", () => {
+    const pills = F.routePills({
+      routeParts: [{ name: "Tinyman", pct: 62.04 }],
+    });
+    expect(pills.querySelector(".swap-hop").textContent).toBe("Tinyman62%");
+  });
+});
+
+describe("rate and severity", () => {
+  test("rateBetween states the price of one source unit", () => {
+    // 250 ALGO in, 58.4193 USDC out
+    expect(F.rateBetween(BigInt(250000000), 6, BigInt(58419300), 6)).toBe("0.233677");
+  });
+  test("rateBetween returns '' rather than throwing on a one-sided quote", () => {
+    expect(F.rateBetween(undefined, 6, BigInt(1), 6)).toBe("");
+    expect(F.rateBetween(BigInt(1), 6, null, 6)).toBe("");
+    expect(F.rateBetween(BigInt(0), 6, BigInt(1), 6)).toBe("");
+  });
+  test("impactSeverity escalates at 1% and again at 3%", () => {
+    expect(F.impactSeverity(0.11)).toBe("good");
+    expect(F.impactSeverity(0.99)).toBe("good");
+    expect(F.impactSeverity(1)).toBe("warn");
+    expect(F.impactSeverity(2.9)).toBe("warn");
+    expect(F.impactSeverity(3)).toBe("bad");
+  });
+});
+
+describe("renderQuote (sell)", () => {
+  function quoted(extra = {}) {
+    const panel = legPanel();
+    setTarget(panel, 31566704, "USDC", 6, true);
+    F.renderQuote(
+      panel,
+      Object.assign(
+        {
+          mode: "sell",
+          amountIn: BigInt(250000000),
+          amountOut: BigInt(58419300),
+          minimumReceived: BigInt(58127300),
+          priceImpactPct: 0.11,
+          feesTotal: 4000,
+          routeLabel: "Tinyman, Pact",
+          routeParts: [
+            { name: "Tinyman", pct: 62 },
+            { name: "Pact", pct: 38 },
+          ],
+        },
+        extra,
+      ),
+    );
+    return panel;
+  }
+  const rowsOf = (panel) =>
+    [...panel.querySelectorAll(".swap-drow")].map(
+      (r) => `${r.querySelector("dt").textContent}=${r.querySelector("dd").textContent}`,
+    );
+
+  test("mirrors what you receive into the read-only leg", () => {
+    expect(quoted().querySelector(".id-swap-out").value).toBe("58.4193");
+  });
+  test("states the rate rather than burying it in a sentence", () => {
+    expect(quoted().querySelector(".swap-quote-rate").textContent).toBe(
+      "1 ALGO = 0.233677 USDC",
+    );
+  });
+  test("breaks the qualifiers into labelled rows", () => {
+    expect(rowsOf(quoted())).toEqual([
+      "Minimum received=58.1273 USDC",
+      "Price impact=0.11%",
+      "Network fee=0.004 ALGO",
+      "Route=Tinyman62%Pact38%",
+    ]);
+  });
+  test("colours the impact by severity", () => {
+    expect(
+      quoted({ priceImpactPct: 4.82 }).querySelectorAll(".swap-drow dd")[1].className,
+    ).toBe("bad");
+    expect(
+      quoted({ priceImpactPct: 1.4 }).querySelectorAll(".swap-drow dd")[1].className,
+    ).toBe("warn");
+  });
+  test("omits the impact row entirely when the router reports none", () => {
+    const rows = rowsOf(quoted({ priceImpactPct: null }));
+    expect(rows.some((r) => r.startsWith("Price impact"))).toBe(false);
+    expect(rows).toContain("Minimum received=58.1273 USDC");
+  });
+  test("names the breadth of the search in the modal footer", () => {
+    expect(document.querySelector(".id-swap-venues").textContent).toBe(
+      "Best route across 2 venues",
+    );
+  });
+  test("clearQuote also empties the mirrored leg and the footer", () => {
+    const panel = quoted();
+    F.clearQuote(panel);
+    expect(panel.querySelector(".id-swap-out").value).toBe("");
+    expect(document.querySelector(".id-swap-venues").textContent).toBe("");
+  });
+  test("keeps the detail list collapsed unless the panel says otherwise", () => {
+    expect(quoted().querySelector(".id-swap-quote").dataset.open).toBe("0");
+    const panel = legPanel();
+    panel.dataset.quoteOpen = "1";
+    setTarget(panel, 31566704, "USDC", 6, true);
+    F.renderQuote(panel, {
+      mode: "sell",
+      amountIn: BigInt(1),
+      amountOut: BigInt(1),
+      minimumReceived: BigInt(1),
+      feesTotal: 0,
+      routeLabel: "R",
+    });
+    expect(panel.querySelector(".id-swap-quote").dataset.open).toBe("1");
+  });
+});
+
+describe("the primary action names the next step", () => {
+  test("asks for the missing field before it offers to swap", () => {
+    const panel = legPanel();
+    expect(F.ctaLabelFor(panel)).toBe("Select a token");
+    setTarget(panel, 31566704, "USDC", 6, true);
+    expect(F.ctaLabelFor(panel)).toBe("Enter an amount");
+    panel.querySelector(".id-swap-amount").value = "250";
+    expect(F.ctaLabelFor(panel)).toBe("Swap");
+  });
+  test("warns that an opt-in is coming", () => {
+    const panel = legPanel();
+    setTarget(panel, 31566704, "USDC", 6, false);
+    panel.querySelector(".id-swap-amount").value = "250";
+    expect(F.ctaLabelFor(panel)).toBe("Opt in and swap");
+  });
+  test("shortfallLabel names the asset that is short", () => {
+    const panel = legPanel();
+    expect(F.shortfallLabel(panel)).toBe("Not enough ALGO");
+    panel.querySelector(".id-swap-from").options[0].dataset.unit = "";
+    expect(F.shortfallLabel(panel)).toBe("Not enough to cover this");
+  });
+  test("setCtaLabel writes the label without arming the button", () => {
+    const panel = legPanel();
+    const btn = panel.querySelector(".id-swap-swap-btn");
+    btn.disabled = true;
+    F.setCtaLabel(panel, "Finding the best route", true);
+    expect(btn.textContent).toBe("Finding the best route");
+    expect(btn.querySelector(".swap-spinner")).not.toBe(null);
+    expect(btn.disabled).toBe(true); // labelling never enables
+    F.setCtaLabel(panel, "Swap");
+    expect(btn.querySelector(".swap-spinner")).toBe(null);
+  });
+  test("applyOwnership says what is missing when no wallet is connected", () => {
+    const panel = legPanel();
+    F.applyOwnership(panel, false);
+    expect(panel.querySelector(".id-swap-swap-btn").textContent).toBe(
+      "Connect wallet to swap",
+    );
+    expect(panel.querySelector(".id-swap-connect-notice").style.display).toBe("block");
+  });
+});
+
+describe("asset pills", () => {
+  test("syncAssetButtons mirrors the select and the hidden target", () => {
+    const panel = legPanel();
+    setTarget(panel, 31566704, "USDC", 6, true);
+    F.syncAssetButtons(panel);
+    expect(panel.querySelector(".id-swap-from-unit").textContent).toBe("ALGO");
+    expect(panel.querySelector(".id-swap-to-unit").textContent).toBe("USDC");
+    expect(panel.querySelector(".id-swap-from-icon").getAttribute("src")).toBe(
+      "/icons/0t.png",
+    );
+  });
+  test("an unchosen target reads as a prompt and falls back to the empty icon", () => {
+    const panel = legPanel();
+    F.syncAssetButtons(panel);
+    const btn = panel.querySelector(".id-swap-to-btn");
+    expect(panel.querySelector(".id-swap-to-unit").textContent).toBe("Select token");
+    expect(btn.classList.contains("swap-assetbtn-empty")).toBe(true);
+    expect(panel.querySelector(".id-swap-to-icon").getAttribute("src")).toBe(
+      "/icons/empty.png",
+    );
+  });
+  test("a target with no unit falls back to its asset id", () => {
+    const panel = legPanel();
+    const to = setTarget(panel, 99, "", 0, true);
+    to.dataset.unit = "";
+    F.syncAssetButtons(panel);
+    expect(panel.querySelector(".id-swap-to-unit").textContent).toBe("#99");
+  });
+});
+
+describe("the source picker", () => {
+  test("lists holdings from the select, marking the current one", () => {
+    const panel = legPanel();
+    expect(F.renderOwnedList(panel)).toBe(2);
+    const rows = [...panel.querySelectorAll(".id-swap-own-option")];
+    expect(rows.map((r) => r.dataset.id)).toEqual(["0", "31566704"]);
+    expect(rows[0].classList.contains("is-selected")).toBe(true);
+    expect(rows[0].querySelector(".swap-row-bal").textContent).toBe("5");
+    expect(rows[0].querySelector(".swap-row-name").textContent).toBe("Algorand");
+  });
+  test("leaves out the current target -- nothing swaps for itself", () => {
+    const panel = legPanel();
+    setTarget(panel, 31566704, "USDC", 6, true);
+    expect(F.renderOwnedList(panel)).toBe(1);
+    expect(
+      [...panel.querySelectorAll(".id-swap-own-option")].map((r) => r.dataset.id),
+    ).toEqual(["0"]);
+  });
+  test("says so when the target is the only thing held", () => {
+    const panel = legPanel({
+      holdings: [{ id: 0, unit: "ALGO", decimals: 6, amount: 5000000, name: "Algorand" }],
+    });
+    setTarget(panel, 0, "ALGO", 6, true);
+    expect(F.renderOwnedList(panel)).toBe(0);
+    expect(panel.querySelector(".swap-row-empty").textContent).toContain(
+      "nothing else to spend",
+    );
+  });
+  test("opening titles the sheet for the side it was opened for", () => {
+    const panel = legPanel();
+    F.openAssetPicker(panel, "from");
+    const picker = panel.querySelector(".id-swap-picker");
+    expect(picker.hidden).toBe(false);
+    expect(picker.dataset.side).toBe("from");
+    expect(panel.querySelector(".id-swap-picker-title").textContent).toBe(
+      "Select a token to pay with",
+    );
+    F.openAssetPicker(panel, "to");
+    expect(panel.querySelector(".id-swap-picker-title").textContent).toBe(
+      "Select a token to receive",
+    );
+    F.closeAssetPicker(panel);
+    expect(picker.hidden).toBe(true);
+  });
+  test("selectSource keeps the select authoritative and re-anchors on Sell", () => {
+    const panel = legPanel();
+    F.openAssetPicker(panel, "from");
+    expect(F.selectSource(panel, "31566704")).toBe(true);
+    expect(panel.querySelector(".id-swap-from").value).toBe("31566704");
+    expect(panel.dataset.anchorId).toBe("31566704");
+    expect(panel.querySelector(".id-swap-from-unit").textContent).toBe("USDC");
+    expect(panel.querySelector(".id-swap-from-max").textContent).toBe("2.5 USDC");
+    expect(panel.querySelector(".id-swap-picker").hidden).toBe(true);
+  });
+  test("selectSource does not re-anchor on Buy, where the anchor is the target", () => {
+    const panel = legPanel();
+    panel.querySelector(".id-swap-form").classList.add("swap-mode-buy");
+    panel.dataset.anchorId = "31566704";
+    F.selectSource(panel, "31566704");
+    expect(panel.dataset.anchorId).toBe("31566704");
+  });
+  test("selectSource refuses an asset that is not held", () => {
+    const panel = legPanel();
+    expect(F.selectSource(panel, "999999")).toBe(false);
+    expect(panel.querySelector(".id-swap-from").value).toBe("0");
+  });
+});
+
+describe("flipping the two sides", () => {
+  test("refuses while the target is not something the address holds", () => {
+    const panel = legPanel();
+    expect(F.canFlipAssets(panel)).toBe(false); // no target at all
+    setTarget(panel, 393537671, "ASASTATS", 2, false); // not in holdings
+    expect(F.canFlipAssets(panel)).toBe(false);
+    expect(F.flipAssets(panel)).toBe(false);
+    expect(panel.querySelector(".id-swap-from").value).toBe("0");
+  });
+  test("trades the sides over and carries the metadata across", () => {
+    const panel = legPanel();
+    setTarget(panel, 31566704, "USDC", 6, true);
+    expect(F.canFlipAssets(panel)).toBe(true);
+    expect(F.flipAssets(panel)).toBe(true);
+
+    expect(panel.querySelector(".id-swap-from").value).toBe("31566704");
+    const to = panel.querySelector(".id-swap-to");
+    expect(to.value).toBe("0");
+    expect(to.dataset.unit).toBe("ALGO");
+    expect(to.dataset.decimals).toBe("6");
+    expect(to.dataset.icon).toBe("/icons/0t.png");
+    // It was a holding a moment ago, so opt-in is not in question.
+    expect(to.dataset.optedIn).toBe("1");
+    expect(panel.dataset.anchorId).toBe("31566704");
+    expect(panel.querySelector(".id-swap-from-max").textContent).toBe("2.5 USDC");
+  });
+  test("syncAssetButtons disables the control when a flip is impossible", () => {
+    const panel = legPanel();
+    F.syncAssetButtons(panel);
+    expect(panel.querySelector(".id-swap-flip").disabled).toBe(true);
+    setTarget(panel, 31566704, "USDC", 6, true);
+    F.syncAssetButtons(panel);
+    expect(panel.querySelector(".id-swap-flip").disabled).toBe(false);
+  });
+});
+
+describe("the editable amount follows the mode", () => {
+  test("sell puts it under You pay, buy under You receive", () => {
+    const panel = legPanel();
+    const form = panel.querySelector(".id-swap-form");
+    const amount = panel.querySelector(".id-swap-amount");
+
+    F.applySwapMode(form, "buy");
+    expect(panel.querySelector(".id-swap-slot-get").contains(amount)).toBe(true);
+    expect(
+      panel.querySelector(".id-swap-slot-pay").contains(panel.querySelector(".id-swap-out")),
+    ).toBe(true);
+
+    F.applySwapMode(form, "sell");
+    expect(panel.querySelector(".id-swap-slot-pay").contains(amount)).toBe(true);
+  });
+  test("the amount survives being re-parented", () => {
+    const panel = legPanel();
+    const form = panel.querySelector(".id-swap-form");
+    panel.querySelector(".id-swap-amount").value = "250";
+    F.applySwapMode(form, "buy");
+    expect(panel.querySelector(".id-swap-amount").value).toBe("250");
+  });
+  test("the segmented control reflects the active mode", () => {
+    const panel = legPanel();
+    const form = panel.querySelector(".id-swap-form");
+    F.applySwapMode(form, "buy");
+    const selected = [...document.querySelectorAll("[data-swap-mode]")].map((t) =>
+      t.getAttribute("aria-selected"),
+    );
+    expect(selected).toEqual(["false", "true"]);
+  });
+  test("positionAmountField no-ops on a panel without slots", () => {
+    const bare = document.createElement("div");
+    expect(F.positionAmountField(bare, true)).toBe(false);
+  });
+});
+
+describe("slippage", () => {
+  test("warns about a tolerance that costs the user either way", () => {
+    expect(F.slippageWarning(0.5)).toBe("");
+    expect(F.slippageWarning(0.05)).toContain("most swaps fail");
+    expect(F.slippageWarning(5)).toContain("far below the price");
+  });
+  test("writes through to the hidden input the controller reads", () => {
+    legPanel();
+    const modal = document.getElementById("swap-modal");
+    const input = modal.querySelector(".id-swap-slippage");
+    const seen = [];
+    input.addEventListener("input", () => seen.push(input.value));
+
+    expect(F.applySlippage(modal, "1")).toBe(1);
+    expect(input.value).toBe("1");
+    expect(seen).toEqual(["1"]); // the panel re-quotes off this
+    expect(modal.querySelector(".id-swap-slip-value").textContent).toBe("1%");
+  });
+  test("quiet mode adopts a value without asking for a quote", () => {
+    legPanel();
+    const modal = document.getElementById("swap-modal");
+    const input = modal.querySelector(".id-swap-slippage");
+    const seen = [];
+    input.addEventListener("input", () => seen.push(input.value));
+    F.applySlippage(modal, "2", true);
+    expect(input.value).toBe("2");
+    expect(seen).toEqual([]);
+  });
+  test("marks the matching preset and surfaces the warning", () => {
+    legPanel();
+    const modal = document.getElementById("swap-modal");
+    F.applySlippage(modal, "0.1");
+    const pressed = [...modal.querySelectorAll(".id-swap-slip-preset")].map((c) =>
+      c.getAttribute("aria-pressed"),
+    );
+    expect(pressed).toEqual(["true", "false", "false"]);
+    F.applySlippage(modal, "8");
+    const warn = modal.querySelector(".id-swap-slip-warn");
+    expect(warn.hidden).toBe(false);
+    expect(warn.textContent).toContain("8%");
+  });
+  test("a nonsense value falls back to the default rather than quoting on it", () => {
+    legPanel();
+    const modal = document.getElementById("swap-modal");
+    expect(F.applySlippage(modal, "abc")).toBe(0.5);
+    expect(F.applySlippage(modal, "-3")).toBe(0.5);
+    expect(F.applySlippage(null, "1")).toBe(0.5);
+  });
+});
+
+describe("scheduleRequote (the automatic re-price)", () => {
+  const TTL = 30000; // QUOTE_TTL_MS
+  const CAP = 10; // QUOTE_AUTO_REFRESH_LIMIT
+
+  /** A panel with every field a quote needs, so refreshQuote reaches getQuote. */
+  function armed(host) {
+    const panel = host || mountPanel([]);
+    panel.querySelector(".id-swap-from").value = "0";
+    const to = panel.querySelector(".id-swap-to");
+    to.value = "31566704";
+    to.dataset.decimals = "6";
+    panel.querySelector(".id-swap-amount").value = "1";
+    return panel;
+  }
+
+  /** The same panel, never attached to the document. */
+  function detachedPanel() {
+    const holder = document.createElement("div");
+    holder.innerHTML = panelHTML([]);
+    return armed(holder.querySelector(".id-swap-panel"));
+  }
+
+  function ctxWith(overrides = {}) {
+    return Object.assign(
+      {
+        fromAddress: "ADDR",
+        owns: true,
+        cfg: {},
+        adapter: {
+          getQuote: jest.fn(async () => ({
+            mode: "sell",
+            amountIn: BigInt(1000000),
+            amountOut: BigInt(2000000),
+            minimumReceived: BigInt(1990000),
+            priceImpactPct: 0.1,
+            feesTotal: 1000,
+            routeLabel: "R",
+            routeParts: [],
+          })),
+        },
+        quoteTimer: null,
+      },
+      overrides,
+    );
+  }
+
+  /** Force document.hidden, shadowing the Document.prototype getter. */
+  function setHidden(value) {
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => value,
+    });
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    window.asastatsSwap = { activeAddress: () => "ADDR" };
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    delete window.asastatsSwap;
+    delete document.hidden; // drop the shadow, restore jsdom's own getter
+  });
+
+  test("re-prices once the quote's time to live is up", async () => {
+    const panel = armed();
+    const ctx = ctxWith();
+    F.scheduleRequote(panel, ctx);
+
+    // Nothing before the TTL: the standing quote is still current.
+    await jest.advanceTimersByTimeAsync(TTL - 1);
+    expect(ctx.adapter.getQuote).not.toHaveBeenCalled();
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(ctx.adapter.getQuote).toHaveBeenCalledTimes(1);
+    expect(ctx.requotes).toBe(1);
+    // The fresh quote is on screen, not just fetched.
+    expect(panel.querySelector(".id-swap-out").value).toBe("2");
+  });
+
+  test("holds entirely while a swap is being signed", async () => {
+    const panel = armed();
+    const ctx = ctxWith({ swapping: true });
+    F.scheduleRequote(panel, ctx);
+    await jest.advanceTimersByTimeAsync(TTL * 3);
+    // Swapping the quote out from under a group being built is the one moment
+    // this must not happen -- and it does not come back on its own either.
+    expect(ctx.adapter.getQuote).not.toHaveBeenCalled();
+    expect(ctx.requotes).toBe(0);
+  });
+
+  test("waits another full TTL while the tab is hidden", async () => {
+    const panel = armed();
+    const ctx = ctxWith();
+    setHidden(true);
+    F.scheduleRequote(panel, ctx);
+
+    await jest.advanceTimersByTimeAsync(TTL);
+    expect(ctx.adapter.getQuote).not.toHaveBeenCalled();
+    expect(ctx.requotes).toBe(0); // a skipped look does not spend the budget
+
+    // Still armed: coming back to the tab picks it up at the next TTL.
+    setHidden(false);
+    await jest.advanceTimersByTimeAsync(TTL);
+    expect(ctx.adapter.getQuote).toHaveBeenCalledTimes(1);
+    expect(ctx.requotes).toBe(1);
+  });
+
+  test("gives up when the panel has been replaced out of the document", async () => {
+    const ctx = ctxWith();
+    F.scheduleRequote(detachedPanel(), ctx);
+    await jest.advanceTimersByTimeAsync(TTL * 2);
+    // htmx swaps the panel wholesale; the old one must not keep quoting.
+    expect(ctx.adapter.getQuote).not.toHaveBeenCalled();
+    expect(ctx.requotes).toBe(0);
+  });
+
+  test("stops at the cap rather than quoting an abandoned modal forever", async () => {
+    const panel = armed();
+    const ctx = ctxWith({ requotes: CAP });
+    F.scheduleRequote(panel, ctx);
+    await jest.advanceTimersByTimeAsync(TTL * 2);
+    expect(ctx.adapter.getQuote).not.toHaveBeenCalled();
+    expect(ctx.requotes).toBe(CAP);
+  });
+
+  test("re-prices repeatedly, counting up to the cap", async () => {
+    const panel = armed();
+    const ctx = ctxWith();
+    F.scheduleRequote(panel, ctx);
+    // Each success schedules the next, so the panel keeps itself current.
+    for (let i = 0; i < 3; i++) await jest.advanceTimersByTimeAsync(TTL);
+    expect(ctx.adapter.getQuote).toHaveBeenCalledTimes(3);
+    expect(ctx.requotes).toBe(3);
+  });
+
+  test("an edit restarts the budget and the clock, without racing it", async () => {
+    const panel = armed();
+    const ctx = ctxWith({ requotes: 7 });
+    F.scheduleRequote(panel, ctx);
+    F.scheduleRequote(panel, ctx); // the second replaces the first
+
+    // scheduleQuote is the user-edit path: it clears the spent budget.
+    F.scheduleQuote(panel, ctx);
+    expect(ctx.requotes).toBe(0);
+
+    await jest.advanceTimersByTimeAsync(TTL);
+    // Exactly one: the debounced quote runs at 400ms and refreshQuote clears the
+    // standing re-price on its way in, so the edit supersedes it rather than
+    // both firing. The re-price clock then restarts from the new quote.
+    expect(ctx.adapter.getQuote).toHaveBeenCalledTimes(1);
+    expect(ctx.requotes).toBe(0);
+
+    // ...which lands one TTL after that quote, not after the original schedule.
+    await jest.advanceTimersByTimeAsync(400);
+    expect(ctx.adapter.getQuote).toHaveBeenCalledTimes(2);
+    expect(ctx.requotes).toBe(1);
+  });
+
+  test("a failed re-price does not arm another one", async () => {
+    const panel = armed();
+    const ctx = ctxWith({
+      adapter: { getQuote: jest.fn(async () => { throw new Error("boom"); }) },
+    });
+    F.scheduleRequote(panel, ctx);
+    await jest.advanceTimersByTimeAsync(TTL * 3);
+    // refreshQuote only re-arms on success, so one attempt is all there is.
+    expect(ctx.adapter.getQuote).toHaveBeenCalledTimes(1);
+    expect(panel.querySelector(".id-swap-status").textContent).toContain("boom");
+  });
+});
+
+describe("the redesigned panel — defensive guards", () => {
+  /** A panel stripped of everything the swap DOM normally provides. */
+  const bare = () => document.createElement("div");
+
+  test("setAssetPill reports failure rather than throwing on a missing pill", () => {
+    expect(F.setAssetPill(bare(), "from", "ALGO", "/i.png")).toBe(false);
+    // A button with no label span is just as unusable.
+    const half = bare();
+    half.innerHTML = '<button class="id-swap-from-btn"></button>';
+    expect(F.setAssetPill(half, "from", "ALGO", "")).toBe(false);
+  });
+
+  test("each side gets its own empty prompt", () => {
+    const panel = legPanel();
+    panel.querySelector(".id-swap-from").selectedIndex = -1;
+    F.syncAssetButtons(panel);
+    expect(panel.querySelector(".id-swap-from-unit").textContent).toBe("Select");
+    expect(panel.querySelector(".id-swap-to-unit").textContent).toBe("Select token");
+  });
+
+  test("an icon with no fallback declared clears rather than keeping a stale one", () => {
+    const panel = legPanel();
+    delete panel.querySelector(".id-swap-to-icon").dataset.fallback;
+    F.syncAssetButtons(panel);
+    expect(panel.querySelector(".id-swap-to-icon").getAttribute("src")).toBe("");
+  });
+
+  test("syncAssetButtons tolerates a panel with no target input", () => {
+    const panel = legPanel();
+    panel.querySelector(".id-swap-to").remove();
+    expect(() => F.syncAssetButtons(panel)).not.toThrow();
+    expect(panel.querySelector(".id-swap-to-unit").textContent).toBe("Select token");
+  });
+
+  test("ownedRow falls back for an option carrying no metadata", () => {
+    const option = document.createElement("option");
+    option.value = "77";
+    const row = F.ownedRow(option, false);
+    expect(row.querySelector(".swap-row-unit").textContent).toBe("77#77");
+    expect(row.querySelector(".swap-row-name").textContent).toBe("");
+    expect(row.querySelector(".swap-row-bal").textContent).toBe("0");
+    expect(row.classList.contains("is-selected")).toBe(false);
+  });
+
+  test("renderOwnedList no-ops without a host or a select", () => {
+    expect(F.renderOwnedList(bare())).toBe(0);
+    const noSelect = bare();
+    noSelect.innerHTML = '<div class="id-swap-own-results"></div>';
+    expect(F.renderOwnedList(noSelect)).toBe(0);
+  });
+
+  test("renderOwnedList excludes nothing when there is no target input", () => {
+    const panel = legPanel();
+    panel.querySelector(".id-swap-to").remove();
+    expect(F.renderOwnedList(panel)).toBe(2);
+  });
+
+  test("the picker helpers no-op on a panel without a sheet", () => {
+    expect(F.openAssetPicker(bare(), "from")).toBe(false);
+    expect(() => F.closeAssetPicker(bare())).not.toThrow();
+  });
+
+  test("selectSource no-ops without a select", () => {
+    expect(F.selectSource(bare(), "0")).toBe(false);
+  });
+
+  test("canFlipAssets refuses a panel missing either side", () => {
+    expect(F.canFlipAssets(bare())).toBe(false);
+  });
+
+  test("flipAssets survives a select with nothing selected", () => {
+    const panel = legPanel();
+    setTarget(panel, 31566704, "USDC", 6, true);
+    // An option matching the target exists, so the flip is allowed, but no
+    // option is current -- the carried metadata has to fall back rather than throw.
+    panel.querySelector(".id-swap-from").selectedIndex = -1;
+    expect(F.flipAssets(panel)).toBe(true);
+    const to = panel.querySelector(".id-swap-to");
+    expect(to.value).toBe("");
+    expect(to.dataset.unit).toBe("");
+    expect(to.dataset.decimals).toBe("0");
+    expect(panel.querySelector(".id-swap-from").value).toBe("31566704");
+  });
+
+  test("routePills renders nothing for a quote that names no venue", () => {
+    expect(F.routePills({}).children.length).toBe(0);
+  });
+
+  test("renderVenueCount says 'venue' for a single-venue route", () => {
+    const panel = legPanel();
+    F.renderVenueCount(panel, { routeParts: [{ name: "Tinyman", pct: 100 }] });
+    expect(document.querySelector(".id-swap-venues").textContent).toBe(
+      "Best route across 1 venue",
+    );
+  });
+
+  test("renderVenueCount no-ops when the panel is not inside a modal", () => {
+    const panel = mountPanel([]); // no #swap-modal around it
+    expect(() => F.renderVenueCount(panel, { routeParts: [] })).not.toThrow();
+  });
+});
+
+describe("the redesigned panel — optional elements", () => {
+  // Each of these elements is presentational: the panel is still usable without
+  // it, so the controller guards rather than requires. These cover the absent arm.
+
+  test("renderQuote works on a panel with no mirrored output field", () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-swap-out").remove();
+    const to = panel.querySelector(".id-swap-to");
+    to.value = "31566704";
+    to.dataset.decimals = "6";
+    to.dataset.unit = "USDC";
+    panel.querySelector(".id-swap-from").value = "0";
+    expect(() =>
+      F.renderQuote(panel, {
+        mode: "sell",
+        amountIn: BigInt(1000000),
+        amountOut: BigInt(2000000),
+        minimumReceived: BigInt(1990000),
+        feesTotal: 0,
+        routeLabel: "R",
+      }),
+    ).not.toThrow();
+    expect(panel.querySelector(".swap-quote-rate").textContent).toBe(
+      "1 ALGO = 2 USDC",
+    );
+  });
+
+  test("clearQuote tolerates the same panel", () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-swap-out").remove();
+    expect(() => F.clearQuote(panel)).not.toThrow();
+  });
+
+  test("an asset pill without an icon still takes its label", () => {
+    const panel = legPanel();
+    panel.querySelector(".id-swap-from-icon").remove();
+    expect(F.setAssetPill(panel, "from", "ALGO", "/icons/0t.png")).toBe(true);
+    expect(panel.querySelector(".id-swap-from-unit").textContent).toBe("ALGO");
+  });
+
+  test("the picker opens without a title element", () => {
+    const panel = legPanel();
+    panel.querySelector(".id-swap-picker-title").remove();
+    expect(F.openAssetPicker(panel, "from")).toBe(true);
+    expect(panel.querySelector(".id-swap-picker").hidden).toBe(false);
+  });
+
+  test("flipAssets works without the notice, the search box or the results list", () => {
+    const panel = legPanel();
+    setTarget(panel, 31566704, "USDC", 6, true);
+    panel.querySelector(".id-swap-optin-notice").remove();
+    panel.querySelector(".id-swap-to-search").remove();
+    panel.querySelector(".id-swap-to-results").remove();
+    expect(F.flipAssets(panel)).toBe(true);
+    expect(panel.querySelector(".id-swap-from").value).toBe("31566704");
+    expect(panel.querySelector(".id-swap-to").value).toBe("0");
+  });
+
+  test("applySlippage writes through without the header's readout or warning", () => {
+    legPanel();
+    const modal = document.getElementById("swap-modal");
+    modal.querySelector(".id-swap-slip-value").remove();
+    modal.querySelector(".id-swap-slip-warn").remove();
+    expect(F.applySlippage(modal, "9")).toBe(9);
+    // The value the controller actually quotes on still lands.
+    expect(modal.querySelector(".id-swap-slippage").value).toBe("9");
   });
 });

@@ -1,71 +1,165 @@
 {% load core_extras %}
-{# Swap form for one linked address, loaded into the modal's .id-swap-panel.    #}
-{# The clicked asset is the ANCHOR. On Sell it is the From (you sell it) and you  #}
-{# pick the To; on Buy it is the To (you buy it) and you pick the From you spend  #}
+{# Swap form for one linked address, loaded into the modal's .id-swap-panel.     #}
+{# The clicked asset is the ANCHOR. On Sell it is the From (you sell it) and you #}
+{# pick the To; on Buy it is the To (you buy it) and you pick the From you spend #}
 {# from your holdings. swap.js (retargetForMode) flips the anchor between sides. #}
-{# All four cells live in ONE flex grid; CSS `order` controls the sequence per    #}
-{# breakpoint + mode so the amount always sits with its asset (under From on Sell, #}
-{# under "Buy (you receive)" on Buy) on both wide and stacked layouts.            #}
+{#                                                                              #}
+{# Two legs, each owning its own asset AND its own amount, replace the old 2x2  #}
+{# field grid: the amount can then never drift away from the asset it belongs   #}
+{# to, at any breakpoint or mode, without a single `order` rule.                #}
+{#                                                                              #}
+{# Three elements are deliberately kept as invisible sources of truth so the     #}
+{# controller keeps working unchanged against them:                             #}
+{#   .id-swap-from      a real <select> of holdings; the pill button and the     #}
+{#                      picker sheet write its value and dispatch `input`.       #}
+{#   .id-swap-to        the hidden target input selectTarget already wrote to.   #}
+{#   .id-swap-slippage  the value readQuoteParams reads; the modal header's      #}
+{#                      presets write it.                                        #}
+{# .id-swap-amount is the ONE editable amount. applySwapMode moves it between    #}
+{# the two .swap-amt-slot elements, so it is under "You pay" when selling and    #}
+{# under "You receive" when buying; .id-swap-out takes the slot it vacates and   #}
+{# shows the computed side.                                                      #}
 <script type="application/json" class="id-swap-holdings">{{ holdings_json }}</script>
-<div class="id-swap-form" data-address="{{ address }}">
-  <div class="row id-swap-grid">
-    <div class="input-field col s12 m6 id-swap-source-col">
-      <select class="browser-default id-swap-from">
-        {% for asset in holdings %}{% if asset.amount > 0 %}
-        <option value="{{ asset.id }}"
-                data-decimals="{{ asset.decimals }}"
-                data-unit="{{ asset.unit }}"
-                data-amount="{{ asset.amount }}">{{ asset.unit|default:asset.id }}</option>
-        {% endif %}{% endfor %}
-      </select>
-      <span class="helper-text">
-        <span class="id-swap-from-label-sell">From (you own)</span>
-        <span class="id-swap-from-label-buy">Pay with (you own)</span>
-        <span class="id-swap-from-max"></span>
-      </span>
-    </div>
-    <div class="input-field col s12 m6 id-swap-target-col">
-      <input type="text" class="id-swap-to-search" placeholder="To asset: name, unit, or ID"
-             data-select-on-focus
-             hx-get="{% url 'swap_assets' %}"
-             hx-trigger="keyup changed delay:300ms"
-             hx-target="next .id-swap-to-results"
-             name="q" autocomplete="off">
-      <div class="id-swap-to-results"></div>
-      <input type="hidden" class="id-swap-to" data-decimals="" data-unit="" data-opted-in="">
-      <span class="helper-text">
-        <span class="id-swap-to-label-sell">To (you receive)</span>
-        <span class="id-swap-to-label-buy">Buy (you receive)</span>
-      </span>
-    </div>
-    <div class="input-field col s12 m6 id-swap-amount-col">
-      <input type="text" class="id-swap-amount" inputmode="decimal" placeholder="0.0">
-      <span class="helper-text">
-        <span class="id-swap-amount-label-sell">Amount to sell</span>
-        <span class="id-swap-amount-label-buy">Amount to buy</span>
-      </span>
-      <div class="id-swap-pct-row">
-        <button type="button" class="btn-flat id-swap-pct-btn" data-pct="25">25%</button>
-        <button type="button" class="btn-flat id-swap-pct-btn" data-pct="50">50%</button>
-        <button type="button" class="btn-flat id-swap-pct-btn" data-pct="75">75%</button>
-        <button type="button" class="btn-flat id-swap-pct-btn" data-pct="100">Max</button>
-        <input type="text" class="id-swap-pct" inputmode="decimal" placeholder="%">
+<div class="id-swap-form swap-form" data-address="{{ address }}">
+
+  <input type="hidden" class="id-swap-slippage" value="0.5">
+
+  <div class="swap-legs">
+
+    <section class="swap-leg swap-leg-pay id-swap-leg-pay">
+      <div class="swap-leg-top">
+        <span class="swap-micro">
+          <span class="id-swap-from-label-sell">You pay</span>
+          <span class="id-swap-from-label-buy">You pay (estimated)</span>
+        </span>
+        <span class="swap-leg-bal">Balance <b class="swap-num id-swap-from-max"></b></span>
       </div>
+      <div class="swap-leg-main">
+        <div class="swap-amt-slot id-swap-slot-pay">
+          <input type="text" class="id-swap-amount swap-amt swap-num" inputmode="decimal"
+                 placeholder="0.0" aria-label="Amount">
+        </div>
+        <select class="browser-default id-swap-from swap-offscreen" aria-label="Asset to pay with">
+          {% for asset in holdings %}{% if asset.amount > 0 %}
+          <option value="{{ asset.id }}"
+                  data-decimals="{{ asset.decimals }}"
+                  data-unit="{{ asset.unit }}"
+                  data-name="{{ asset.name }}"
+                  data-amount="{{ asset.amount }}"
+                  data-icon="{{ BASE_CDN_URL }}/icons/{{ asset.id }}t.png">{{ asset.unit|default:asset.id }}</option>
+          {% endif %}{% endfor %}
+        </select>
+        <button type="button" class="swap-assetbtn id-swap-from-btn" data-swap-pick="from">
+          <img class="swap-tok id-swap-from-icon" alt=""
+               src="{{ BASE_CDN_URL }}/icons/empty.png"
+               data-fallback="{{ BASE_CDN_URL }}/icons/empty.png">
+          <span class="id-swap-from-unit">Select</span>
+          <svg class="swap-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"
+               aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+      </div>
+      <div class="swap-leg-foot">
+        <div class="id-swap-pct-row swap-pcts">
+          <button type="button" class="swap-chip id-swap-pct-btn" data-pct="25">25%</button>
+          <button type="button" class="swap-chip id-swap-pct-btn" data-pct="50">50%</button>
+          <button type="button" class="swap-chip id-swap-pct-btn" data-pct="75">75%</button>
+          <button type="button" class="swap-chip id-swap-pct-btn" data-pct="100">Max</button>
+        </div>
+      </div>
+    </section>
+
+    <button type="button" class="swap-flip id-swap-flip"
+            aria-label="Swap the two assets" title="Swap the two assets">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M7 4v16m0 0-3.5-3.5M7 20l3.5-3.5M17 20V4m0 0-3.5 3.5M17 4l3.5 3.5"/>
+      </svg>
+    </button>
+
+    <section class="swap-leg swap-leg-get id-swap-leg-get">
+      <div class="swap-leg-top">
+        <span class="swap-micro">
+          <span class="id-swap-to-label-sell">You receive (estimated)</span>
+          <span class="id-swap-to-label-buy">You receive</span>
+        </span>
+      </div>
+      <div class="swap-leg-main">
+        <div class="swap-amt-slot id-swap-slot-get">
+          <input type="text" class="id-swap-out swap-amt swap-num" placeholder="0.0"
+                 readonly tabindex="-1" aria-label="Amount you receive">
+        </div>
+        <input type="hidden" class="id-swap-to" data-decimals="" data-unit="" data-opted-in="">
+        <button type="button" class="swap-assetbtn swap-assetbtn-empty id-swap-to-btn"
+                data-swap-pick="to">
+          <img class="swap-tok id-swap-to-icon" alt=""
+               src="{{ BASE_CDN_URL }}/icons/empty.png"
+               data-fallback="{{ BASE_CDN_URL }}/icons/empty.png">
+          <span class="id-swap-to-unit">Select token</span>
+          <svg class="swap-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"
+               aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+      </div>
+    </section>
+  </div>
+
+  <div class="id-swap-quote swap-quote" aria-live="polite"></div>
+
+  <div class="id-swap-status swap-notice" aria-live="polite"></div>
+
+  <div class="id-swap-optin-notice swap-notice swap-notice-info" style="display:none;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.5"/>
+    </svg>
+    <span>You don't hold this asset yet. Opting in locks 0.1 ALGO of your balance and
+      needs one extra approval, in the same signing step.</span>
+  </div>
+
+  <div class="id-swap-connect-notice swap-notice swap-notice-info" style="display:none;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.5"/>
+    </svg>
+    <span>Quotes are free to look at. Connect the wallet holding this address when
+      you're ready to sign.</span>
+  </div>
+
+  <div class="swap-cta-wrap">
+    <button class="swap-cta id-swap-swap-btn" type="button" disabled>Swap</button>
+  </div>
+
+  {# Overlays the whole modal card: .modal-content is the positioned ancestor. #}
+  <div class="swap-picker id-swap-picker" hidden>
+    <div class="swap-picker-head">
+      <h3 class="swap-picker-title id-swap-picker-title">Select a token</h3>
+      <button type="button" class="swap-iconbtn swap-iconbtn-plain id-swap-picker-close"
+              aria-label="Back to swap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+             stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
     </div>
-    <div class="input-field col s12 m6 id-swap-slippage-col">
-      <input type="text" class="id-swap-slippage" inputmode="decimal" value="0.5">
-      <span class="helper-text">Slippage %</span>
+
+    {# Target side: the engine-backed search that was already htmx-wired. #}
+    <div class="swap-picker-body id-swap-picker-to">
+      <label class="swap-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="text" class="id-swap-to-search" placeholder="Search name, unit or asset ID"
+               data-select-on-focus
+               hx-get="{% url 'swap_assets' %}"
+               hx-trigger="keyup changed delay:300ms"
+               hx-target="next .id-swap-to-results"
+               name="q" autocomplete="off">
+      </label>
+      <div class="id-swap-to-results swap-picker-list"></div>
     </div>
-  </div>
-  <div class="id-swap-quote" aria-live="polite"></div>
-  <div class="id-swap-status" aria-live="polite"></div>
-  <div class="id-swap-optin-notice" style="display:none;">
-    Opting into the target asset locks 0.1 ALGO and needs one extra approval.
-  </div>
-  <div class="id-swap-connect-notice" style="display:none;">
-    Connect the wallet for this address to swap.
-  </div>
-  <div class="center-align">
-    <button class="btn whenmoon waves-effect id-swap-swap-btn" type="button" disabled>Swap</button>
+
+    {# Source side: rendered client-side from the <select>, so picking something #}
+    {# you already hold costs no round trip.                                     #}
+    <div class="swap-picker-body id-swap-picker-from">
+      <div class="id-swap-own-results swap-picker-list"></div>
+    </div>
   </div>
 </div>

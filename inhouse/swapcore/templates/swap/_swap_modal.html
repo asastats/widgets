@@ -1,29 +1,65 @@
 {% load core_extras %}
 {# Responsive Swap modal. A Swap button (.id-swap-swap-toggle, data-from) opens  #}
 {# it; swap.js resolves the router + cfg from the #id-swap-enabled marker and    #}
-{# loads the holdings form into .id-swap-panel. The provider name + the          #}
-{# "change router" note are server-rendered from the (non-cached) swap context,   #}
-{# so they survive even when the panel shows the "not available" message.         #}
-<div id="swap-modal" class="modal">
-  <div class="modal-content">
-    <h4 class="center-align">Swap ({{ swap_router_name|default:"smart router" }})</h4>
-    <div class="row">
-      <div class="col s12">
-        <ul class="tabs tabs-fixed-width">
-          <li class="tab col s6"><a class="active" href="#swap-tab-sell" data-swap-mode="sell">Sell</a></li>
-          <li class="tab col s6"><a href="#swap-tab-buy" data-swap-mode="buy">Buy</a></li>
-        </ul>
-      </div>
-      {# Materialize needs the href targets to exist; the real form is shared below. #}
-      <div id="swap-tab-sell" class="col s12"></div>
-      <div id="swap-tab-buy" class="col s12"></div>
+{# loads the holdings form into .id-swap-panel. The provider name, the slippage  #}
+{# control and the "change router" note are server-rendered from the             #}
+{# (non-cached) swap context, so they survive even when the panel shows the      #}
+{# "not available" message.                                                      #}
+{#                                                                               #}
+{# The header's slippage control is UI only: the value the controller reads is   #}
+{# the hidden .id-swap-slippage input inside the panel, which swap.js keeps in   #}
+{# sync. Keeping the source of truth inside .id-swap-panel is what lets          #}
+{# readQuoteParams stay a single panel-scoped query.                             #}
+<div id="swap-modal" class="modal swap-modal">
+  <div class="modal-content swap-shell">
+
+    <div class="swap-head">
+      <h2 class="swap-title">Swap</h2>
+      <span class="swap-routertag">{{ swap_router_name|default:"smart router" }}</span>
+      <span class="swap-head-spacer"></span>
+
+      <button type="button" class="swap-iconbtn id-swap-slip-toggle"
+              aria-expanded="false" aria-controls="swap-slippage-pop"
+              title="Maximum slippage">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" aria-hidden="true">
+          <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/>
+          <circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>
+        </svg>
+        <span class="swap-num id-swap-slip-value">0.5%</span>
+      </button>
+
+      <a href="#!" class="swap-iconbtn swap-iconbtn-plain modal-close" aria-label="Close swap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+             stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </a>
     </div>
-    <div class="id-swap-panel" data-from=""></div>
-  </div>
-  <div class="modal-footer">
-    <span class="left helper-text">
-      <a href="{% url 'profile_settings' %}">Change the default router</a>
-    </span>
-    <a href="#!" class="waves-effect btn-flat modal-close">Close</a>
+
+    <div class="swap-slip" id="swap-slippage-pop" hidden>
+      <span class="swap-micro">Max slippage</span>
+      <div class="swap-slip-row">
+        <button type="button" class="swap-chip id-swap-slip-preset" data-slippage="0.1">0.1%</button>
+        <button type="button" class="swap-chip id-swap-slip-preset" data-slippage="0.5" aria-pressed="true">0.5%</button>
+        <button type="button" class="swap-chip id-swap-slip-preset" data-slippage="1">1%</button>
+        <input type="text" class="swap-slip-custom swap-num id-swap-slip-custom"
+               inputmode="decimal" placeholder="Custom" aria-label="Custom slippage percent">
+      </div>
+      <p class="swap-slip-warn id-swap-slip-warn" hidden></p>
+    </div>
+
+    {# Replaces the Materialize .tabs: wireSwapTabs only needs [data-swap-mode]. #}
+    {# Dropping .tabs also drops the zero-width-indicator workaround that tabs   #}
+    {# initialised inside a display:none modal needed.                           #}
+    <div class="swap-modes" role="tablist" aria-label="Which amount you fix">
+      <button type="button" role="tab" data-swap-mode="sell" aria-selected="true">Sell an amount</button>
+      <button type="button" role="tab" data-swap-mode="buy" aria-selected="false">Buy an amount</button>
+    </div>
+
+    <div class="id-swap-panel swap-panel" data-from=""></div>
+
+    <div class="swap-foot">
+      <span class="id-swap-venues swap-num"></span>
+      <a href="{% url 'profile_settings' %}">Change default router</a>
+    </div>
   </div>
 </div>
