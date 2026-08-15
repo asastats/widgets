@@ -572,6 +572,21 @@ var QUOTE_TTL_MS = 30000;
 //: covers five minutes of reading; an abandoned modal then stops on its own.
 var QUOTE_AUTO_REFRESH_LIMIT = 10;
 
+//: ALGO's asset id. Only ALGO pays a group's fees and a minimum balance, so it
+//: is the one holding a percentage chip cannot offer in full.
+var ALGO_ASSET_ID = 0;
+
+//: microALGO held back for the group's own fees when picking a percentage of an
+//: ALGO holding. A router group is several transactions and a multi-hop route
+//: pools the fees of its inner ones too, so 0.03 covers roughly thirty of them
+//: -- comfortably more than any route we send. The quote reports the real
+//: figure as `feesTotal`, but the chips run before a quote exists.
+var SWAP_FEE_HEADROOM = 30000;
+
+//: What opting in to one more asset adds to an account's minimum balance. The
+//: opt-in notice in the panel quotes the same 0.1 ALGO to the user.
+var ASSET_OPTIN_MIN_BALANCE = 100000;
+
 /** Read non-secret router config from the shell root element. */
 function swapConfig(root) {
   return {
@@ -1255,6 +1270,46 @@ function sourceHoldingsBaseUnits(panel) {
   return BigInt(opt.dataset.amount || "0");
 }
 
+/**
+ * ALGO this swap needs the account to keep back, in base units.
+ *
+ * The engine already nets the minimum balance out of the ALGO holding --
+ * `utils.clients._address_assets` stores `amount - min-balance` at id 0 -- so
+ * what is left to hold back is what the swap itself costs:
+ *
+ *   * the group's transaction fees, and
+ *   * the 0.1 ALGO an opt-in to a target the account does not hold yet locks
+ *     up. That is an INCREASE to the minimum balance, and it does not exist
+ *     yet at the moment the engine measures one, so no server-side figure can
+ *     account for it. Only the panel knows what is about to be bought.
+ *
+ * The exact fee arrives with the quote (`feesTotal`), but the percentage chips
+ * run before there is one, so this is a deliberate round over-estimate. Being
+ * a few hundredths conservative costs the user nothing they will notice; being
+ * one fee short fails the whole group after they have signed it.
+ */
+function algoHeadroomBaseUnits(panel) {
+  var to = panel.querySelector(".id-swap-to");
+  var optingIn = !!(to && to.value && to.dataset.optedIn !== "1");
+  return (
+    BigInt(SWAP_FEE_HEADROOM) +
+    (optingIn ? BigInt(ASSET_OPTIN_MIN_BALANCE) : BigInt(0))
+  );
+}
+
+/**
+ * The most of `assetId` this swap could actually spend, given a `base` holding.
+ *
+ * Only ALGO pays the group's fees and the opt-in, so every other asset can be
+ * spent to the last base unit. Never returns a negative: an account whose ALGO
+ * is already below the headroom can spend none of it, not a negative amount.
+ */
+function spendableBaseUnits(panel, assetId, base) {
+  if (Number(assetId) !== ALGO_ASSET_ID) return base;
+  var spendable = base - algoHeadroomBaseUnits(panel);
+  return spendable > BigInt(0) ? spendable : BigInt(0);
+}
+
 /** Set the amount field to `pct`% of the selected source holding; returns it. */
 function setAmountFromPercent(panel, pct) {
   var sel = panel.querySelector(".id-swap-from");
@@ -1263,7 +1318,12 @@ function setAmountFromPercent(panel, pct) {
   if (!sel || !amountEl || base === null) return "";
   var opt = sel.options[sel.selectedIndex];
   var decimals = Number((opt && opt.dataset.decimals) || "0");
-  var value = applyPercent(base, decimals, pct);
+  // Cap rather than scale: 25/50/75 stay true fractions of what is held, and
+  // only the chip that would overshoot -- in practice Max -- is pulled down to
+  // what the swap can really spend.
+  var wanted = decimalToBaseUnits(applyPercent(base, decimals, pct), decimals);
+  var ceiling = spendableBaseUnits(panel, sel.value, base);
+  var value = baseUnitsToDecimal(wanted > ceiling ? ceiling : wanted, decimals);
   amountEl.value = value;
   return value;
 }
@@ -1338,6 +1398,7 @@ function retargetForMode(panel, mode) {
     toHidden.value = anchorId;
     toHidden.dataset.decimals = (anchorOpt && anchorOpt.dataset.decimals) || "0";
     toHidden.dataset.unit = (anchorOpt && anchorOpt.dataset.unit) || "";
+    toHidden.dataset.icon = (anchorOpt && anchorOpt.dataset.icon) || "";
     toHidden.dataset.optedIn = "1"; // the anchor is held, so already opted in
     panel.querySelector(".id-swap-optin-notice").style.display = "none";
     var anchorUnit = (anchorOpt && anchorOpt.dataset.unit) || "asset";
@@ -1367,6 +1428,7 @@ function retargetForMode(panel, mode) {
   toHidden.value = "";
   toHidden.dataset.decimals = "";
   toHidden.dataset.unit = "";
+  toHidden.dataset.icon = "";
   toHidden.dataset.optedIn = "";
   toSearch.value = "";
   toSearch.placeholder = "Search name, unit or asset ID";
@@ -2171,7 +2233,11 @@ if (typeof module !== "undefined" && module.exports) {
     markerCfg: markerCfg,
     applyPercent: applyPercent,
     sourceHoldingsBaseUnits: sourceHoldingsBaseUnits,
+    algoHeadroomBaseUnits: algoHeadroomBaseUnits,
+    spendableBaseUnits: spendableBaseUnits,
     setAmountFromPercent: setAmountFromPercent,
+    SWAP_FEE_HEADROOM: SWAP_FEE_HEADROOM,
+    ASSET_OPTIN_MIN_BALANCE: ASSET_OPTIN_MIN_BALANCE,
     applySwapMode: applySwapMode,
     inlineHoldingsUrl: inlineHoldingsUrl,
     toggleInlineSwap: toggleInlineSwap,

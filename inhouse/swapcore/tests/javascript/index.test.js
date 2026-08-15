@@ -3005,6 +3005,137 @@ describe("asset pills", () => {
   });
 });
 
+// The hidden target input carries the icon for the "to" pill, so every writer of
+// that input has to keep data-icon in step with data-unit. retargetForMode used
+// to move the unit and leave the icon, painting the previous asset's icon beside
+// the new asset's name the moment the Buy/Sell tab was clicked.
+describe("the target icon follows the target", () => {
+  test("switching to Buy repaints the icon with the anchor's, not the old target's", () => {
+    const panel = legPanel();
+    const row = optionEl(31566704, "USDC", 6);
+    row.dataset.icon = "/icons/31566704t.png";
+    F.selectTarget(panel, row, {});
+    expect(panel.querySelector(".id-swap-to-icon").getAttribute("src")).toBe(
+      "/icons/31566704t.png",
+    );
+
+    panel.dataset.anchorId = "0";
+    F.retargetForMode(panel, "buy");
+
+    const to = panel.querySelector(".id-swap-to");
+    expect(to.dataset.unit).toBe("ALGO");
+    expect(to.dataset.icon).toBe("/icons/0t.png");
+    expect(panel.querySelector(".id-swap-to-unit").textContent).toBe("ALGO");
+    expect(panel.querySelector(".id-swap-to-icon").getAttribute("src")).toBe(
+      "/icons/0t.png",
+    );
+  });
+  test("an anchor that is no longer held leaves no icon behind", () => {
+    const panel = legPanel();
+    const to = panel.querySelector(".id-swap-to");
+    to.dataset.icon = "/icons/31566704t.png";
+    panel.dataset.anchorId = "404404"; // not among the options
+    F.retargetForMode(panel, "buy");
+    expect(to.dataset.icon).toBe("");
+    expect(panel.querySelector(".id-swap-to-icon").getAttribute("src")).toBe(
+      "/icons/empty.png",
+    );
+  });
+  test("switching back to Sell clears the icon along with the rest of the target", () => {
+    const panel = legPanel();
+    const to = panel.querySelector(".id-swap-to");
+    to.value = "31566704";
+    to.dataset.unit = "USDC";
+    to.dataset.icon = "/icons/31566704t.png";
+    F.retargetForMode(panel, "sell");
+    expect(to.dataset.unit).toBe("");
+    expect(to.dataset.icon).toBe("");
+    expect(panel.querySelector(".id-swap-to-icon").getAttribute("src")).toBe(
+      "/icons/empty.png",
+    );
+  });
+  test("the Buy/Sell tab click repaints the pill end to end", () => {
+    const panel = legPanel();
+    const to = panel.querySelector(".id-swap-to");
+    to.value = "31566704";
+    to.dataset.unit = "USDC";
+    to.dataset.icon = "/icons/31566704t.png";
+    F.syncAssetButtons(panel);
+    F.wireSwapTabs();
+
+    document.querySelector('[data-swap-mode="buy"]').click();
+    expect(panel.querySelector(".id-swap-to-unit").textContent).toBe("ALGO");
+    expect(panel.querySelector(".id-swap-to-icon").getAttribute("src")).toBe(
+      "/icons/0t.png",
+    );
+
+    document.querySelector('[data-swap-mode="sell"]').click();
+    expect(panel.querySelector(".id-swap-to-icon").getAttribute("src")).toBe(
+      "/icons/empty.png",
+    );
+  });
+});
+
+// The engine hands the panel `amount - min-balance` for ALGO, so the figure is
+// already spendable in the min-balance sense. What it cannot know is what THIS
+// swap costs: the group's fees, and the 0.1 ALGO an opt-in to the chosen target
+// would add to the minimum balance after the fact.
+describe("ALGO headroom on the percentage chips", () => {
+  const FEES = F.SWAP_FEE_HEADROOM;
+  const OPTIN = F.ASSET_OPTIN_MIN_BALANCE;
+
+  test("nothing chosen to receive yet: fees only", () => {
+    expect(F.algoHeadroomBaseUnits(legPanel())).toBe(BigInt(FEES));
+  });
+  test("a target already held: fees only, no opt-in to pay for", () => {
+    const panel = legPanel();
+    setTarget(panel, 31566704, "USDC", 6, true);
+    expect(F.algoHeadroomBaseUnits(panel)).toBe(BigInt(FEES));
+  });
+  test("a target not held yet: fees plus the opt-in's 0.1 ALGO", () => {
+    const panel = legPanel();
+    setTarget(panel, 312769, "USDt", 6, false);
+    expect(F.algoHeadroomBaseUnits(panel)).toBe(BigInt(FEES + OPTIN));
+  });
+
+  test("only ALGO is charged the headroom", () => {
+    const panel = legPanel();
+    const held = BigInt(2500000);
+    expect(F.spendableBaseUnits(panel, 31566704, held)).toBe(held);
+    expect(F.spendableBaseUnits(panel, 0, held)).toBe(held - BigInt(FEES));
+  });
+  test("an ALGO holding under the headroom spends nothing, never a negative", () => {
+    const panel = legPanel();
+    expect(F.spendableBaseUnits(panel, 0, BigInt(FEES - 1))).toBe(BigInt(0));
+  });
+
+  test("Max on ALGO keeps the fees back", () => {
+    const panel = legPanel(); // 5 ALGO, and ALGO is the selected source
+    expect(F.setAmountFromPercent(panel, 100)).toBe("4.97");
+  });
+  test("Max on ALGO into an asset not held keeps the opt-in back too", () => {
+    const panel = legPanel();
+    setTarget(panel, 312769, "USDt", 6, false);
+    expect(F.setAmountFromPercent(panel, 100)).toBe("4.87");
+  });
+  test("the smaller chips are true fractions, not scaled down", () => {
+    const panel = legPanel();
+    expect(F.setAmountFromPercent(panel, 50)).toBe("2.5");
+    expect(F.setAmountFromPercent(panel, 25)).toBe("1.25");
+  });
+  test("Max on a non-ALGO source still offers the whole holding", () => {
+    const panel = legPanel();
+    panel.querySelector(".id-swap-from").value = "31566704";
+    expect(F.setAmountFromPercent(panel, 100)).toBe("2.5");
+  });
+  test("an ALGO holding smaller than the headroom offers zero", () => {
+    const panel = legPanel({
+      holdings: [{ id: 0, unit: "ALGO", decimals: 6, amount: 10000, name: "Algorand" }],
+    });
+    expect(F.setAmountFromPercent(panel, 100)).toBe("0");
+  });
+});
+
 describe("the source picker", () => {
   test("lists holdings from the select, marking the current one", () => {
     const panel = legPanel();

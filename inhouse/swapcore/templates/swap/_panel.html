@@ -32,7 +32,12 @@
           <span class="id-swap-from-label-sell">You pay</span>
           <span class="id-swap-from-label-buy">You pay (estimated)</span>
         </span>
-        <span class="swap-leg-bal">Balance <b class="swap-num id-swap-from-max"></b></span>
+        {# "Available", not "Balance": the engine nets the minimum balance out  #}
+        {# of the ALGO holding (utils.clients._address_assets stores            #}
+        {# `amount - min-balance` at id 0), so this figure is smaller than the  #}
+        {# ALGO balance the rest of the page shows, and saying "Balance" made   #}
+        {# that look like a discrepancy rather than the point.                  #}
+        <span class="swap-leg-bal">Available <b class="swap-num id-swap-from-max"></b></span>
       </div>
       <div class="swap-leg-main">
         <div class="swap-amt-slot id-swap-slot-pay">
