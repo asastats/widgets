@@ -14,18 +14,20 @@
      data-explorer-base="{% explorer_base %}"
      data-explorer-tx-path="{% explorer_tx_path %}">
 
-  <h1 class="center-align">Swap</h1>
+  <h1 class="swap-page-title">Swap</h1>
 
   {% if linked_addresses %}
-  <ul class="collapsible" id="id-swap-addresses">
+  {# Native <details> per address: no framework component to initialise, and #}
+  {# swap.js loads the panel on the first `toggle` that opens one.           #}
+  <ul class="swap-addresses" id="id-swap-addresses">
     {% for address in linked_addresses %}
     <li data-address="{{ address }}">
-      <div class="collapsible-header">{{ address|short_address }}</div>
-      <div class="collapsible-body">
+      <details class="swap-address">
+        <summary>{{ address|short_address }}</summary>
         {# Holdings panel is lazy-loaded on first open; swap.js triggers the load. #}
         <div class="id-swap-panel" id="id-swap-panel-{{ forloop.counter }}"
              data-holdings-url="{% url 'swap_holdings' address %}"></div>
-      </div>
+      </details>
     </li>
     {% endfor %}
   </ul>

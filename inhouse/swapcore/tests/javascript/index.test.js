@@ -1618,7 +1618,7 @@ describe("swap success + dirty helpers", () => {
 
   test("markSwapDirty: sets folksDirty on the enclosing modal", () => {
     const modal = document.createElement("div");
-    modal.className = "modal";
+    modal.className = "swap-modal";
     const panel = document.createElement("div");
     modal.appendChild(panel);
     expect(F.markSwapDirty(panel)).toBe(true);
@@ -2728,8 +2728,8 @@ function legPanel(options = {}) {
     )
     .join("");
   document.body.innerHTML = `
-    <div id="swap-modal" class="modal swap-modal">
-      <div class="modal-content swap-shell">
+    <dialog id="swap-modal" class="swap-modal">
+      <div class="swap-shell">
         <button class="id-swap-slip-toggle" aria-expanded="false"></button>
         <span class="id-swap-slip-value"></span>
         <div id="swap-slippage-pop" hidden>
@@ -3133,6 +3133,38 @@ describe("ALGO headroom on the percentage chips", () => {
       holdings: [{ id: 0, unit: "ALGO", decimals: 6, amount: 10000, name: "Algorand" }],
     });
     expect(F.setAmountFromPercent(panel, 100)).toBe("0");
+  });
+});
+
+// jsdom ships no <dialog> implementation -- `showModal` and `close` are both
+// undefined -- so the guards in closeSwapModal are load-bearing rather than
+// defensive, and the closing path is exercised against a stub.
+describe("closeSwapModal (the native dialog)", () => {
+  test("reports there was no dialog to close", () => {
+    document.body.innerHTML = "";
+    expect(F.closeSwapModal()).toBe(false);
+  });
+  test("leaves a browser without <dialog> support alone", () => {
+    document.body.innerHTML = '<dialog id="swap-modal"></dialog>';
+    const modal = document.getElementById("swap-modal");
+    expect(modal.close).toBeUndefined(); // the condition this guards
+    expect(F.closeSwapModal()).toBe(true);
+  });
+  test("does not close a dialog that is not open", () => {
+    document.body.innerHTML = '<dialog id="swap-modal"></dialog>';
+    const modal = document.getElementById("swap-modal");
+    modal.close = jest.fn();
+    modal.open = false;
+    F.closeSwapModal();
+    expect(modal.close).not.toHaveBeenCalled();
+  });
+  test("closes an open dialog", () => {
+    document.body.innerHTML = '<dialog id="swap-modal"></dialog>';
+    const modal = document.getElementById("swap-modal");
+    modal.close = jest.fn();
+    modal.open = true;
+    expect(F.closeSwapModal()).toBe(true);
+    expect(modal.close).toHaveBeenCalledTimes(1);
   });
 });
 

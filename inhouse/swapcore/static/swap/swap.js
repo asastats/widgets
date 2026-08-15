@@ -1054,7 +1054,7 @@ function renderQuote(panel, q) {
 
 /** Name the breadth of the search in the modal footer, from the quote itself. */
 function renderVenueCount(panel, q) {
-  var modal = panel.closest && panel.closest(".modal");
+  var modal = panel.closest && panel.closest(".swap-modal");
   var el = modal && modal.querySelector(".id-swap-venues");
   if (!el) return;
   var count = (q && q.routeParts && q.routeParts.length) || 0;
@@ -1367,7 +1367,7 @@ function positionAmountField(formEl, buy) {
 function markModeControls(formEl, mode) {
   // closest() yields an Element or null, and the document stands in for null,
   // so the host always has querySelectorAll -- no guard needed.
-  var host = (formEl.closest && formEl.closest(".modal")) || document;
+  var host = (formEl.closest && formEl.closest(".swap-modal")) || document;
   Array.prototype.forEach.call(
     host.querySelectorAll("[data-swap-mode]"),
     function (tab) {
@@ -1497,7 +1497,7 @@ function renderSwapSuccess(panel, txid) {
  * found (no-op on the shell accordion, which has no modal).
  */
 function markSwapDirty(panel) {
-  var modal = panel.closest && panel.closest(".modal");
+  var modal = panel.closest && panel.closest(".swap-modal");
   if (modal) modal.dataset.swapDirty = "1";
   return !!modal;
 }
@@ -1823,7 +1823,7 @@ function bindPanel(panelEl, ctx) {
   delete panelEl.dataset.anchorId;
   updateSourceMax(panelEl);
   // A freshly loaded panel adopts the tolerance already showing in the header.
-  var modal = panelEl.closest && panelEl.closest(".modal");
+  var modal = panelEl.closest && panelEl.closest(".swap-modal");
   if (modal) applySlippage(modal, modal.dataset.slippage || "0.5", true);
   syncAssetButtons(panelEl);
   // The panel starts in Sell, so seat the amount field in the leg it belongs to.
@@ -1914,12 +1914,15 @@ function loadPanel(panelEl, ctx) {
 /* istanbul ignore next -- per-section wiring */
 function wireSection(li, adapter, cfg, active) {
   var address = li.dataset.address;
-  var header = li.querySelector(".collapsible-header");
+  // Native <details> rather than a framework accordion: `toggle` fires only on
+  // a real state change, so this loads once, on the first open, without the
+  // click handler having to work out whether the section is opening or closing.
+  var section = li.querySelector("details");
   var panelEl = li.querySelector(".id-swap-panel");
-  if (!header || !panelEl) return;
+  if (!section || !panelEl) return;
   var loaded = false;
-  header.addEventListener("click", function () {
-    if (loaded) return;
+  section.addEventListener("toggle", function () {
+    if (loaded || !section.open) return;
     loaded = true;
     loadPanel(panelEl, {
       adapter: adapter,
@@ -1970,14 +1973,21 @@ function handleInlineSwapClick(ev) {
   });
 }
 
+/** Dismiss the swap dialog, if one is open. */
+function closeSwapModal() {
+  var modal = document.getElementById("swap-modal");
+  if (modal && modal.close && modal.open) modal.close();
+  return !!modal;
+}
+
 /* istanbul ignore next -- DOM/modal glue; the quote + percent + mode logic is unit-tested */
 function openSwapModal(fromAsset) {
   var modal = document.getElementById("swap-modal");
   var marker = document.getElementById("id-swap-enabled");
   if (!modal) return;
-  if (window.M && window.M.Modal) {
-    (window.M.Modal.getInstance(modal) || window.M.Modal.init(modal)).open();
-  }
+  // showModal() gives the top layer, the backdrop and a focus trap for free.
+  // Guarded because jsdom only grew <dialog> support recently.
+  if (modal.showModal && !modal.open) modal.showModal();
   var cfg = markerCfg(marker);
   var address = marker ? marker.dataset.address || "" : "";
   var panelEl = modal.querySelector(".id-swap-panel");
@@ -2093,19 +2103,19 @@ function startSwap() {
   // time, so this needs neither the bridge nor htmx swap timing to be ready.
   document.addEventListener("click", handleSwapModalClick);
   var modal = document.getElementById("swap-modal");
-  if (modal && window.M) {
-    var modalInst = window.M.Modal ? window.M.Modal.init(modal) : null;
-    if (modalInst) {
-      // After a successful swap the viewed holdings are stale; refresh the
-      // parent page when the user closes the modal -- but only if a swap
-      // actually marked it dirty, so a look-and-cancel never reloads.
-      modalInst.options.onCloseEnd = function () {
-        if (modal.dataset.swapDirty === "1") window.location.reload();
-      };
-    }
-    // The mode control is a plain segmented control now, not Materialize tabs,
-    // so the zero-width-indicator workaround that tabs initialised inside a
-    // display:none modal needed is gone with them.
+  if (modal) {
+    // A native <dialog>: the browser owns opening, the backdrop, focus capture
+    // and Escape, so there is no framework component to initialise here.
+    modal.addEventListener("click", function (ev) {
+      if (ev.target.closest && ev.target.closest(".id-swap-close")) closeSwapModal();
+    });
+    // After a successful swap the viewed holdings are stale; refresh the parent
+    // page when the user closes the modal -- but only if a swap actually marked
+    // it dirty, so a look-and-cancel never reloads. `close` fires however the
+    // dialog was dismissed, Escape included, which the old handler missed.
+    modal.addEventListener("close", function () {
+      if (modal.dataset.swapDirty === "1") window.location.reload();
+    });
   }
   wireSwapTabs();
   wireSlippage();
@@ -2244,6 +2254,7 @@ if (typeof module !== "undefined" && module.exports) {
     bindPanel: bindPanel,
     loadPanel: loadPanel,
     handleInlineSwapClick: handleInlineSwapClick,
+    closeSwapModal: closeSwapModal,
     openSwapModal: openSwapModal,
     autoOpenFromQuery: autoOpenFromQuery,
     whenSwapReady: whenSwapReady,

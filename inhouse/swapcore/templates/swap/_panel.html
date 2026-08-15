@@ -44,7 +44,7 @@
           <input type="text" class="id-swap-amount swap-amt swap-num" inputmode="decimal"
                  placeholder="0.0" aria-label="Amount">
         </div>
-        <select class="browser-default id-swap-from swap-offscreen" aria-label="Asset to pay with">
+        <select class="id-swap-from swap-offscreen" aria-label="Asset to pay with">
           {% for asset in holdings %}{% if asset.amount > 0 %}
           <option value="{{ asset.id }}"
                   data-decimals="{{ asset.decimals }}"
@@ -135,7 +135,7 @@
     <button class="swap-cta id-swap-swap-btn" type="button" disabled>Swap</button>
   </div>
 
-  {# Overlays the whole modal card: .modal-content is the positioned ancestor. #}
+  {# Overlays the whole modal card: .swap-shell is the positioned ancestor. #}
   <div class="swap-picker id-swap-picker" hidden>
     <div class="swap-picker-head">
       <h3 class="swap-picker-title id-swap-picker-title">Select a token</h3>

@@ -10,8 +10,8 @@
 {# the hidden .id-swap-slippage input inside the panel, which swap.js keeps in   #}
 {# sync. Keeping the source of truth inside .id-swap-panel is what lets          #}
 {# readQuoteParams stay a single panel-scoped query.                             #}
-<div id="swap-modal" class="modal swap-modal">
-  <div class="modal-content swap-shell">
+<dialog id="swap-modal" class="swap-modal">
+  <div class="swap-shell">
 
     <div class="swap-head">
       <h2 class="swap-title">Swap</h2>
@@ -29,10 +29,11 @@
         <span class="swap-num id-swap-slip-value">0.5%</span>
       </button>
 
-      <a href="#!" class="swap-iconbtn swap-iconbtn-plain modal-close" aria-label="Close swap">
+      <button type="button" class="swap-iconbtn swap-iconbtn-plain id-swap-close"
+              aria-label="Close swap">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
              stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
-      </a>
+      </button>
     </div>
 
     <div class="swap-slip" id="swap-slippage-pop" hidden>
@@ -62,4 +63,4 @@
       <a href="{% url 'profile_settings' %}">Change default router</a>
     </div>
   </div>
-</div>
+</dialog>
