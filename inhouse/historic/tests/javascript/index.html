@@ -1,4 +1,14 @@
 <!DOCTYPE html>
+<!--
+  DOM fixture for the historic widget's jest suite. Captured page markup, not
+  hand-written: when the widget's templates change shape, re-capture rather
+  than editing here.
+
+  Carries the widget's own semantic hooks -- `.historic-tabs` with `role=tab`,
+  `.historic-tab-panel` toggled by `hidden`, `.fitem`, `.item-header`,
+  `.item-body` -- and no framework classes. The widget templates name no
+  framework, so neither does this.
+-->
 <html lang="en">
 <head>
     <meta charset="utf-8">
@@ -8,8 +18,7 @@
     <meta name="keywords" content="asastats,Algorand,ASA,token,portfolio,coin,evaluate,calculate,value,price,NFT,API,balance,account,address,amount">
     <meta name="format-detection" content="telephone=no">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Oswald|Nunito">
-    <link href="/static/css/materialize.min002.css" type="text/css" rel="stylesheet" media="screen">
-    <link href="/static/css/style.min037.css" type="text/css" rel="stylesheet" media="screen">
+        <link href="/static/css/style.tw.css" type="text/css" rel="stylesheet" media="screen">
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
@@ -59,24 +68,22 @@
   <div class="container">
     
 <div hx-ext="ws" ws-connect="/widgets/historic/540A5D8CEC896E073F9170AF0A962503E69147CF/">
-  <h1 class="center-align">Historic data</h1>
+  <h1>Historic data</h1>
 
   <div class="row">
-    <div class="col s12">
-      <ul class="tabs">
-        <li class="tab col s3"><a href="#tbars">Bars</a></li>
-        <li class="tab col s3"><a href="#tcandles">Candles</a></li>
-        <li class="tab col s3"><a class="active" href="#tupdate">Update</a></li>
-        <li class="tab col s3"><a href="#tsettings">Settings</a></li>
-      </ul>
+    <div class="historic-tabs" role="tablist">
+      <a role="tab" aria-selected="false" href="#tbars">Bars</a>
+      <a role="tab" aria-selected="false" href="#tcandles">Candles</a>
+      <a role="tab" aria-selected="true" href="#tupdate">Update</a>
+      <a role="tab" aria-selected="false" href="#tsettings">Settings</a>
     </div>
-    <div id="tbars" class="col s12 canvas">
+    <div id="tbars" class="historic-tab-panel canvas" hidden>
       <canvas id="id-bars" width="500" height="250"></canvas>
     </div>
-    <div id="tcandles" class="col s12 canvas">
+    <div id="tcandles" class="historic-tab-panel canvas" hidden>
       <canvas id="id-candles" width="500" height="250"></canvas>
     </div>
-    <div id="tupdate" class="col s12">
+    <div id="tupdate" class="historic-tab-panel">
       <form id="id-process" ws-send data-bundle=540A5D8CEC896E073F9170AF0A962503E69147CF data-addresses="2EVGZ4BGOSL3J64UYDE2BUGTNTBZZZLI54VUQQNZZLYCDODLY33UGXNSIU VW55KZ3NF4GDOWI7IPWLGZDFWNXWKSRD5PETRLDABZVU5XPKRJJRK3CBSU" data-total=1863.548841 data-timestamp=1746482776>
         <div class="row flex-stack">
           <div class="col s12 center-align">
@@ -91,7 +98,7 @@
         </div>
       </form>
     </div>
-    <div id="tsettings" class="col s12">settings</div>
+    <div id="tsettings" class="historic-tab-panel" hidden>settings</div>
   </div>
 </div>
 
@@ -201,7 +208,6 @@
 </div>
 
 <script src="/static/historic/jquery-2.2.4.min.js"></script>
-<script src="/static/historic/materialize.min.js"></script>
 <script src="/static/historic/site.min007.js"></script>
 
 <script src="/static/historic/htmx.min.js"></script>

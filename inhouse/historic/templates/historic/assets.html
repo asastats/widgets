@@ -23,10 +23,10 @@
 {% endpartialdef asainfo %}
 
 {% partialdef asaprogram %}
-<div class="col s12 asa">
-  <div class="col s6 push-s6 m5 push-m7 right-align asar">
+<div class="asa">
+  <div class="asar">
     {% if program.value.0 == "-" %}
-      (<span class="myred-text val" data-val="{{ program.value }}">{{ program.value|floatformat:'2g' }} ALGO</span>) <br />
+      (<span class="negative val" data-val="{{ program.value }}">{{ program.value|floatformat:'2g' }} ALGO</span>) <br />
     {% else %}
       {% if item.info.id == 0 and program.type == "Balance" %}
         <span class="balance">{{ program.type }}</span>: <span class="val" data-val="{{ program.value }}">{{ program.value|floatformat:'2g' }} ALGO</span> <br />
@@ -47,8 +47,8 @@
 {% endpartialdef asaprogram %}
 
 {% partialdef notevalasaprogram %}
-<div class="col s12 asa">
-  <div class="col s6 push-s6 m5 push-m7 right-align asar">
+<div class="asa">
+  <div class="asar">
     {% if program.source and program.source.1 %}
     <a href="{{ program.source.1 }}" target="_blank" title="Go to {{ program.source.0 }} page">{{ program.source.0 }}</a> <br />
     {% elif program.source %}
@@ -63,15 +63,15 @@
 
 {% comment %} NFT {% endcomment %}
 {% partialdef nftheader %}
-<div class="nftleft col s6">
+<div class="nftleft">
   <span>&nbsp;{{ item.header.amount }}&nbsp;from&nbsp;</span><span class="unit">{{ item.header.label|escape }}</span>&nbsp;&nbsp;
 </div>
-<div class="nftmid col s12 center-align">
+<div class="nftmid">
   {% for elem in item.body %}
     <img id="t{{ elem.asset.id }}" src="{{ base_cdn_url }}{{ elem.asset.tpath }}" alt="{{ elem.asset.name }} thumbnail" class="nfticon" data-path="{{ base_cdn_url }}{{ elem.asset.path }}" data-fallback="{{ base_cdn_url }}/thumbnails/nftt.png" />
   {% endfor %}
 </div>
-<div class="nftright col s6 right-align">
+<div class="nftright">
   <small><sub>BETA</sub></small>&nbsp;<span class="val" data-val="{{ item.header.total }}">{{ item.header.total|floatformat:'2g' }} ALGO</span>
 </div>
 {% endpartialdef nftheader %}
@@ -91,10 +91,10 @@
 {% partialdef nftextrainfo %}
 {% if nft.asset.attrs %}
   {% autoescape on %}
-  <div class="col s12 l7 left-align">
+  <div class="nft-traits">
     <br />
     {% for key, val in nft.asset.attrs %}
-      <div class="col s6 left-align truncate">
+      <div class="nft-trait truncate">
         <span><strong>{{ key }}</strong></span>:&nbsp;<span>{{ val }}</span><br />
       </div>
     {% endfor %}
@@ -102,15 +102,15 @@
   {% endautoescape %}
 {% endif %}
 {% for url in nft.asset.urls %}
-  <div class="col s12 l7 left-align">
-    <div class="col s12 left-align">
+  <div class="nft-urls">
+    <div>
       <span class="truncate">{{ url.0 }}: <a href="{% if not url.1|slice:':4' in 'http,ipfs' %}https://{% endif %}{{ url.1 }}" target="_blank" title="Visit additional NFT's URL">{{ url.1 }}</a></span>
     </div>
   </div>
 {% endfor %}
 {% if nft.asset.desc %}
-  <div class="col s12 left-align">
-    <div class="col s12 left-align">
+  <div class="nft-description">
+    <div>
       <span>Description: {% autoescape on %}{{ nft.asset.desc }}{% endautoescape %}</span> <br />
     </div>
   </div>
@@ -129,79 +129,75 @@
 {% endpartialdef nftimage %}
 
 {% partialdef nftelement %}
-<li id="{{ nft.asset.id }}" class="collection-item fitem">
-  <div class="col s12">
-    <div class="col s6 l3 left-align push-l5">
+<div id="{{ nft.asset.id }}" class="fitem nft-element">
+  <div class="nft-element-grid">
+    <div class="nft-element-info">
       {% partial nftinfo %}
     </div>
-    <div class="col s6 l4 right-align push-l5">
-      {% partial nftprogram %}
-    </div>
-    <div class="col s8 offset-s2 l5 pull-l7 center-align">
+    <div class="nft-element-image">
       {% partial nftimage %}
     </div>
-    {% partial nftextrainfo %}
+    <div class="nft-element-program">
+      {% partial nftprogram %}
+    </div>
   </div>
-</li>
+  {% partial nftextrainfo %}
+</div>
 {% endpartialdef nftelement %}
 
 {% comment %} ---- PER-ITEM PARTIALS (one <li>; used by the streamed batches) ---- {% endcomment %}
 {% partialdef asaitem %}
-<li id="f{{ item.info.id }}" class="fitem">
-  <div class="collapsible-header token">
+<details id="f{{ item.info.id }}" class="fitem">
+  <summary class="item-header token">
     {% partial asaheader %}
+  </summary>
+  <div class="item-body">
+    <div id="{{ item.info.id }}" class="fitem item-columns">
+      <div class="asal">
+        {% partial asainfo %}
+      </div>
+      <div class="asar">
+        {% for program in item.body %}
+          {% partial asaprogram %}
+        {% endfor %}
+      </div>
+    </div>
   </div>
-  <div class="collapsible-body">
-    <ul class="collection">
-      <li id="{{ item.info.id }}" class="collection-item fitem">
-        <div class="col s12 m9 push-m3 right-align asar">
-          {% for program in item.body %}
-            {% partial asaprogram %}
-          {% endfor %}
-        </div>
-        <div class="col s12 m3 pull-m9 left-align asal">
-          {% partial asainfo %}
-        </div>
-      </li>
-    </ul>
-  </div>
-</li>
+</details>
 {% endpartialdef asaitem %}
 
 {% partialdef nftitem %}
-<li id="f{{ item.info|slugify }}" class="fitem">
-  <div class="collapsible-header nft">
+<details id="f{{ item.info|slugify }}" class="fitem">
+  <summary class="item-header nft">
     {% partial nftheader %}
+  </summary>
+  <div class="item-body">
+    {% for nft in item.body %}
+      {% partial nftelement %}
+    {% endfor %}
   </div>
-  <div class="collapsible-body">
-    <ul class="collection">
-      {% for nft in item.body %}
-        {% partial nftelement %}
-      {% endfor %}
-    </ul>
-  </div>
-</li>
+</details>
 {% endpartialdef nftitem %}
 
 {% partialdef notevalitem %}
-<li id="{{ item.info.id }}" class="collection-item fitem">
-  <div class="col s12 m9 push-m3 right-align asar">
+<div id="{{ item.info.id }}" class="fitem item-columns">
+  <div class="asal">
+    {% partial asainfo %}
+  </div>
+  <div class="asar">
     {% for program in item.body %}
       {% partial notevalasaprogram %}
     {% endfor %}
   </div>
-  <div class="col s12 m3 pull-m9 left-align asal">
-    {% partial asainfo %}
-  </div>
-</li>
+</div>
 {% endpartialdef notevalitem %}
 
 {% comment %} ---- STREAMED SECTION BATCHES (OOB append into the scaffold lists) ---- {% endcomment %}
-{% partialdef asa_batch %}{% autoescape off %}<ul id="id-asa-list" hx-swap-oob="beforeend">{% for item in items %}{% if item.body %}{% partial asaitem %}{% endif %}{% endfor %}</ul>{% endautoescape %}{% endpartialdef asa_batch %}
+{% partialdef asa_batch %}{% autoescape off %}<div id="id-asa-list" hx-swap-oob="beforeend">{% for item in items %}{% if item.body %}{% partial asaitem %}{% endif %}{% endfor %}</div>{% endautoescape %}{% endpartialdef asa_batch %}
 
-{% partialdef nft_batch %}{% autoescape off %}<ul id="id-nft-list" hx-swap-oob="beforeend">{% for item in items %}{% partial nftitem %}{% endfor %}</ul>{% endautoescape %}{% endpartialdef nft_batch %}
+{% partialdef nft_batch %}{% autoescape off %}<div id="id-nft-list" hx-swap-oob="beforeend">{% for item in items %}{% partial nftitem %}{% endfor %}</div>{% endautoescape %}{% endpartialdef nft_batch %}
 
-{% partialdef noteval_batch %}{% autoescape off %}<ul id="id-noteval-list" hx-swap-oob="beforeend">{% for item in items %}{% partial notevalitem %}{% endfor %}</ul>{% endautoescape %}{% endpartialdef noteval_batch %}
+{% partialdef noteval_batch %}{% autoescape off %}<div id="id-noteval-list" hx-swap-oob="beforeend">{% for item in items %}{% partial notevalitem %}{% endfor %}</div>{% endautoescape %}{% endpartialdef noteval_batch %}
 
 {% comment %} ---- SCAFFOLD (replaces #id-assets; carries charts + empty section lists) ---- {% endcomment %}
 {% partialdef scaffold %}{% autoescape off %}
@@ -209,97 +205,91 @@
 
   {{ asachart|json_script:"asachart" }}{{ nftchart|json_script:"nftchart" }}{{ ratiochart|json_script:"ratiochart" }}{{ distchart|json_script:"distchart" }}{{ consolidated|json_script:"consolidated" }}
 
-  <div class="divider col s12"></div>
-  <div class="col s12 center-align"><br><span>{{ date }}</span></div>
+  <div class="historic-divider"></div>
+  <div class="historic-date"><span>{{ date }}</span></div>
 
-  <h2 class="center-align pricetip" data-price={{ data.total.priceusdc }} data-pricealgo={{ data.total.pricealgo }} data-total={{ data.total.totalusdc }} data-totalwnft={{ data.total.total }} data-totalnft={{ data.total.nft }} data-tooltip='{{ data.total.totalusdc|floatformat:"2g" }} USD ({{ data.total.pricealgo|floatformat:"2g" }} USD/ALGO)'>{{ data.total.total|floatformat:"2g" }} ALGO</h2>
+  <h2 class="pricetip tooltip" data-price={{ data.total.priceusdc }} data-pricealgo={{ data.total.pricealgo }} data-total={{ data.total.totalusdc }} data-totalwnft={{ data.total.total }} data-totalnft={{ data.total.nft }} data-tooltip='{{ data.total.totalusdc|floatformat:"2g" }} USD ({{ data.total.pricealgo|floatformat:"2g" }} USD/ALGO)'>{{ data.total.total|floatformat:"2g" }} ALGO</h2>
 
-  <div class="col s12 consolidated">
-    <ul id="id-cons" class="collapsible consolidated">
-      <li id="li-cons" class="active consolidated">
-        <div id="id-cons-header" class="collapsible-header consolidated" data-balance={{ consolidated.balance }} data-staked={{ consolidated.staked }} data-liquidity={{ consolidated.liquidity }} data-defi={{ consolidated.defi }}>
-          <div class="col s12 center-align">
-            <div class="col s6 m4 xl2 offset-xl1 cons">
+  <div class="consolidated">
+    <details id="id-cons" open>
+        <summary id="id-cons-header" class="item-header consolidated" data-balance={{ consolidated.balance }} data-staked={{ consolidated.staked }} data-liquidity={{ consolidated.liquidity }} data-defi={{ consolidated.defi }}>
+          <div class="cons-grid">
+            <div class="cons">
               <span class="cons-text">Balance</span><br>
               <span class="cons-value val" data-val="{{ consolidated.balance }}">{{ consolidated.balance|floatformat:"2g" }} ALGO</span>
             </div>
-            <div class="col s6 m4 xl2 cons">
+            <div class="cons">
               <span class="cons-text">Staked</span><br>
               <span class="cons-value val" data-val="{{ consolidated.staked }}">{{ consolidated.staked|floatformat:"2g" }} ALGO</span>
             </div>
-            <div class="col s6 m4 xl2 cons">
+            <div class="cons">
               <span class="cons-text">Liquidity</span><br>
               <span class="cons-value val" data-val="{{ consolidated.liquidity }}">{{ consolidated.liquidity|floatformat:"2g" }} ALGO</span>
             </div>
-            <div class="col s6 m4 xl2 cons">
+            <div class="cons">
               <span class="cons-text">DeFi</span><br>
               <span class="cons-value val" data-val="{{ consolidated.defi }}">{{ consolidated.defi|floatformat:"2g" }} ALGO</span>
             </div>
-            <div class="col s6 m4 xl2 cons">
+            <div class="cons">
               <span class="cons-text">NFT</span><br>
               <span class="cons-value val" data-val="{{ data.total.nft }}">{{ data.total.nft|floatformat:"2g" }} ALGO</span>
             </div>
           </div>
-        </div>
-        <div id="id-cons-body" class="collapsible-body consolidated">
-          <div class="col s12 charts">
-            <div class="col s12 m6 xl5 offset-xl1 chart-container valign-wrapper">
-              <div id="id-legend-distchart" class="col s2 legend"></div>
-              <div class="col s10 canvas"><canvas id="id-distchart" width="500" height="{{ distchart|dist_height }}"></canvas></div>
+        </summary>
+        <div id="id-cons-body" class="item-body consolidated">
+          <div class="charts">
+            <div class="chart-container">
+              <div id="id-legend-distchart" class="legend"></div>
+              <div class="canvas"><canvas id="id-distchart" width="500" height="{{ distchart|dist_height }}"></canvas></div>
             </div>
-            <div id="id-chart-ratio" class="col s12 m6 xl5 offset-xl1 chart-container scale-transition valign-wrapper">
-              <div id="id-legend-ratiochart" class="col s3 legend"></div>
-              <div class="col s9 canvas"><canvas id="id-ratiochart" width="500" height="500"></canvas></div>
-            </div>
-          </div>
-          <div class="col s12 charts">
-            <div class="col s12 m6 xl5 offset-xl1 chart-container valign-wrapper">
-              <div id="id-legend-asachart" class="col s3 legend"></div>
-              <div class="col s9 canvas"><canvas id="id-asachart" width="500" height="500"></canvas></div>
-            </div>
-            <div id="id-chart-nft" class="col s12 m6 xl5 offset-xl1 chart-container scale-transition valign-wrapper">
-              <div id="id-legend-nftchart" class="col s3 legend"></div>
-              <div class="col s9 canvas"><canvas id="id-nftchart" width="500" height="500"></canvas></div>
+            <div id="id-chart-ratio" class="chart-container">
+              <div id="id-legend-ratiochart" class="legend"></div>
+              <div class="canvas"><canvas id="id-ratiochart" width="500" height="500"></canvas></div>
             </div>
           </div>
+          <div class="charts">
+            <div class="chart-container">
+              <div id="id-legend-asachart" class="legend"></div>
+              <div class="canvas"><canvas id="id-asachart" width="500" height="500"></canvas></div>
+            </div>
+            <div id="id-chart-nft" class="chart-container">
+              <div id="id-legend-nftchart" class="legend"></div>
+              <div class="canvas"><canvas id="id-nftchart" width="500" height="500"></canvas></div>
+            </div>
+          </div>
         </div>
-      </li>
-    </ul>
+    </details>
   </div>
 
-  <div class="col s12 center-align cons-expand">
+  <div class="cons-expand">
     <span>Click totals to show charts</span>
   </div>
 
-  <div class="col s12 valign-wrapper">
-    <div class="col s6 pull-s6 input-field filter">
-      <input placeholder="Filter" id="filter" type="text" class="validate">
+  <div class="historic-toolbar">
+    <div class="filter">
+      <input placeholder="Filter" id="filter" type="text">
     </div>
   </div>
 
   {% comment %} ASA — streamed into #id-asa-list {% endcomment %}
-  <div class="col s12">
-    <ul id="id-asa-list" class="collapsible"></ul>
-  </div>
+  <div id="id-asa-list" class="section-list"></div>
 
   {% comment %} NFT — streamed into #id-nft-list {% endcomment %}
   {% if data.nft %}
-  <div id="id-nft" class="col s12">
-    <ul id="id-nft-list" class="collapsible"></ul>
+  <div id="id-nft">
+    <div id="id-nft-list" class="section-list"></div>
   </div>
   {% endif %}
 
   {% comment %} NOT EVALUATED — streamed into #id-noteval-list {% endcomment %}
   {% if data.noteval %}
-  <div class="col s12">
-    <ul class="collapsible notevalsec">
-      <li>
-        <div class="collapsible-header">{{ data.noteval|length }} not evaluated</div>
-        <div class="collapsible-body">
-          <ul id="id-noteval-list" class="collection"></ul>
+  <div class="notevalsec section-list">
+      <details>
+        <summary class="item-header">{{ data.noteval|length }} not evaluated</summary>
+        <div class="item-body">
+          <div id="id-noteval-list"></div>
         </div>
-      </li>
-    </ul>
+      </details>
   </div>
   {% endif %}
 

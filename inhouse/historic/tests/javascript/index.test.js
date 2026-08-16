@@ -7,20 +7,11 @@ const html = fs.readFileSync(path.resolve(__dirname, "./index.html"), "utf8");
 const jquery = require("../../static/historic/jquery-2.2.4.min.js");
 window.$ = jquery;
 // Mock external plugins and globals
-$.prototype.tabs = jest.fn();
-$.prototype.collapsible = jest.fn();
-$.prototype.modal = jest.fn();
-$.prototype.tooltip = jest.fn();
 window.mainConsolidated = jest.fn();
 window.scrollToView = jest.fn(() => true);
 window.htmx = { trigger: jest.fn() };
 window.setTotalCharts = jest.fn();
 window.setTotalNoNft = jest.fn();
-window.M = {
-  Modal: {
-    getInstance: jest.fn(() => ({ open: jest.fn() })),
-  },
-};
 Object.assign(navigator, {
   clipboard: {
     writeText: jest.fn().mockImplementation(() => Promise.resolve()),
@@ -97,15 +88,23 @@ describe("SECTION: Initialization", function () {
     expect(events["htmx:wsAfterMessage"][0].handler.name).toBe(
       "messageReceived",
     );
-    expect($.prototype.tabs).toHaveBeenCalled();
-    expect($.prototype.collapsible).toHaveBeenCalled();
-    expect($.prototype.modal).toHaveBeenCalled();
+    // Nothing is constructed any more -- the disclosures are native
+    // <details> and the tabs are anchors. What mainHistoric still owns is the
+    // event wiring, so that is what is asserted.
+    expect($._data($("[role=tablist]")[0], "events").click).toBeDefined();
   });
   it("resetHistoric rebinds events and runs view setup", function () {
     document.body.innerHTML += '<div id="id-assets" data-label="ALGO"></div>';
     window.mainConsolidated.mockClear();
+    document.body.innerHTML +=
+      '<div class="switch"><input type="checkbox"></div>';
     historic.resetHistoric();
-    expect($.prototype.tooltip).toHaveBeenCalled();
+    // resetHistoric used to be asserted through `.tooltip()` having been
+    // called. The tooltips are CSS-only now, so the thing worth checking is
+    // that it still rebinds the controls in re-rendered markup -- which is
+    // why the function exists.
+    expect($._data($(".switch input[type=checkbox]")[0], "events").change)
+      .toBeDefined();
     expect(window.mainConsolidated).toHaveBeenCalled();
   });
 });
@@ -130,7 +129,7 @@ describe("SECTION: Websocket communication", () => {
     historic.messageReceived({
       detail: { message: JSON.stringify({ type: "show_update" }) },
     });
-    expect($.prototype.tabs).toHaveBeenCalledWith("select", "tupdate");
+    expect(document.getElementById("tupdate").hidden).toBe(false);
   });
   it("handles lock_interaction message", () => {
     // Ensure hidden inputs exist so submitView doesn't crash
@@ -156,7 +155,7 @@ describe("SECTION: Websocket communication", () => {
     expect(
       document.getElementById("id-bars").classList.contains("chart-blurred"),
     ).toBeFalsy();
-    expect($.prototype.tabs).toHaveBeenCalledWith("select", "tbars");
+    expect(document.getElementById("tbars").hidden).toBe(false);
   });
   it("handles lock_no_blur message", () => {
     historic.messageReceived({
@@ -199,7 +198,10 @@ describe("SECTION: Websocket communication", () => {
         detail: { message: JSON.stringify({ type: "something_else" }) },
       }),
     ).not.toThrow();
-    expect($.prototype.tabs).not.toHaveBeenCalled();
+    // No tab switch happened: the fixture opens on `tupdate`, so it is still
+    // the revealed panel and `tbars` is still hidden.
+    expect(document.getElementById("tupdate").hidden).toBe(false);
+    expect(document.getElementById("tbars").hidden).toBe(true);
   });
   it("falls back to resetHistoric on raw HTML (JSON parse error)", () => {
     window.mainConsolidated.mockClear();
@@ -274,7 +276,7 @@ describe("SECTION: Assets loading state", () => {
     const assets = document.getElementById("id-assets");
     expect(assets.getAttribute("aria-busy")).toBeNull();
     expect(assets.innerHTML).toBe("");
-    expect($.prototype.tabs).toHaveBeenCalledWith("select", "tupdate");
+    expect(document.getElementById("tupdate").hidden).toBe(false);
   });
   it("showAssetsError shows a retryable message", () => {
     historic.submitShow(3, "ALGO", null);
@@ -801,11 +803,11 @@ describe("SECTION: Helper functions", () => {
     expect(window.scrollToView).toHaveBeenCalled();
   });
   it("tabShow runs without crashing if charts are missing", () => {
-    expect(() => historic.tabShow({ id: "tbars" })).not.toThrow();
-    expect(() => historic.tabShow({ id: "tcandles" })).not.toThrow();
+    expect(() => historic.tabShow("tbars")).not.toThrow();
+    expect(() => historic.tabShow("tcandles")).not.toThrow();
   });
   it("tabShow does nothing for unrelated tab ids", () => {
-    expect(() => historic.tabShow({ id: "tsettings" })).not.toThrow();
+    expect(() => historic.tabShow("tsettings")).not.toThrow();
   });
   it("tabShow resizes existing charts", () => {
     // Force fresh creation so canvas.chart is attached by the mock
@@ -815,14 +817,46 @@ describe("SECTION: Helper functions", () => {
       xmin: 0,
       xmax: 100,
     });
-    // Bars tab
-    historic.tabShow({ id: "tbars" });
+    // Bars tab. tabShow takes the panel id now rather than the panel element
+    // Materialize handed it, and it reveals the panel as well as resizing --
+    // a chart built while its container was hidden has no measured size.
+    historic.tabShow("tbars");
     const barsCanvas = document.getElementById("id-bars");
     expect(barsCanvas.chart.resize).toHaveBeenCalled();
+    expect(document.getElementById("tbars").hidden).toBe(false);
     // Candles tab
-    historic.tabShow({ id: "tcandles" });
+    historic.tabShow("tcandles");
     const candlesCanvas = document.getElementById("id-candles");
     expect(candlesCanvas.chart.resize).toHaveBeenCalled();
+    expect(document.getElementById("tbars").hidden).toBe(true);
+  });
+
+  it("tabShow reports an unknown panel id instead of throwing", () => {
+    expect(historic.tabShow("nosuchpanel")).toBe(false);
+  });
+
+  it("a tab with no href is ignored rather than clearing every panel", () => {
+    // `.replace("#", "")` on a missing href would otherwise ask tabShow for
+    // the empty string, which matches no panel.
+    historic.mainHistoric();
+    document.querySelector('[role="tablist"]').insertAdjacentHTML(
+      "beforeend", '<a role="tab">Stray</a>'
+    );
+    var before = document.getElementById("tupdate").hidden;
+    $('[role="tab"]').last().trigger("click");
+    expect(document.getElementById("tupdate").hidden).toBe(before);
+  });
+
+  it("a tab click reveals the panel its href points at", () => {
+    // The whole chain: mainHistoric delegates from the tablist, tabClick
+    // reads the href, tabShow reveals the panel and marks the tab selected.
+    historic.mainHistoric();
+    $('[role="tab"][href="#tcandles"]').trigger("click");
+    expect(document.getElementById("tcandles").hidden).toBe(false);
+    expect(
+      $('[role="tab"][href="#tcandles"]').attr("aria-selected")
+    ).toBe("true");
+    expect($('[role="tab"][href="#tbars"]').attr("aria-selected")).toBe("false");
   });
   it("toggleTotalNoNft sets state and calls generic function", () => {
     document.body.innerHTML =
@@ -845,17 +879,29 @@ describe("SECTION: Helper functions", () => {
       <button id="id-reset"></button>
       <button id="id_confirm"></button>
       <p id="id_pconfirm"></p>
-      <div id="id_modalconfirm"></div>
+      <dialog id="id_modalconfirm"></dialog>
       <form id="id-reset-form"></form>
     `;
+    // jsdom implements <dialog> as an ordinary element: showModal is simply
+    // absent, so it has to be supplied. historic.js guards on its presence
+    // for exactly that reason.
+    var dialog = document.getElementById("id_modalconfirm");
+    dialog.showModal = jest.fn();
+    // Deliberately left without `showModal` on the second pass below: the
+    // widget host renders this partial on pages where <dialog> is
+    // unsupported, and reading through a missing method would throw inside
+    // the click handler.
     // Bind main events manually for testing
     historic.mainHistoric();
     // Mock the form submit function
     document.getElementById("id-reset").submit = jest.fn();
     // trigger resets
     $("#id-reset").trigger("click");
-    expect(window.M.Modal.getInstance).toHaveBeenCalled();
+    expect(dialog.showModal).toHaveBeenCalled();
     $("#id_confirm").trigger("click");
     expect(document.getElementById("id-reset").submit).toHaveBeenCalled();
+
+    delete dialog.showModal;
+    expect(function () { $("#id-reset").trigger("click"); }).not.toThrow();
   });
 });

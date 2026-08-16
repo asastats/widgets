@@ -47,9 +47,14 @@ window.onload = initHistoric;
  */
 function mainHistoric() {
   $(".indeterminate").parent().addClass("progress");
-  $(".collapsible").collapsible();
-  $(".modal").modal();
-  $(".tabs").tabs({ onShow: tabShow });
+  // Nothing to construct: the disclosures are native <details>, the
+  // confirmation is a native <dialog>, and the tabs follow the same shape as
+  // the login dialog's (static/js/authmodal.js) -- anchors carrying
+  // `aria-selected` over panels toggled with `hidden`. This used to call
+  // `.collapsible()`, `.modal()` and `.tabs()`, all Materialize, none of it
+  // loaded on this page any more; the first threw and abandoned jQuery's
+  // ready queue, taking every binding below it. The widget was inert.
+  $("[role=tablist]").on("click", "[role=tab]", tabClick);
   $("body").on("htmx:wsAfterMessage", messageReceived);
   $(".switch").find("input[type=checkbox]").on("change", toggleCurrency);
   $(".totalnonft").find("input[type=checkbox]").on("change", toggleTotalNoNft);
@@ -63,9 +68,9 @@ function mainHistoric() {
  *
  */
 function resetHistoric() {
-  $(".collapsible").collapsible();
-  $(".pricetip").tooltip();
-  $(".val").tooltip({ enterDelay: 800 });
+  // Same as mainHistoric: no accordion or tooltip widgets to construct. The
+  // tooltips are CSS-only (`data-tip`), so they work in re-rendered markup
+  // without being re-initialised -- which this function existed partly to do.
   $(".switch").find("input[type=checkbox]").on("change", toggleCurrency);
   $(".totalnonft").find("input[type=checkbox]").on("change", toggleTotalNoNft);
   $("#filter").on("keypress", filterChange);
@@ -716,9 +721,12 @@ function openModalConfirmReset(event) {
   $("#id_pconfirm").text(
     "Are you sure you want to delete all the existing data?",
   );
+  // snippets/modal_confirm.html is a native <dialog> now, so there is no
+  // M.Modal instance to fetch. The guard is for jsdom, which implements
+  // <dialog> as an ordinary element.
   var modal = document.querySelector("#id_modalconfirm");
-  var instance = M.Modal.getInstance(modal);
-  instance.open();
+  if (modal && modal.showModal)
+    modal.showModal();
 }
 
 /**
@@ -936,7 +944,7 @@ function populateCharts(chartsData) {
  *
  */
 function showBars() {
-  $(".tabs").tabs("select", "tbars");
+  selectTab("tbars");
 }
 
 /**
@@ -983,7 +991,7 @@ function showUpdate() {
   // and reveal the update tab.
   clearAssetsPending();
   $("#id-assets").removeAttr("aria-busy").empty();
-  $(".tabs").tabs("select", "tupdate");
+  selectTab("tupdate");
 }
 
 /**
@@ -1026,12 +1034,60 @@ function scrollToUnit(label) {
  * @param {object} tab tab list item link element
  *
  */
-function tabShow(tab) {
-  if (tab.id === "tbars" && typeof chartBars !== "undefined") {
+function tabShow(panelId) {
+  var panel = document.getElementById(panelId);
+  if (!panel) return false;
+
+  Array.prototype.forEach.call(
+    document.querySelectorAll(".historic-tab-panel"),
+    function (child) {
+      child.hidden = child !== panel;
+    }
+  );
+  Array.prototype.forEach.call(
+    document.querySelectorAll('[role="tab"]'),
+    function (link) {
+      link.setAttribute(
+        "aria-selected",
+        String(link.getAttribute("href") === "#" + panelId)
+      );
+    }
+  );
+
+  // Chart.js sizes a canvas to its container, and a container that was hidden
+  // when the chart was built has no size -- so a chart revealed by a tab
+  // switch has to be told to measure again.
+  if (panelId === "tbars" && typeof chartBars !== "undefined") {
     chartBars.resize();
-  } else if (tab.id === "tcandles" && typeof chartCandles !== "undefined") {
+  } else if (panelId === "tcandles" && typeof chartCandles !== "undefined") {
     chartCandles.resize();
   }
+  return true;
+}
+
+
+/**
+ * Reveal the panel a clicked tab points at.
+ * @function tabClick
+ *
+ * @param {jQuery} event Triggered click event object
+ *
+ */
+function tabClick(event) {
+  event.preventDefault();
+  tabShow((this.getAttribute("href") || "").replace("#", ""));
+}
+
+
+/**
+ * Select a tab by panel id, as the Materialize `tabs("select", id)` call did.
+ * @function selectTab
+ *
+ * @param {String} panelId id of the panel to reveal
+ *
+ */
+function selectTab(panelId) {
+  tabShow(panelId);
 }
 
 /**
