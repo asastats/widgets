@@ -157,9 +157,13 @@
 
 .charts { display: grid; gap: 1.5rem; }
 @media (min-width: 768px) { .charts { grid-template-columns: repeat(2, 1fr); } }
-.chart-container { display: flex; align-items: center; gap: 0.5rem; }
-.chart-container .legend { flex: 0 0 25%; font-size: 0.75rem; }
-.chart-container .canvas { flex: 1 1 auto; }
+/* `min-width: 0` is load-bearing: a flex item defaults to `min-width: auto`,
+   so a canvas carrying `width="500"` refuses to shrink below it and runs off
+   the side of a phone. */
+.chart-container { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.chart-container .legend { flex: 0 0 25%; min-width: 0; font-size: 0.75rem; }
+.chart-container .canvas { flex: 1 1 auto; min-width: 0; }
+.chart-container canvas { max-width: 100%; }
 
 .historic-divider {
   border-top: 1px solid var(--color-base-300, #ababab);
