@@ -50,7 +50,6 @@
       <canvas id="id-candles" width="500" height="250"></canvas>
     </div>
     <div id="tupdate" class="historic-tab-panel" hidden>
-      <br>
       <form id="id-process" ws-send data-bundle={{ bundle }} data-addresses="{{ addresses }}">
         <div class="toolbar">
           <div>
@@ -66,26 +65,32 @@
       </form>
     </div>
     <div id="tsettings" class="historic-tab-panel" hidden>
+      {% comment %}
+        Two notes, each a heading and its prose. They were `<blockquote>`s --
+        nothing quotes anything here -- separated by `<br>` tags, with the
+        reset form wedged in behind two more. A note is a section: a heading,
+        paragraphs, and its own action.
+      {% endcomment %}
       <div class="historic-settings-notes">
-        <blockquote>
+        <section class="historic-note">
           <h5>Candlestick chart</h5>
-          Click a candle with the left mouse button (tap on mobile) to retrieve data for timestamp related to <strong>low</strong> value.
-          Click a candle with the middle mouse button (long-press on mobile) to retrieve data for timestamp related to <strong>high</strong> value.
-          <br>
-          Hold CTRL while clicking to retrieve data for timestamp related to <strong>open</strong>, respectively <strong>close</strong> value.
-        </blockquote>
-        <br>
-        <blockquote>
+          <p>Click a candle with the left mouse button (tap on mobile) to retrieve data for timestamp related to <strong>low</strong> value.</p>
+          <p>Click a candle with the middle mouse button (long-press on mobile) to retrieve data for timestamp related to <strong>high</strong> value.</p>
+          <p>Hold CTRL while clicking to retrieve data for timestamp related to <strong>open</strong>, respectively <strong>close</strong> value.</p>
+        </section>
+
+        <section class="historic-note">
           <h5>This is a BETA software</h5>
-          Changes and bug fixes are deployed on a daily basis.
-          After you get confirmation that bugs which have affected your data have been fixed,
-          please click the button bellow to start from scratch.
-          <br><br>
+          <p>Changes and bug fixes are deployed on a daily basis.</p>
+          <p>
+            After you get confirmation that bugs which have affected your data
+            have been fixed, click below to start from scratch.
+          </p>
           <form id="id-reset" method="get" action="{% url 'historic_reset' bundle %}">
             {% csrf_token %}
-            <button type="submit" name="reset">Reset</button>
+            <button class="danger" type="submit" name="reset">Reset</button>
           </form>
-        </blockquote>
+        </section>
       </div>
       <div class="historic-settings-toggles">
         <div class="switch toolbar">
