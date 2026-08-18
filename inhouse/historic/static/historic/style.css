@@ -70,15 +70,35 @@
    squeezing it, which is what the old design did. The row takes the height of
    whichever cell is tallest, so a collection with sixty thumbnails still gets
    the room to wrap them. */
+.item-header.token,
 .item-header.nft {
   display: grid;
   align-items: center;
 }
 
-.item-header.nft > .nftleft,
-.item-header.nft > .nftmid,
-.item-header.nft > .nftright {
+.item-header.token > *,
+.item-header.nft > * {
   grid-area: 1 / 1;
+}
+
+/* The ASA header's parts, which carry different names to the NFT one's. */
+.item-header.token > span:first-child {
+  justify-self: start;
+  max-width: 45%;
+  min-width: 0;
+}
+
+.icondiv {
+  justify-self: center;
+  position: relative;
+  z-index: 1;
+}
+
+.item-header .right {
+  justify-self: end;
+  max-width: 45%;
+  min-width: 0;
+  text-align: right;
 }
 
 .nftleft {
@@ -212,15 +232,73 @@
 @media (min-width: 640px) { .cons-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (min-width: 1280px) { .cons-grid { grid-template-columns: repeat(6, 1fr); } }
 
-.charts { display: grid; gap: 1.5rem; }
-@media (min-width: 768px) { .charts { grid-template-columns: repeat(2, 1fr); } }
-/* `min-width: 0` is load-bearing: a flex item defaults to `min-width: auto`,
-   so a canvas carrying `width="500"` refuses to shrink below it and runs off
-   the side of a phone. */
-.chart-container { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
-.chart-container .legend { flex: 0 0 25%; min-width: 0; font-size: 0.75rem; }
-.chart-container .canvas { flex: 1 1 auto; min-width: 0; }
-.chart-container canvas { max-width: 100%; }
+/* ---- charts ---------------------------------------------------------------
+   Six charts, each a legend beside its canvas. The widths were six copies of
+   an inline fraction on the address page (`w-1/6`, `w-1/4`, `w-3/4`) and one
+   CSS rule in the historic widget; this is that rule, and the page now emits
+   the same class names the widget does.
+
+   `min-width: 0` throughout is load-bearing: a flex item defaults to
+   `min-width: auto`, so a canvas carrying `width="500"` refuses to shrink
+   below it and runs off the side of a phone.
+
+   The legend stacks above its canvas on a narrow screen and moves beside it
+   when there is room. Held at a quarter of the row it would be a column of
+   single words on a phone -- and at the two-column breakpoint, a quarter of
+   half a page is narrower still, which is where the labels started wrapping
+   one word per line. */
+.charts {
+  display: grid;
+  gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .charts { grid-template-columns: repeat(2, 1fr); }
+}
+
+.chart-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.chart-container .legend {
+  width: 100%;
+  min-width: 0;
+  font-size: 0.75rem;
+}
+
+.chart-container .canvas {
+  width: 100%;
+  min-width: 0;
+}
+
+.chart-container canvas {
+  max-width: 100%;
+}
+
+/* Side by side once the row is wide enough to hold both. The legend takes what
+   it needs between a floor and a ceiling rather than a fixed share, so a chart
+   of long asset names and one of short ones both read properly. */
+@media (min-width: 640px) {
+  .chart-container {
+    flex-direction: row;
+  }
+
+  .chart-container .legend {
+    width: auto;
+    flex: 0 1 auto;
+    min-width: 5rem;
+    max-width: 40%;
+  }
+
+  .chart-container .canvas {
+    width: auto;
+    flex: 1 1 auto;
+  }
+}
 
 .historic-divider {
   border-top: 1px solid var(--color-base-300, #ababab);
@@ -244,11 +322,14 @@
   margin-left: -16px;
 }
 
+.asaicon,
 .nfticon {
   width: 32px;
   height: 32px;
-  object-fit: scale-down;
+  flex: none;
 }
+
+.nfticon { object-fit: scale-down; }
 
 .copy {
   cursor: pointer;
@@ -265,4 +346,30 @@
 .assets-loading .assets-loading-text {
   margin-top: 1rem;
   opacity: 0.75;
+}
+
+/* The full-size image shown while a thumbnail is hovered. Appended to <body>,
+   so it escapes the row's clipping and any stacking context between; the
+   coordinates historic.js writes assume absolute positioning.
+
+   `pointer-events: none` because it opens under the cursor -- without it the
+   preview swallows the events that dismiss it and flickers as the pointer
+   crosses its own popup. */
+.nftpreview {
+  position: absolute;
+  z-index: 50;
+  padding: 0.25rem;
+  border: 1px solid var(--color-base-300, #ababab);
+  border-radius: var(--radius-box, 0.5rem);
+  background: var(--color-base-100, #fff);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.25);
+  pointer-events: none;
+}
+
+.nftpreview img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 15rem;
+  max-height: 15rem;
 }

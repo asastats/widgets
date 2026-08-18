@@ -905,3 +905,121 @@ describe("SECTION: Helper functions", () => {
     expect(function () { $("#id-reset").trigger("click"); }).not.toThrow();
   });
 });
+
+
+/*
+ * The full-size image shown while an NFT thumbnail is hovered. The portfolio
+ * page has had this since before the conversion; these rows carry the same
+ * `data-path`, and only the handler was missing here.
+ */
+describe("NFT preview", () => {
+  /** Add a thumbnail to the page, as a streamed row would. */
+  function addThumbnail(attrs) {
+    const img = document.createElement("img");
+    img.className = "nfticon";
+    Object.keys(attrs || {}).forEach((key) => {
+      if (key === "path") img.dataset.path = attrs[key];
+      else img.setAttribute(key, attrs[key]);
+    });
+    document.body.appendChild(img);
+    return img;
+  }
+
+  function preview() {
+    return document.getElementById("id-nft-preview");
+  }
+
+  it("opens a preview holding the full-size image", () => {
+    const thumb = addThumbnail({ path: "/full/nft.png", alt: "Fugu #1" });
+
+    historic.nftShowPreview.call(thumb);
+
+    expect(preview()).not.toBeNull();
+    expect(preview().querySelector("img").getAttribute("src")).toBe("/full/nft.png");
+    expect(preview().querySelector("img").alt).toBe("Fugu #1");
+  });
+
+  it("positions the preview against the thumbnail", () => {
+    // The coordinates are the whole point: unstyled and unpositioned, the
+    // preview lands at the end of the document instead of beside the row.
+    const thumb = addThumbnail({ path: "/full/nft.png" });
+    thumb.getBoundingClientRect = () => ({ bottom: 120, left: 40 });
+
+    historic.nftShowPreview.call(thumb);
+
+    expect(preview().style.top).toBe("128px");
+    expect(preview().style.left).toBe("40px");
+  });
+
+  it("carries an empty alt when the thumbnail has none", () => {
+    const thumb = addThumbnail({ path: "/full/nft.png" });
+
+    historic.nftShowPreview.call(thumb);
+
+    expect(preview().querySelector("img").alt).toBe("");
+  });
+
+  it("shows nothing for a thumbnail with no full image", () => {
+    // Building one anyway would produce an <img src=""> -- a broken-image box
+    // hovering over the page.
+    const thumb = addThumbnail({ alt: "no path" });
+
+    historic.nftShowPreview.call(thumb);
+
+    expect(preview()).toBeNull();
+  });
+
+  it("replaces an open preview rather than stacking them", () => {
+    const first = addThumbnail({ path: "/full/one.png" });
+    const second = addThumbnail({ path: "/full/two.png" });
+
+    historic.nftShowPreview.call(first);
+    historic.nftShowPreview.call(second);
+
+    expect(document.querySelectorAll(".nftpreview").length).toBe(1);
+    expect(preview().querySelector("img").getAttribute("src")).toBe("/full/two.png");
+  });
+
+  it("closes an open preview", () => {
+    const thumb = addThumbnail({ path: "/full/nft.png" });
+    historic.nftShowPreview.call(thumb);
+
+    historic.nftHidePreview();
+
+    expect(preview()).toBeNull();
+  });
+
+  it("closes nothing when none is open", () => {
+    expect(() => historic.nftHidePreview()).not.toThrow();
+    expect(preview()).toBeNull();
+  });
+
+  it("reaches rows that arrived after the page was wired", () => {
+    // Rows stream in as htmx websocket batches long after mainHistoric runs,
+    // so the handlers are delegated from the document. Bound to the
+    // thumbnails directly, this thumbnail would be inert.
+    historic.mainHistoric();
+    const thumb = addThumbnail({ path: "/full/late.png" });
+
+    $(thumb).trigger("mouseover");
+    expect(preview()).not.toBeNull();
+
+    $(thumb).trigger("click");
+    expect(preview()).toBeNull();
+  });
+
+  it("closes when the pointer leaves the thumbnail", () => {
+    // What the Materialize tooltip on the portfolio page did, and what this
+    // page should do: otherwise the preview hangs over the rows below while
+    // the reader carries on down the list.
+    historic.mainHistoric();
+    const thumb = addThumbnail({ path: "/full/nft.png" });
+
+    $(thumb).trigger("mouseover");
+    expect(preview()).not.toBeNull();
+
+    $(thumb).trigger("mouseleave");
+
+    expect(preview()).toBeNull();
+  });
+});

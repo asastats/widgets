@@ -55,6 +55,12 @@ function mainHistoric() {
   // loaded on this page any more; the first threw and abandoned jQuery's
   // ready queue, taking every binding below it. The widget was inert.
   $("[role=tablist]").on("click", "[role=tab]", tabClick);
+  // Delegated from the document, not bound to the thumbnails: rows arrive in
+  // htmx websocket batches long after this runs, and anything bound directly
+  // would cover only the rows that happened to exist at the time.
+  $(document).on("mouseover", ".nfticon", nftShowPreview);
+  $(document).on("mouseleave", ".nfticon", nftHidePreview);
+  $(document).on("click", ".nfticon", nftHidePreview);
   $("body").on("htmx:wsAfterMessage", messageReceived);
   $(".switch").find("input[type=checkbox]").on("change", toggleCurrency);
   $(".totalnonft").find("input[type=checkbox]").on("change", toggleTotalNoNft);
@@ -1116,6 +1122,46 @@ function updateChart(chart, data) {
   chart.resetZoom();
 }
 
+/**
+ * Remove the NFT preview, if one is open.
+ *
+ */
+function nftHidePreview() {
+  var preview = document.getElementById("id-nft-preview");
+  if (preview) preview.remove();
+}
+
+
+/**
+ * Show the full-size NFT image while its thumbnail is hovered.
+ *
+ * The portfolio page has had this since before the conversion; these rows
+ * carry the same `data-path`, so the only thing missing here was the handler.
+ *
+ * Built as elements rather than an HTML string: an engine-supplied path
+ * containing a quote could close the attribute and inject markup. Setting
+ * `.src` cannot do that whatever the value.
+ *
+ */
+function nftShowPreview() {
+  nftHidePreview();
+  if (!this.dataset.path) return;
+
+  var preview = document.createElement("div");
+  preview.id = "id-nft-preview";
+  preview.className = "nftpreview";
+  var image = document.createElement("img");
+  image.src = this.dataset.path;
+  image.alt = this.alt || "";
+  preview.appendChild(image);
+
+  var box = this.getBoundingClientRect();
+  preview.style.top = (box.bottom + window.scrollY + 8) + "px";
+  preview.style.left = (box.left + window.scrollX) + "px";
+  document.body.appendChild(preview);
+}
+
+
 /*
  * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * SECTION: exports needed by jest testing framework
@@ -1154,6 +1200,8 @@ if (typeof exports !== "undefined") {
     filterChange,
     getNodesThatContain,
     isItemInArray,
+    nftHidePreview,
+    nftShowPreview,
     populateBarsChart,
     populateCandlesChart,
     populateCharts,
