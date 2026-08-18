@@ -148,7 +148,7 @@
 {% comment %} ---- PER-ITEM PARTIALS (one <li>; used by the streamed batches) ---- {% endcomment %}
 {% partialdef asaitem %}
 <details id="f{{ item.info.id }}" class="fitem">
-  <summary class="item-header token">
+  <summary class="item-header token{% with slot=colors|dict_get:item.info.id %}{% if slot %} c{{ slot }}{% endif %}{% endwith %}">
     {% partial asaheader %}
   </summary>
   <div class="item-body">
@@ -168,7 +168,7 @@
 
 {% partialdef nftitem %}
 <details id="f{{ item.info|slugify }}" class="fitem">
-  <summary class="item-header nft">
+  <summary class="item-header nft{% with slot=nft_colors|dict_get:item.info %}{% if slot %} c{{ slot }}{% endif %}{% endwith %}">
     {% partial nftheader %}
   </summary>
   <div class="item-body">
@@ -201,7 +201,7 @@
 
 {% comment %} ---- SCAFFOLD (replaces #id-assets; carries charts + empty section lists) ---- {% endcomment %}
 {% partialdef scaffold %}{% autoescape off %}
-<div id="id-assets" class="row flex-stack" data-timestamp={{ timestamp }} data-label="{{ label }}">
+<div id="id-assets" data-timestamp={{ timestamp }} data-label="{{ label }}">
 
   {{ asachart|json_script:"asachart" }}{{ nftchart|json_script:"nftchart" }}{{ ratiochart|json_script:"ratiochart" }}{{ distchart|json_script:"distchart" }}{{ consolidated|json_script:"consolidated" }}
 

@@ -44,12 +44,69 @@
 
 .item-header::-webkit-details-marker { display: none; }
 
+/* The stripe's colour belongs to the host: it is this row's slice in the pie
+   chart, and only the host knows that palette. The templates emit `token` /
+   `nft` plus a `cN` slot and `input.css` paints it -- deliberately unthemed,
+   because it has to equal the colour Chart.js drew.
+
+   The literal here is the grey of the "others" slice, which is what an
+   uncharted row gets anyway, so it is the right answer rather than a
+   placeholder. It keeps the stripe present if this file is ever rendered
+   without the host stylesheet; the per-slot rules override it when it is not. */
 .item-header.token,
 .item-header.nft {
-  border-left: 4px solid var(--color-primary, #ababab);
+  border-left: 4px solid #ababab;
 }
 
-.item-header.nft { display: block; }
+/* ---- NFT collection row --------------------------------------------------
+   Three cells in one grid area: what you hold, the thumbnails, what it is
+   worth. Stacked rather than laid out in three columns because the thumbnails
+   have to centre on the middle of the row itself -- a middle column centres
+   them only when the text either side happens to be the same width, which it
+   never is.
+
+   Each cell aligns to its own edge, the thumbnails to the centre. Where a wide
+   run of thumbnails reaches the text, it is drawn over it rather than
+   squeezing it, which is what the old design did. The row takes the height of
+   whichever cell is tallest, so a collection with sixty thumbnails still gets
+   the room to wrap them. */
+.item-header.nft {
+  display: grid;
+  align-items: center;
+}
+
+.item-header.nft > .nftleft,
+.item-header.nft > .nftmid,
+.item-header.nft > .nftright {
+  grid-area: 1 / 1;
+}
+
+.nftleft {
+  justify-self: start;
+  max-width: 45%;
+  min-width: 0;
+}
+
+.nftright {
+  justify-self: end;
+  max-width: 45%;
+  min-width: 0;
+  text-align: right;
+}
+
+.nftmid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  justify-self: center;
+  max-width: 60%;
+  /* Drawn above the text it may overlap; the text stays selectable either
+     side of it because only the thumbnails themselves are raised. */
+  position: relative;
+  z-index: 1;
+}
 
 .fitem[open] > .item-header,
 .notevalsec details[open] > .item-header {
@@ -185,10 +242,6 @@
   left: 50%;
   margin-top: -28px;
   margin-left: -16px;
-}
-
-.row .col.nftleft, .row .col.nftmid, .row .col.nftright {
-  padding: 0;
 }
 
 .nfticon {
