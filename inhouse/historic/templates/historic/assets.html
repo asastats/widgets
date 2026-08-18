@@ -12,53 +12,79 @@
 {% endpartialdef asaheader %}
 
 {% partialdef asainfo %}
-<span class="title">{{ item.info.name|escape }}</span><br />
-<a href="{% if item.info.id != 0 %}{% explorer_url 'asset' item.info.id %}{% else %}{% explorer_base %}{% endif %}" target="_blank" title="Show in {% explorer_name %}">{% if item.info.id != 0 %}{{ item.info.id }}{% else %}{% explorer_name %}{% endif %}</a>{% if item.info.id != 0 %}&nbsp;<span class="copy">&nbsp;&#128203;&nbsp;</span>{% endif %} <br />
-<span>Unit name: {{ item.info.unit|escape }}</span> <br />
-<span>Total supply: {{ item.info.total|floatformat:'g' }}</span> <br />
-<span>Decimals: {{ item.info.decimals }}</span> <br />
-{% if item.info.url %}
-  <span class="truncate">URL: <a href="{% if item.info.url|slice:':4' != 'http' %}https://{% endif %}{{ asset.url }}" target="_blank" rel="noopener" title="Official URL">{{ item.info.url }}</a></span> <br />
-{% endif %}
+{% comment %}
+  A real definition list. These were `<span>`s with the label written into the
+  text and a `<br />` after each, so the panel announced no terms and no
+  definitions -- nothing tied "Total supply" to its number for a reader who
+  cannot see the layout. `.asa-meta` lays the pairs out in two columns; the
+  rule is in this widget's own stylesheet, since it styles what it emits.
+
+  `.copy` copies the text of the element immediately before it, so the
+  explorer link and the control stay adjacent siblings.
+{% endcomment %}
+<span class="title">{{ item.info.name|escape }}</span>
+<dl class="asa-meta">
+  <dt class="asa-meta-hidden">{% if item.info.id != 0 %}Asset id{% else %}Explorer{% endif %}</dt>
+  <dd class="asa-meta-wide"><a href="{% if item.info.id != 0 %}{% explorer_url 'asset' item.info.id %}{% else %}{% explorer_base %}{% endif %}" target="_blank" title="Show in {% explorer_name %}">{% if item.info.id != 0 %}{{ item.info.id }}{% else %}{% explorer_name %}{% endif %}</a>{% if item.info.id != 0 %}<span class="copy">&nbsp;&#128203;&nbsp;</span>{% endif %}</dd>
+
+  <dt>Unit name</dt>
+  <dd>{{ item.info.unit|escape }}</dd>
+
+  <dt>Total supply</dt>
+  <dd>{{ item.info.total|floatformat:'g' }}</dd>
+
+  <dt>Decimals</dt>
+  <dd>{{ item.info.decimals }}</dd>
+
+  {% if item.info.url %}
+  <dt>URL</dt>
+  <dd class="truncate"><a href="{% if item.info.url|slice:':4' != 'http' %}https://{% endif %}{{ asset.url }}" target="_blank" rel="noopener" title="Official URL">{{ item.info.url }}</a></dd>
+  {% endif %}
+</dl>
 {% endpartialdef asainfo %}
 
 {% partialdef asaprogram %}
+{% comment %}
+  One line per fact, as blocks rather than `<span>` runs separated by
+  `<br />` -- and the gap between one program and the next belongs to the list
+  that holds them, not to a trailing break inside the last one.
+{% endcomment %}
 <div class="asa">
-  <div class="asar">
+  <div class="asar asa-program">
+    <div>
     {% if program.value.0 == "-" %}
-      (<span class="negative val" data-val="{{ program.value }}">{{ program.value|floatformat:'2g' }} ALGO</span>) <br />
+      (<span class="negative val" data-val="{{ program.value }}">{{ program.value|floatformat:'2g' }} ALGO</span>)
     {% else %}
       {% if item.info.id == 0 and program.type == "Balance" %}
-        <span class="balance">{{ program.type }}</span>: <span class="val" data-val="{{ program.value }}">{{ program.value|floatformat:'2g' }} ALGO</span> <br />
+        <span class="balance">{{ program.type }}</span>: <span class="val" data-val="{{ program.value }}">{{ program.value|floatformat:'2g' }} ALGO</span>
       {% else %}
-        <span class="val" data-val="{{ program.value }}">{{ program.value|floatformat:'2g' }} ALGO</span> <br />
+        <span class="val" data-val="{{ program.value }}">{{ program.value|floatformat:'2g' }} ALGO</span>
       {% endif %}
     {% endif %}
+    </div>
     {% if program.source and program.source.1 %}
-    <a href="{{ program.source.1 }}" target="_blank" title="Go to {{ program.source.0 }} page">{{ program.source.0 }}</a> <br />
+    <div><a href="{{ program.source.1 }}" target="_blank" title="Go to {{ program.source.0 }} page">{{ program.source.0 }}</a></div>
     {% elif program.source %}
-    <span>{{ program.source.0 }}</span> <br />
+    <div>{{ program.source.0 }}</div>
     {% endif %}
-    {% if program.url %}<a href="{{ program.url }}" target="_blank" title="Go to {{ program.name }} page">{{ program.name }}</a> <br />{% endif %}
-    {% if item.info.id != 0 %}{% if program.type %}<span{% if program.type == "Balance" %} class="balance"{% endif %}>{{ program.type }}</span>: {% endif %}<span>{{ program.amount }} {{ item.info.unit }}</span> <br />{% endif %}
+    {% if program.url %}<div><a href="{{ program.url }}" target="_blank" title="Go to {{ program.name }} page">{{ program.name }}</a></div>{% endif %}
+    {% if item.info.id != 0 %}<div>{% if program.type %}<span{% if program.type == "Balance" %} class="balance"{% endif %}>{{ program.type }}</span>: {% endif %}{{ program.amount }} {{ item.info.unit }}</div>{% endif %}
   </div>
 </div>
-<br />
 {% endpartialdef asaprogram %}
 
 {% partialdef notevalasaprogram %}
 <div class="asa">
-  <div class="asar">
+  <div class="asar asa-program">
     {% if program.source and program.source.1 %}
-    <a href="{{ program.source.1 }}" target="_blank" title="Go to {{ program.source.0 }} page">{{ program.source.0 }}</a> <br />
+    <div><a href="{{ program.source.1 }}" target="_blank" title="Go to {{ program.source.0 }} page">{{ program.source.0 }}</a></div>
     {% elif program.source %}
-    <span>{{ program.source.0 }}</span> <br />
+    <div>{{ program.source.0 }}</div>
     {% endif %}
-    {% if program.url %}<a href="{{ program.url }}" target="_blank" title="Go to {{ program.name }} page">{{ program.name }}</a> <br />{% endif %}
-    {% if program.type %}<span{% if program.type == "Balance" %} class="balance"{% endif %}>{{ program.type }}</span>: {% endif %}<span>{{ program.amount }} {{ item.info.unit }}</span> <br />
+    {% if program.url %}<div><a href="{{ program.url }}" target="_blank" title="Go to {{ program.name }} page">{{ program.name }}</a></div>{% endif %}
+    <div>{% if program.type %}<span{% if program.type == "Balance" %} class="balance"{% endif %}>{{ program.type }}</span>: {% endif %}{{ program.amount }} {{ item.info.unit }}</div>
   </div>
 </div>
-<br />
 {% endpartialdef notevalasaprogram %}
 
 {% comment %} NFT {% endcomment %}
@@ -77,26 +103,22 @@
 {% endpartialdef nftheader %}
 
 {% partialdef nftinfo %}
-<span>{% if nft.asset.unit %}{{ nft.asset.unit }}{% endif %}</span>&nbsp;<span>{{ nft.amount }}/{{ nft.asset.total }}</span> <br />
-<span class="title">{% autoescape on %}{{ nft.asset.name }}{% endautoescape %}</span><br />
-<a href="{% explorer_url 'asset' nft.asset.id %}" target="_blank" title="Show in {% explorer_name %}">{{ nft.asset.id }}</a>&nbsp;<span class="copy">&nbsp;&#128203;&nbsp;</span> <br />
-{% if nft.title %}
-  <span>Title: {{ nft.title }}</span> <br />
-{% endif %}
-{% if nft.rarity %}
-  <span>Rarity: {{ nft.rarity }}</span> <br />
-{% endif %}
+<div class="asa-program">
+  <div>{% if nft.asset.unit %}{{ nft.asset.unit }}{% endif %} {{ nft.amount }}/{{ nft.asset.total }}</div>
+  <div><span class="title">{% autoescape on %}{{ nft.asset.name }}{% endautoescape %}</span></div>
+  {% comment %} `.copy` reads the element before it, so these stay adjacent. {% endcomment %}
+  <div><a href="{% explorer_url 'asset' nft.asset.id %}" target="_blank" title="Show in {% explorer_name %}">{{ nft.asset.id }}</a><span class="copy">&nbsp;&#128203;&nbsp;</span></div>
+  {% if nft.title %}<div>Title: {{ nft.title }}</div>{% endif %}
+  {% if nft.rarity %}<div>Rarity: {{ nft.rarity }}</div>{% endif %}
+</div>
 {% endpartialdef nftinfo %}
 
 {% partialdef nftextrainfo %}
 {% if nft.asset.attrs %}
   {% autoescape on %}
   <div class="nft-traits">
-    <br />
     {% for key, val in nft.asset.attrs %}
-      <div class="nft-trait truncate">
-        <span><strong>{{ key }}</strong></span>:&nbsp;<span>{{ val }}</span><br />
-      </div>
+      <div class="nft-trait truncate"><strong>{{ key }}</strong>: {{ val }}</div>
     {% endfor %}
   </div>
   {% endautoescape %}
@@ -111,17 +133,18 @@
 {% if nft.asset.desc %}
   <div class="nft-description">
     <div>
-      <span>Description: {% autoescape on %}{{ nft.asset.desc }}{% endautoescape %}</span> <br />
+      Description: {% autoescape on %}{{ nft.asset.desc }}{% endautoescape %}
     </div>
   </div>
 {% endif %}
 {% endpartialdef nftextrainfo %}
 
 {% partialdef nftprogram %}
-<small><sub>BETA</sub></small>&nbsp;<span>Estimated value: </span><span class="val" data-val="{{ nft.value }}">&nbsp;{{ nft.value|floatformat:'2g' }} ALGO</span><br />
-{% if nft.url %}{% if nft.type == "Amount" %}<span>Listed at </span>{% endif %}<a href="{{ nft.url }}" target="_blank" title="Go to {{ nft.name }} page">{{ nft.name }}</a> <br />{% endif %}
-<span{% if nft.type == "Balance" %} class="balance"{% endif %}>{{ nft.type }}</span>: <span>{{ nft.amount }} {{ item.info.unit }}</span> <br />
-<br />
+<div class="asa-program">
+  <div><small><sub>BETA</sub></small> Estimated value: <span class="val" data-val="{{ nft.value }}">{{ nft.value|floatformat:'2g' }} ALGO</span></div>
+  {% if nft.url %}<div>{% if nft.type == "Amount" %}Listed at {% endif %}<a href="{{ nft.url }}" target="_blank" title="Go to {{ nft.name }} page">{{ nft.name }}</a></div>{% endif %}
+  <div><span{% if nft.type == "Balance" %} class="balance"{% endif %}>{{ nft.type }}</span>: {{ nft.amount }} {{ item.info.unit }}</div>
+</div>
 {% endpartialdef nftprogram %}
 
 {% partialdef nftimage %}
@@ -208,30 +231,42 @@
   <div class="historic-divider"></div>
   <div class="historic-date"><span>{{ date }}</span></div>
 
-  <h2 class="pricetip tooltip" data-price={{ data.total.priceusdc }} data-pricealgo={{ data.total.pricealgo }} data-total={{ data.total.totalusdc }} data-totalwnft={{ data.total.total }} data-totalnft={{ data.total.nft }} data-tooltip='{{ data.total.totalusdc|floatformat:"2g" }} USD ({{ data.total.pricealgo|floatformat:"2g" }} USD/ALGO)'>{{ data.total.total|floatformat:"2g" }} ALGO</h2>
+  {% comment %}
+    The heading was the number itself, so it announced a figure with nothing
+    saying what it counts. The label is a sibling of `.pricetip` rather than
+    inside it: historic.js assigns to that element's `innerHTML` on every
+    currency switch, and would discard any markup within it.
+
+    `data-tip`, not `data-tooltip`: the styling behind `.tooltip` reads the
+    former, so every tooltip on this page had a value nothing displayed.
+  {% endcomment %}
+  <h2>
+    <span class="sr-only">Total value:</span>
+    <span class="pricetip tooltip" data-price={{ data.total.priceusdc }} data-pricealgo={{ data.total.pricealgo }} data-total={{ data.total.totalusdc }} data-totalwnft={{ data.total.total }} data-totalnft={{ data.total.nft }} data-tip='{{ data.total.totalusdc|floatformat:"2g" }} USD ({{ data.total.pricealgo|floatformat:"2g" }} USD/ALGO)'>{{ data.total.total|floatformat:"2g" }} ALGO</span>
+  </h2>
 
   <div class="consolidated">
     <details id="id-cons" open>
         <summary id="id-cons-header" class="item-header consolidated" data-balance={{ consolidated.balance }} data-staked={{ consolidated.staked }} data-liquidity={{ consolidated.liquidity }} data-defi={{ consolidated.defi }}>
           <div class="cons-grid">
             <div class="cons">
-              <span class="cons-text">Balance</span><br>
+              <span class="cons-text">Balance</span>
               <span class="cons-value val" data-val="{{ consolidated.balance }}">{{ consolidated.balance|floatformat:"2g" }} ALGO</span>
             </div>
             <div class="cons">
-              <span class="cons-text">Staked</span><br>
+              <span class="cons-text">Staked</span>
               <span class="cons-value val" data-val="{{ consolidated.staked }}">{{ consolidated.staked|floatformat:"2g" }} ALGO</span>
             </div>
             <div class="cons">
-              <span class="cons-text">Liquidity</span><br>
+              <span class="cons-text">Liquidity</span>
               <span class="cons-value val" data-val="{{ consolidated.liquidity }}">{{ consolidated.liquidity|floatformat:"2g" }} ALGO</span>
             </div>
             <div class="cons">
-              <span class="cons-text">DeFi</span><br>
+              <span class="cons-text">DeFi</span>
               <span class="cons-value val" data-val="{{ consolidated.defi }}">{{ consolidated.defi|floatformat:"2g" }} ALGO</span>
             </div>
             <div class="cons">
-              <span class="cons-text">NFT</span><br>
+              <span class="cons-text">NFT</span>
               <span class="cons-value val" data-val="{{ data.total.nft }}">{{ data.total.nft|floatformat:"2g" }} ALGO</span>
             </div>
           </div>

@@ -373,3 +373,88 @@
   max-width: 15rem;
   max-height: 15rem;
 }
+
+/* ---- detail panels --------------------------------------------------------
+   The expanded row: one line per fact. These were `<span>` runs separated by
+   `<br />`, so a line could not be spaced, aligned or wrapped as a unit, and
+   the gap between one program and the next was a trailing break inside the
+   last one. Spacing between siblings belongs to the list that holds them. */
+.asa-program > * + * {
+  margin-top: 0.25rem;
+}
+
+.asa + .asa {
+  margin-top: 1rem;
+}
+
+/* The asset metadata, as a real definition list: the labels were written into
+   the text of `<span>`s, so nothing tied "Total supply" to its number for a
+   reader who cannot see the layout. Two columns, so the values line up with
+   each other rather than each starting wherever its label ended. */
+.asa-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+  margin: 0.25rem 0 0;
+}
+
+.asa-meta dt {
+  color: var(--color-base-content, inherit);
+  opacity: 0.7;
+}
+
+.asa-meta dd {
+  margin: 0;
+}
+
+/* The asset id spans both columns: its term is for screen readers only, since
+   the link says what it is. */
+.asa-meta-wide {
+  grid-column: 1 / -1;
+}
+
+.asa-meta-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- form controls --------------------------------------------------------
+   This page is rendered inside the host, whose stylesheet resets `border` and
+   `background-color` on every `input` -- a deliberate reset, on the reasoning
+   that a design system draws its own fields. The host draws its own; this
+   widget never did, so its one text field has been rendering with no border
+   and no background at all: a blank gap where the filter should be.
+
+   Buttons are unaffected -- the reset restores `appearance: button` for them
+   -- which is why this went unnoticed: the only control that looked broken
+   was the one nobody had a reason to look at twice. */
+.historic-body input[type="text"],
+.historic-body input[type="search"] {
+  border: 1px solid var(--color-base-300, #ababab);
+  border-radius: var(--radius-field, 0.5rem);
+  background: var(--color-base-100, #fff);
+  padding: 0.375rem 0.75rem;
+  color: inherit;
+}
+
+.historic-body input[type="text"]:focus-visible,
+.historic-body input[type="search"]:focus-visible {
+  outline: 2px solid var(--color-primary, #00c896);
+  outline-offset: 2px;
+}
+
+/* Checkboxes keep the browser's own rendering: the reset leaves them alone,
+   and a control the reader already recognises is worth more than a styled
+   one. Only the hit area is widened. */
+.historic-body input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--color-primary, #00c896);
+}

@@ -552,25 +552,25 @@ function setCurrency(code) {
   var total = elem.dataset.total;
   if (code == "USD") {
     $(".pricetip").each(function () {
-      this.dataset.tooltip =
+      this.dataset.tip =
         cur(total * price) + " ALGO (" + dec6(price) + " ALGO/USD)";
       this.innerHTML = cur(total) + " USD";
     });
     $("span.val").each(function () {
       this.innerHTML = cur(this.dataset.val / price) + " USD";
-      this.dataset.tooltip = cur(this.dataset.val) + " ALGO";
+      this.dataset.tip = cur(this.dataset.val) + " ALGO";
       if ($(this).hasClass("cons-value")) this.dataset.position = "bottom";
       else this.dataset.position = "right";
     });
   } else {
     $(".pricetip").each(function () {
-      this.dataset.tooltip =
+      this.dataset.tip =
         cur(total) + " USD (" + dec6(pricealgo) + " USD/ALGO)";
       this.innerHTML = cur(total * price) + " ALGO";
     });
     $("span.val").each(function () {
       this.innerHTML = cur(this.dataset.val) + " ALGO";
-      this.dataset.tooltip = cur(this.dataset.val / price) + " USD";
+      this.dataset.tip = cur(this.dataset.val / price) + " USD";
       if ($(this).hasClass("cons-value")) this.dataset.position = "bottom";
       else this.dataset.position = "right";
     });

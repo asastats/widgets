@@ -1023,3 +1023,37 @@ describe("NFT preview", () => {
     expect(preview()).toBeNull();
   });
 });
+
+
+/*
+ * The tooltips are CSS-only: the class comes from the host stylesheet, and it
+ * reads `data-tip`. This page wrote `data-tooltip` -- Materialize's attribute
+ * -- so every tooltip carried a value that nothing displayed.
+ */
+describe("currency tooltips", () => {
+  function priceElement() {
+    document.body.innerHTML =
+      '<span class="pricetip" data-price="2" data-pricealgo="0.5" ' +
+      'data-total="100" data-totalwnft="200" data-totalnft="10"></span>' +
+      '<span class="val" data-val="4"></span>';
+    return document.querySelector(".pricetip");
+  }
+
+  it("writes the attribute the styling reads", () => {
+    var price = priceElement();
+
+    historic.setCurrency("USD");
+
+    expect(price.dataset.tip).toBeDefined();
+    expect(price.dataset.tooltip).toBeUndefined();
+  });
+
+  it("writes it in ALGO too", () => {
+    var price = priceElement();
+
+    historic.setCurrency("ALGO");
+
+    expect(price.dataset.tip).toContain("USD");
+    expect(document.querySelector(".val").dataset.tip).toBeDefined();
+  });
+});
