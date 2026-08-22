@@ -213,6 +213,53 @@
 .asal { text-align: left; }
 .negative { color: var(--color-error, #b00020); }
 
+/* Two utilities the markup has always named and Materialize used to provide.
+   They went with the framework and nothing replaced them, so both have been
+   doing nothing since the conversion.
+
+   `.truncate` is load-bearing rather than decorative: every element carrying it
+   also carries a `title` attribute holding the full text, which is only a
+   sensible pattern when the visible text is actually clipped. Without it an
+   asset's official URL and a phase label run to their full length and push the
+   row's other columns off the side.
+
+   `.responsive-img` is the one that matters most. It is on the NFT thumbnail,
+   whose only other class is `.nft` -- and `.nft` alone is a script hook, not a
+   rule, so nothing constrained these images at all. An NFT served at its
+   natural size rendered at its natural size and burst the grid cell holding
+   it. */
+.truncate {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.responsive-img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* Announced but not shown. `assets.html` labels the total with
+   `<span class="sr-only">Total value:</span>`, which is only a label if
+   something hides it -- and nothing did, so the heading read "Total value:
+   1,234.56 ALGO" on screen. Found next to the consolidated row below, and it is
+   the same fault: the utility was dropped with the framework and no rule
+   replaced it. The widget loads no stylesheet but this one, so a class it does
+   not define is a class that does nothing. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
 .historic-bundle-addresses {
   display: flex;
   flex-wrap: wrap;
@@ -246,6 +293,35 @@
 
 @media (min-width: 640px) { .cons-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (min-width: 1280px) { .cons-grid { grid-template-columns: repeat(6, 1fr); } }
+
+/* The cells of that grid: a category name over its figure.
+
+   `.cons-grid` has had its columns since the conversion, but `.cons-text` and
+   `.cons-value` had markup and no rules anywhere -- so the row rendered as a
+   run of undifferentiated inline text, the label the same size and weight as
+   the figure and sitting on the same line as it. That is the "like CSS is
+   missing" report, and it was literally that.
+
+   On the website the same two spans carry Tailwind utilities in the markup:
+   `block text-xs uppercase tracking-wide opacity-60` on the label and
+   `font-medium` on the figure. A widget is dropped into a host page that has no
+   Tailwind, so it may not name framework classes; these are those utilities
+   written out as real rules, which is the only form that travels.
+
+   `.cons` itself needs nothing. It is a cell of a grid that already centres its
+   text, and an empty rule would only invite someone to wonder what it was for. */
+.cons-text {
+  display: block;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  opacity: 0.6;
+}
+
+.cons-value {
+  font-weight: 500;
+}
 
 /* ---- charts ---------------------------------------------------------------
    Six charts, each a legend beside its canvas. The widths were six copies of
@@ -327,8 +403,113 @@
 .nft-traits { display: grid; gap: 0.25rem 1rem; }
 @media (min-width: 640px) { .nft-traits { grid-template-columns: repeat(2, 1fr); } }
 
+/* One trait, as a chip. `.nft-traits` laid the grid out and its cells had
+   nothing, so a trait read as a run of text with its name in bold and no edge
+   to it -- indistinguishable from the description above. */
+.nft-trait {
+  padding: 0.125rem 0.5rem;
+  background: var(--color-base-200, #eaf0ed);
+  border-radius: var(--radius-field, 0.5rem);
+}
+
+/* The three cells of an NFT card. `.nft-element-grid` has had its columns
+   since the conversion; the cells themselves had no rules, so the image sat
+   flush left in a cell sized to it rather than centred in its third.
+   `min-width: 0` for the reason the charts need it further up: a grid item
+   defaults to `min-width: auto` and refuses to shrink below its content. */
+.nft-element-info,
+.nft-element-image,
+.nft-element-program { min-width: 0; }
+
+.nft-element-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The thumbnail says it is worth pointing at. The widget opens a full preview
+   on hover, so this is the resting hint that there is something to open --
+   `.hoverable` was Materialize's, and it lifted the image on hover. Gated on a
+   real pointer because on a touch screen `:hover` sticks after the tap, the
+   same reason `.copy` above is gated. */
+.hoverable { transition: box-shadow 0.15s ease; }
+
+@media (hover: hover) and (pointer: fine) {
+  .hoverable:hover { box-shadow: 0 4px 12px rgb(0 0 0 / 0.22); }
+}
+
+/* ---- progress ------------------------------------------------------------
+   Three phases per address, each a label beside a bar, plus the page-level
+   loading bar under the form.
+
+   None of it rendered. `.phase-label` and `.phase-address` survived the
+   conversion and the rest did not: `.phase-rows` and `.phase-bar` had no rule,
+   so the label and its bar stacked instead of sitting side by side, and
+   `.progress`, `.determinate` and `.indeterminate` had no rule either -- which
+   means the bars were empty divs of zero height. The template sets
+   `style="width: N%"` on `.determinate` and `historic.js` puts `.progress` on
+   the loading bar's parent, so both were driving something with no appearance
+   at all: the reader watched an address process with nothing on screen moving.
+
+   `.progress` is the track and needs `position: relative`, because both fills
+   are positioned inside it. */
+.phase-rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 0.5rem 1rem;
+  align-items: center;
+}
+
 .phase-label { text-align: right; }
 .phase-address { text-align: center; }
+.phase-bar { min-width: 0; }
+
+.progress,
+.historic-progress {
+  position: relative;
+  height: 4px;
+  width: 100%;
+  overflow: hidden;
+  background: var(--color-base-300, #ababab);
+  border-radius: 2px;
+}
+
+.historic-progress { margin: 1rem 0; }
+
+.progress > .determinate {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--color-primary, #00c896);
+  transition: width 0.3s linear;
+}
+
+/* The page-level bar has no percentage to show -- it means "working", not
+   "this far" -- so it sweeps. `historic.js` adds `.progress` to this element's
+   parent when work starts, which is what makes the track appear around it. */
+.historic-progress > .indeterminate {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  background: var(--color-primary, #00c896);
+  animation: historic-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes historic-sweep {
+  0% { left: -40%; }
+  100% { left: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .historic-progress > .indeterminate {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
 
 .collcenter {
   position: absolute;
@@ -343,6 +524,13 @@
   height: 32px;
   flex: none;
 }
+
+/* Materialize's round-image helper, which the markup still asks for on the
+   asset logo. It went with the framework, so these icons have been square here
+   while the same icons on the site are round -- `input.css` gives `.asaicon` a
+   pill radius. Written against the class the markup names rather than against
+   `.asaicon`, because that is what the template says it wants. */
+.circle { border-radius: 50%; }
 
 .nfticon { object-fit: scale-down; }
 
@@ -422,6 +610,16 @@
    the text of `<span>`s, so nothing tied "Total supply" to its number for a
    reader who cannot see the layout. Two columns, so the values line up with
    each other rather than each starting wherever its label ended. */
+/* The asset's name, above its facts -- and an NFT's name inside its card.
+   It is the heading of the block in everything but the tag, and it had no rule,
+   so it read at the same size and weight as the id and the unit name listed
+   under it. Its own line, because the definition list that follows is a grid
+   and an inline name would be pulled into the first cell. */
+.title {
+  display: block;
+  font-weight: 600;
+}
+
 .asa-meta {
   display: grid;
   grid-template-columns: auto 1fr;
