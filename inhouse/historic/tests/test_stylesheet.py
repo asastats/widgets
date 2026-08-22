@@ -59,6 +59,7 @@ PRESENTATION_ONLY = [
     "cons-value",
     "determinate",
     "historic-total",
+    "htip",
     "hoverable",
     "indeterminate",
     "nft-element-image",
@@ -96,8 +97,6 @@ DELIBERATELY_UNSTYLED = {
     "c": "not a class: the templates emit `c{{ slot }}`, and the per-slot "
     "colours are the host's, because a stripe has to equal the colour "
     "Chart.js drew. See the comment on `.item-header.token`",
-    "tooltip": "the host page's; `data-tip` is read by the site stylesheet, "
-    "which is where these tooltips come from",
 }
 
 #: A class attribute's worth of tokens, with Django's tags taken out first so
@@ -206,6 +205,65 @@ def test_the_loading_bar_is_a_bar_only_while_there_is_work(stylesheet):
     )
     assert idle, "the loading bar has no idle state, so it animates forever"
     assert "display: none" in idle.group(1) or "height: 0" in idle.group(1)
+
+
+def test_the_tooltip_is_this_widget_s_own_and_not_daisy_ui_s(stylesheet):
+    """The rename, and the reason it could not be done by redefining `.tooltip`.
+
+    The markup used `.tooltip`, which is DaisyUI's. It worked only because the
+    widget renders inside the site's base template, which is exactly the
+    framework-class dependency a widget is not supposed to have.
+
+    Defining `.tooltip` here would have been worse than leaving it: `style.css`
+    loads after `style.tw.css`, so the rule would win over DaisyUI's tooltip for
+    the whole page -- the site chrome around the widget included. So the guard
+    is two-sided: the widget must style its own name, and must not style
+    DaisyUI's.
+    """
+    assert ".htip[data-tip]" in stylesheet, "the widget has no tooltip of its own"
+    assert not re.search(r"(^|[\s,}])\.tooltip[\s,{\[:]", stylesheet), (
+        "this stylesheet defines `.tooltip`, which is DaisyUI's name and is "
+        "loaded before this file -- the rule would override the host's tooltip "
+        "everywhere on the page, not just inside the widget"
+    )
+
+
+def test_the_total_can_be_reached_and_read_without_a_pointer(stylesheet):
+    """The tip is the only place the exchange rate appears.
+
+    Every other tooltip here repeats an amount in the other currency, which the
+    currency switch already offers in one keystroke -- so making all of them
+    focusable would buy nothing and cost a tab stop on each of several dozen
+    figures. The total's tip is different: it carries the rate, and that is on
+    the page nowhere else.
+
+    Two halves, because they serve different readers. `tabindex` plus the
+    stylesheet's `:focus-visible` arm shows the tip to a sighted keyboard user;
+    `aria-describedby` is what makes it *announced*, since a tip drawn with
+    `content: attr(data-tip)` is not dependably in the accessibility tree.
+    """
+    markup = (WIDGET / "templates" / "historic" / "assets.html").read_text()
+
+    assert 'class="pricetip htip" tabindex="0"' in markup, (
+        "the total cannot be focused, so its tooltip is pointer-only"
+    )
+    assert 'aria-describedby="id-total-tip"' in markup
+    assert 'id="id-total-tip" class="sr-only"' in markup, (
+        "aria-describedby points at an element that is not there"
+    )
+    assert ":focus-visible::after" in stylesheet, (
+        "the tip is revealed on hover only, so focusing it shows nothing"
+    )
+
+
+def test_the_tooltip_can_be_placed_below_its_figure(stylesheet):
+    """What `data-position="bottom"` was reaching for and never did.
+
+    That attribute was Materialize's and has done nothing since the conversion.
+    The category row sits at the top of an open card, where a tip drawn upwards
+    is clipped, so this is a real requirement rather than a preference.
+    """
+    assert "htip-bottom" in stylesheet
 
 
 def test_the_total_is_centred_over_the_row_it_breaks_down(stylesheet):

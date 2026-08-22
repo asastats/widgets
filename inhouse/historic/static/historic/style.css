@@ -280,6 +280,64 @@
   text-align: center;
 }
 
+/* ---- tooltips ------------------------------------------------------------
+   This widget's own, and deliberately not called `.tooltip`.
+
+   It was `.tooltip` until now, which is DaisyUI's. The widget renders inside
+   the site's base template, so the host stylesheet styled it and it worked --
+   but only by accident of where it is rendered, and a widget is not supposed to
+   depend on the host's framework classes. Nor could that be fixed by defining
+   `.tooltip` here: `style.css` is loaded from `{% block otherheader %}`, after
+   `style.tw.css`, so a rule of that name would win over DaisyUI's tooltip for
+   the whole page, site chrome included. A name of our own has no collision to
+   lose.
+
+   `attr(data-tip)` rather than a `title` attribute, because the text is
+   rewritten on every currency switch and a native tooltip can be neither styled
+   nor placed.
+
+   The `:focus-visible` arm only bites for an element that can take focus, and
+   none of these can today -- they are spans. It is here so that making one
+   focusable is all it would take. What a pointer gets and a keyboard does not
+   is the figure's value in the *other* currency, which is a limitation this
+   markup already had; the rename does not change it either way. */
+.htip {
+  position: relative;
+}
+
+.htip[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 0.375rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-field, 0.5rem);
+  background: var(--color-neutral, #1f2937);
+  color: var(--color-neutral-content, #ffffff);
+  font-size: 0.75rem;
+  font-weight: 400;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.htip[data-tip]:hover::after,
+.htip[data-tip]:focus-visible::after {
+  opacity: 1;
+}
+
+/* Below the figure instead of above it. The category row sits at the top of an
+   open `<summary>`, where a tip drawn upwards is clipped by the card. This is
+   what `data-position="bottom"` was reaching for -- that was Materialize's API
+   and had done nothing since the conversion. */
+.htip-bottom[data-tip]::after {
+  bottom: auto;
+  top: calc(100% + 0.375rem);
+}
+
 .historic-toolbar,
 .historic-chart-actions,
 .historic-process-action,

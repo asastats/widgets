@@ -617,7 +617,13 @@ describe("SECTION: Currency functions", () => {
     historic.setCurrency("USD");
     expect($(".pricetip")[0].innerHTML).toBe("100.00 USD");
     expect($(".switch input").prop("checked")).toBe(true);
-    expect($("span.val")[1].dataset.position).toBe("right");
+    // This used to assert `dataset.position === "right"`. That attribute was
+    // Materialize's tooltip API and had done nothing since the conversion, so
+    // the test was pinning a value nothing read. What decides where the tip
+    // goes now is `.htip-bottom`, and a plain figure does not get it.
+    expect($("span.val")[1].classList.contains("htip")).toBe(true);
+    expect($("span.val")[1].classList.contains("htip-bottom")).toBe(false);
+    expect($("span.val")[0].classList.contains("htip-bottom")).toBe(true);
     historic.setCurrency("ALGO");
     expect($(".pricetip")[0].innerHTML).toBe("25.00 ALGO");
     expect($(".switch input").prop("checked")).toBe(false);
@@ -1383,5 +1389,144 @@ describe("the loading bar", () => {
     document.querySelectorAll(".historic-progress").forEach((el) => el.remove());
 
     expect(() => historic.clearAssetsPending()).not.toThrow();
+  });
+});
+/*
+ * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ * SECTION: Tooltips
+ * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * The markup used `.tooltip`, which is DaisyUI's. It worked only because this
+ * widget renders inside the site's base template -- the framework-class
+ * dependency a widget is not supposed to have. `.htip` is the widget's own and
+ * is defined in its own stylesheet.
+ *
+ * Two dead paths went with the rename. `data-tip` was written to every
+ * `span.val` while only `.pricetip` carried the class that displays it, so
+ * every other figure computed a tip on each switch that nothing could show;
+ * and the `data-position` written beside it was Materialize's API, doing
+ * nothing since the conversion.
+ */
+describe("tooltips", () => {
+  function mount() {
+    document.body.innerHTML = `
+      <div class="pricetip htip" data-price="0.25" data-pricealgo="4.0" data-total="100"></div>
+      <span class="val cons-value" data-val="100"></span>
+      <span class="val" data-val="50"></span>
+      <div class="switch"><input type="checkbox"></div>
+    `;
+  }
+
+  it("gives a figure both the text and the class that shows it", () => {
+    // The payload used to be written without the class, so it was never seen.
+    mount();
+
+    historic.setCurrency("USD");
+
+    const figure = document.querySelectorAll("span.val")[1];
+    expect(figure.dataset.tip).toBe("50.00 ALGO");
+    expect(figure.classList.contains("htip")).toBe(true);
+  });
+
+  it("puts the category row's tip below it and every other one above", () => {
+    // The row sits at the top of an open card, where an upward tip is clipped.
+    mount();
+
+    historic.setCurrency("ALGO");
+
+    expect(
+      document.querySelector(".cons-value").classList.contains("htip-bottom"),
+    ).toBe(true);
+    expect(
+      document.querySelectorAll("span.val")[1].classList.contains("htip-bottom"),
+    ).toBe(false);
+  });
+
+  it("takes the placement back off when a figure stops needing it", () => {
+    // `toggle` rather than `add`, so an element reused for something else does
+    // not keep a placement that no longer applies.
+    mount();
+    const figure = document.querySelectorAll("span.val")[1];
+    historic.setHistoricTip(figure, "x");
+    figure.classList.add("cons-value");
+    historic.setHistoricTip(figure, "y");
+    expect(figure.classList.contains("htip-bottom")).toBe(true);
+
+    figure.classList.remove("cons-value");
+    historic.setHistoricTip(figure, "z");
+
+    expect(figure.classList.contains("htip-bottom")).toBe(false);
+  });
+
+  it("never asks for DaisyUI's class", () => {
+    // The whole point of the rename: nothing here may reintroduce `.tooltip`,
+    // because the widget's stylesheet cannot style that name without also
+    // overriding the host's tooltip for the rest of the page.
+    mount();
+
+    historic.setCurrency("USD");
+
+    expect(document.querySelectorAll(".tooltip")).toHaveLength(0);
+  });
+});
+
+describe("the total's tooltip and the keyboard", () => {
+  function mount() {
+    document.body.innerHTML = `
+      <h2 class="historic-total">
+        <span class="sr-only">Total value:</span>
+        <span class="pricetip htip" tabindex="0" aria-describedby="id-total-tip"
+              data-price="0.25" data-pricealgo="4.0" data-total="100"
+              data-tip="100.00 USD (4.00 USD/ALGO)">25.00 ALGO</span>
+        <span id="id-total-tip" class="sr-only">100.00 USD (4.00 USD/ALGO)</span>
+      </h2>
+      <div class="switch"><input type="checkbox"></div>
+    `;
+  }
+
+  it("keeps the announced description in step with the switch", () => {
+    // The visual tip is `content: attr(data-tip)`, which is not dependably in
+    // the accessibility tree. The hidden span is what a screen reader reads,
+    // so it going stale would be worse than having none: it would announce a
+    // rate that is no longer on screen.
+    mount();
+
+    historic.setCurrency("USD");
+
+    const note = document.getElementById("id-total-tip");
+    expect(note.textContent).toBe(document.querySelector(".pricetip").dataset.tip);
+    expect(note.textContent).toContain("ALGO/USD");
+  });
+
+  it("switching back updates it again", () => {
+    mount();
+    historic.setCurrency("USD");
+
+    historic.setCurrency("ALGO");
+
+    expect(document.getElementById("id-total-tip").textContent).toBe(
+      document.querySelector(".pricetip").dataset.tip,
+    );
+  });
+
+  it("leaves a figure that asks for no description alone", () => {
+    // Only the total is described; every other tip repeats an amount the
+    // currency switch already gives, so the rest stay pointer conveniences
+    // rather than several dozen new tab stops.
+    mount();
+    const figure = document.createElement("span");
+    figure.className = "val";
+    figure.dataset.val = "5";
+    document.body.appendChild(figure);
+
+    expect(() => historic.setCurrency("USD")).not.toThrow();
+    expect(figure.hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("says nothing when the description element has gone", () => {
+    mount();
+    document.getElementById("id-total-tip").remove();
+
+    expect(() => historic.setCurrency("USD")).not.toThrow();
   });
 });

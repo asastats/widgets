@@ -237,12 +237,26 @@
     inside it: historic.js assigns to that element's `innerHTML` on every
     currency switch, and would discard any markup within it.
 
-    `data-tip`, not `data-tooltip`: the styling behind `.tooltip` reads the
-    former, so every tooltip on this page had a value nothing displayed.
+    `.htip`, not `.tooltip`: the latter is DaisyUI's, and it worked here only
+    because this widget renders inside the site's base template. `.htip` is
+    defined in the widget's own stylesheet and reads the same `data-tip`.
+
+    This is the one figure on the page whose tooltip is reachable without a
+    pointer, and the one that needs to be: every other tip says the same amount
+    in the other currency, which anyone can get by pressing the switch, but this
+    one also carries the exchange rate and that is available nowhere else. So it
+    takes focus, and `aria-describedby` points at a hidden span carrying the
+    same text -- a tip drawn as `content: attr(data-tip)` is not dependably
+    announced. `setTip` keeps that span in step on every switch.
+
+    Making every figure focusable was the alternative and would be worse: it
+    puts a tab stop on each of several dozen numbers to expose something the
+    currency switch already offers in one keystroke.
   {% endcomment %}
   <h2 class="historic-total">
     <span class="sr-only">Total value:</span>
-    <span class="pricetip tooltip" data-price={{ data.total.priceusdc }} data-pricealgo={{ data.total.pricealgo }} data-total={{ data.total.totalusdc }} data-totalwnft={{ data.total.total }} data-totalnft={{ data.total.nft }} data-tip='{{ data.total.totalusdc|floatformat:"2g" }} USD ({{ data.total.pricealgo|floatformat:"2g" }} USD/ALGO)'>{{ data.total.total|floatformat:"2g" }} ALGO</span>
+    <span class="pricetip htip" tabindex="0" aria-describedby="id-total-tip" data-price={{ data.total.priceusdc }} data-pricealgo={{ data.total.pricealgo }} data-total={{ data.total.totalusdc }} data-totalwnft={{ data.total.total }} data-totalnft={{ data.total.nft }} data-tip='{{ data.total.totalusdc|floatformat:"2g" }} USD ({{ data.total.pricealgo|floatformat:"2g" }} USD/ALGO)'>{{ data.total.total|floatformat:"2g" }} ALGO</span>
+    <span id="id-total-tip" class="sr-only">{{ data.total.totalusdc|floatformat:"2g" }} USD ({{ data.total.pricealgo|floatformat:"2g" }} USD/ALGO)</span>
   </h2>
 
   <div class="consolidated">

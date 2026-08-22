@@ -555,6 +555,54 @@ function dec6(num) {
 }
 
 /**
+ * Give an element a tooltip carrying the given text.
+ * @function setHistoricTip
+ *
+ * Named apart from `consolidated.js`'s `setTip`, which this page also loads.
+ * Two different functions under one global name is decided by script order --
+ * this file loads second, so its version silently replaced the other's for
+ * every caller, including callers inside that other file. The behaviours happen
+ * to be compatible today; the arrangement is not one to leave lying around.
+ *
+ * The class is added here rather than rendered into the templates because the
+ * text is what makes the tooltip worth having, and it is written from here --
+ * markup that carried the class without the text would offer an empty box.
+ * Only `.pricetip` names `.htip` in a template, because it arrives with a tip
+ * already rendered into it.
+ *
+ * This is also where the figures got their tooltip *payload* and no way to show
+ * it: `data-tip` was written to every `span.val` while only `.pricetip` carried
+ * the class DaisyUI styles, so every other figure computed a tip on each switch
+ * that nothing could ever display. And the `data-position` written beside it
+ * was Materialize's API, which has done nothing since the conversion --
+ * `.htip-bottom` is this widget's own and actually moves the tip.
+ *
+ * @param {Element} element element to give a tooltip to
+ * @param {String} text the tooltip's text
+ *
+ */
+function setHistoricTip(element, text) {
+  element.dataset.tip = text;
+  element.classList.add("htip");
+  // A tooltip drawn with `content: attr(data-tip)` is not reliably announced --
+  // generated content is not in the accessibility tree in any dependable way --
+  // so an element that wants its tip *read* points `aria-describedby` at a
+  // visually hidden span and this keeps that span in step with the switch.
+  // Only the total does; see the comment on it in `assets.html`.
+  var describedBy = element.getAttribute("aria-describedby");
+  if (describedBy) {
+    var note = document.getElementById(describedBy);
+    if (note) note.textContent = text;
+  }
+  // Below rather than above for the category row, which sits at the top of an
+  // open card where an upward tip is clipped.
+  element.classList.toggle(
+    "htip-bottom",
+    element.classList.contains("cons-value")
+  );
+}
+
+/**
  * Calculate and set currency values based on provided currency code
  *
  * @param {String} code
@@ -569,27 +617,21 @@ function setCurrency(code) {
   var total = elem.dataset.total;
   if (code == "USD") {
     $(".pricetip").each(function () {
-      this.dataset.tip =
-        cur(total * price) + " ALGO (" + dec6(price) + " ALGO/USD)";
+      setHistoricTip(this, cur(total * price) + " ALGO (" + dec6(price) + " ALGO/USD)");
       this.innerHTML = cur(total) + " USD";
     });
     $("span.val").each(function () {
       this.innerHTML = cur(this.dataset.val / price) + " USD";
-      this.dataset.tip = cur(this.dataset.val) + " ALGO";
-      if ($(this).hasClass("cons-value")) this.dataset.position = "bottom";
-      else this.dataset.position = "right";
+      setHistoricTip(this, cur(this.dataset.val) + " ALGO");
     });
   } else {
     $(".pricetip").each(function () {
-      this.dataset.tip =
-        cur(total) + " USD (" + dec6(pricealgo) + " USD/ALGO)";
+      setHistoricTip(this, cur(total) + " USD (" + dec6(pricealgo) + " USD/ALGO)");
       this.innerHTML = cur(total * price) + " ALGO";
     });
     $("span.val").each(function () {
       this.innerHTML = cur(this.dataset.val) + " ALGO";
-      this.dataset.tip = cur(this.dataset.val / price) + " USD";
-      if ($(this).hasClass("cons-value")) this.dataset.position = "bottom";
-      else this.dataset.position = "right";
+      setHistoricTip(this, cur(this.dataset.val / price) + " USD");
     });
   }
   // The charts follow the switch too. This used to call `setTotalCharts()`,
@@ -1366,6 +1408,7 @@ if (typeof exports !== "undefined") {
     //  * SECTION: Currency functions
     cur,
     dec6,
+    setHistoricTip,
     setCurrency,
     toggleCurrency,
     chartInCurrency,
