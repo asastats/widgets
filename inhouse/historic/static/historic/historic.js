@@ -10,6 +10,16 @@
  */
 var chartBars;
 var chartCandles;
+/**
+ * The charts exactly as the engine sent them, which is always in ALGO.
+ *
+ * The engine does not know which currency this reader is looking at, so its
+ * payload is the source and the drawn charts are a view of it. Kept because a
+ * currency switch has to rescale from these original figures: converting the
+ * drawn ones would divide by the price again on every flip of the switch, and
+ * the charts would shrink towards zero as the reader played with it.
+ */
+var chartsSource;
 var suppressZoom = false;
 var shownTime;
 var longPressTimeout = null;
@@ -575,7 +585,13 @@ function setCurrency(code) {
       else this.dataset.position = "right";
     });
   }
-  setTotalCharts();
+  // The charts follow the switch too. This used to call `setTotalCharts()`,
+  // which does not exist in this widget and never did: `setCurrency` was copied
+  // from the website, where that function retitles the allocation doughnuts,
+  // and the call came across while the function did not. So every switch threw
+  // a ReferenceError here -- after the figures had been rewritten, before the
+  // checkbox was synced -- and the candles and bars stayed in ALGO.
+  setChartsCurrency(code, price);
 
   $(".switch")
     .find("input[type=checkbox]")
@@ -933,15 +949,166 @@ function populateCandlesChart(chartData) {
  *
  */
 function populateCharts(chartsData) {
+  chartsSource = chartsData;
+  var charts = chartsInCurrency(chartsData, currentCurrency(), currentPrice());
+
   if (typeof chartBars !== "undefined") {
     suppressZoom = true;
-    updateChart(chartBars, chartsData.bars);
-    updateChart(chartCandles, chartsData.candles);
+    updateChart(chartBars, charts.bars);
+    updateChart(chartCandles, charts.candles);
     suppressZoom = false;
   } else {
-    populateBarsChart(chartsData.bars);
-    populateCandlesChart(chartsData.candles);
+    populateBarsChart(charts.bars);
+    populateCandlesChart(charts.candles);
   }
+}
+
+/**
+ * Return the currency the reader has chosen.
+ * @function currentCurrency
+ *
+ * @returns {String} "ALGO" or "USD"
+ *
+ */
+function currentCurrency() {
+  return localStorage.getItem("hcur") || "ALGO";
+}
+
+/**
+ * Return the ALGO price of one USD, as the rendered page carries it.
+ * @function currentPrice
+ *
+ * @returns {String|null} the price, or null when the page has no figures yet
+ *
+ */
+function currentPrice() {
+  var elem = $(".pricetip")[0];
+  return typeof elem === "undefined" ? null : elem.dataset.price;
+}
+
+/**
+ * Return both charts' data expressed in the given currency.
+ * @function chartsInCurrency
+ *
+ * @param {object} source charts payload as the engine sent it, in ALGO
+ * @param {String} code currency code the reader has chosen
+ * @param {String|Number} price ALGO per USD
+ *
+ * @returns {object} charts payload to draw
+ *
+ */
+function chartsInCurrency(source, code, price) {
+  var rate = parseFloat(price);
+  if (code !== "USD" || isNaN(rate) || rate === 0) return source;
+
+  return {
+    bars: chartInCurrency(source.bars, rate),
+    candles: chartInCurrency(source.candles, rate),
+  };
+}
+
+/**
+ * Return one chart's data with every money figure divided by the ALGO price.
+ * @function chartInCurrency
+ *
+ * @param {object} chartData one chart's data and scale boundaries
+ * @param {Number} rate ALGO per USD
+ *
+ * @returns {object} a copy, scaled
+ *
+ */
+function chartInCurrency(chartData, rate) {
+  if (!chartData || !chartData.data) return chartData;
+
+  var datasets = (chartData.data.datasets || []).map(function (dataset) {
+    var scaled = Object.assign({}, dataset);
+    scaled.data = (dataset.data || []).map(function (point) {
+      return pointInCurrency(point, rate);
+    });
+    return scaled;
+  });
+
+  // Copied rather than edited in place: `chartsSource` has to stay in ALGO for
+  // the next switch, and Chart.js keeps a reference to whatever it is handed.
+  return Object.assign({}, chartData, {
+    data: Object.assign({}, chartData.data, { datasets: datasets }),
+  });
+}
+
+/**
+ * Money keys on a chart point.
+ *
+ * A candle carries `o`, `h`, `l` and `c` -- and also `x` and the four
+ * `ot`/`ht`/`lt`/`ct` timestamps that `handleCandleClick` reads to ask the
+ * server about a moment in time. Dividing one of those by the ALGO price would
+ * ask for a date in 1970, so the list is explicit rather than "every number".
+ */
+var CHART_MONEY_KEYS = ["o", "h", "l", "c", "y"];
+
+/**
+ * Return one chart point with its money figures divided by the ALGO price.
+ * @function pointInCurrency
+ *
+ * @param {Number|String|object} point a bar height or a candle
+ * @param {Number} rate ALGO per USD
+ *
+ * @returns {Number|String|object} the point, scaled
+ *
+ */
+function pointInCurrency(point, rate) {
+  if (point === null || typeof point !== "object") {
+    return scaleFigure(point, rate);
+  }
+
+  var scaled = Object.assign({}, point);
+  CHART_MONEY_KEYS.forEach(function (key) {
+    if (key in scaled) scaled[key] = scaleFigure(scaled[key], rate);
+  });
+  return scaled;
+}
+
+/**
+ * Divide one figure by the ALGO price, leaving anything unparseable alone.
+ * @function scaleFigure
+ *
+ * @param {Number|String} value figure in ALGO
+ * @param {Number} rate ALGO per USD
+ *
+ * @returns {Number|String} the figure in USD, or `value` if it is not a number
+ *
+ */
+function scaleFigure(value, rate) {
+  var figure = parseFloat(value);
+  return isNaN(figure) ? value : figure / rate;
+}
+
+/**
+ * Redraw both charts in the currency the reader has just chosen.
+ * @function setChartsCurrency
+ *
+ * @param {String} code currency code the reader has chosen
+ * @param {String|Number} price ALGO per USD
+ *
+ */
+function setChartsCurrency(code, price) {
+  if (typeof chartsSource === "undefined") return;
+  if (typeof chartBars === "undefined") return;
+
+  var charts = chartsInCurrency(chartsSource, code, price);
+  // The data only, not `updateChart`: that resets the zoom, and a reader who
+  // has panned to a week in March did not ask to be sent back to the whole
+  // range because they wanted to read the figures in dollars. The x axis is
+  // time and a currency does not move it.
+  //
+  // Guarded for the same reason: whatever the redraw stirs up, this is not a
+  // view change, and letting one escape would post the reader's unchanged
+  // range back to the server on every flip of the switch.
+  suppressZoom = true;
+  chartBars.data = charts.bars.data;
+  chartCandles.data = charts.candles.data;
+  chartBars.update();
+  chartCandles.update();
+  suppressZoom = false;
 }
 
 /**
@@ -1194,6 +1361,13 @@ if (typeof exports !== "undefined") {
     dec6,
     setCurrency,
     toggleCurrency,
+    chartInCurrency,
+    chartsInCurrency,
+    currentCurrency,
+    currentPrice,
+    pointInCurrency,
+    scaleFigure,
+    setChartsCurrency,
     //  * SECTION: Helper functions
     copyToClipboard,
     deferImages,

@@ -10,7 +10,11 @@ window.$ = jquery;
 window.mainConsolidated = jest.fn();
 window.scrollToView = jest.fn(() => true);
 window.htmx = { trigger: jest.fn() };
-window.setTotalCharts = jest.fn();
+// `window.setTotalCharts = jest.fn()` used to sit here. It stubbed a function
+// the widget calls and does not have, so `setCurrency` threw a ReferenceError
+// in production on every switch while this suite stayed green -- the stub
+// supplied the very thing that was missing. The call is `setChartsCurrency`
+// now, which exists; nothing here may put it back.
 window.setTotalNoNft = jest.fn();
 Object.assign(navigator, {
   clipboard: {
@@ -631,6 +635,272 @@ describe("SECTION: Currency functions", () => {
     const checkbox = $(".switch input")[0];
     historic.toggleCurrency.call(checkbox);
     expect(localStorage.getItem("hcur")).toBe("ALGO");
+  });
+});
+/*
+ * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ * SECTION: The currency switch and the charts
+ * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * The reported fault: the listed figures followed the ALGO/USD switch and the
+ * candlestick and bar charts did not. `setCurrency` ended by calling
+ * `setTotalCharts()`, a function this widget does not have -- it belongs to the
+ * website, where it retitles the allocation doughnuts, and the call came across
+ * with the copied `setCurrency` while the function did not. Every switch threw
+ * a ReferenceError there, after the figures were rewritten and before the
+ * checkbox was synced.
+ *
+ * The suite could not have caught it: it stubbed `window.setTotalCharts`,
+ * supplying the very thing production was missing. That stub is gone.
+ *
+ * The engine only ever sends ALGO, so the charts are drawn from a kept copy of
+ * its payload and rescaled per switch. These test that the rescaling is right,
+ * that it is taken from the original figures rather than the drawn ones, and
+ * that a candle's timestamps are not treated as money.
+ */
+describe("the currency switch and the charts", () => {
+  /** One bar chart and one candlestick, in ALGO, as the engine sends them. */
+  function payload() {
+    return {
+      bars: {
+        data: {
+          labels: ["a", "b"],
+          datasets: [{ label: "ALGO", data: [100, 50] }],
+        },
+        xmin: 0,
+        xmax: 10,
+      },
+      candles: {
+        data: {
+          datasets: [
+            {
+              data: [
+                { x: 1700000000, o: 100, h: 200, l: 50, c: 150,
+                  ot: 1700000001, ht: 1700000002, lt: 1700000003, ct: 1700000004 },
+              ],
+            },
+          ],
+        },
+        xmin: 0,
+        xmax: 10,
+      },
+    };
+  }
+
+  function mountPrice(price = "0.25") {
+    document.body.innerHTML = `
+      <div class="pricetip" data-price="${price}" data-pricealgo="4.0" data-total="100"></div>
+      <div class="switch"><input type="checkbox"></div>
+      <canvas id="id-bars"></canvas><canvas id="id-candles"></canvas>
+      <input id="view-x-min" /><input id="view-x-max" /><div id="id-view"></div>
+    `;
+  }
+
+  /**
+   * Load a fresh copy of the widget, so its charts start out unbuilt.
+   *
+   * `chartBars` and `chartCandles` are module state and the suite requires the
+   * module once, so by the time these run some earlier test has already built
+   * them: `populateCharts` would take its update branch and quietly refresh a
+   * chart attached to a canvas two tests ago, while the one mounted here stayed
+   * empty. The Chart mock hangs the instance off the canvas it was given, so a
+   * chart that is never constructed cannot be found at all.
+   */
+  function freshHistoric() {
+    jest.resetModules();
+    return require("../../static/historic/historic.js");
+  }
+
+  it("leaves the payload alone in ALGO", () => {
+    const source = payload();
+
+    expect(historic.chartsInCurrency(source, "ALGO", "0.25")).toBe(source);
+  });
+
+  it("divides every bar height by the ALGO price in USD", () => {
+    // 0.25 ALGO per USD, so 100 ALGO is 400 USD.
+    const charts = historic.chartsInCurrency(payload(), "USD", "0.25");
+
+    expect(charts.bars.data.datasets[0].data).toEqual([400, 200]);
+  });
+
+  it("scales a candle's four prices and none of its timestamps", () => {
+    // The reason the money keys are listed explicitly: `ot`/`ht`/`lt`/`ct` are
+    // what `handleCandleClick` sends back to ask the server about a moment in
+    // time, and `x` places the candle. Divided by the price, every one of them
+    // would name a date in 1970.
+    const candle = historic.chartsInCurrency(payload(), "USD", "0.25")
+      .candles.data.datasets[0].data[0];
+
+    expect(candle.o).toBe(400);
+    expect(candle.h).toBe(800);
+    expect(candle.l).toBe(200);
+    expect(candle.c).toBe(600);
+    expect(candle.x).toBe(1700000000);
+    expect(candle.ot).toBe(1700000001);
+    expect(candle.ht).toBe(1700000002);
+    expect(candle.lt).toBe(1700000003);
+    expect(candle.ct).toBe(1700000004);
+  });
+
+  it("does not touch the payload it was given", () => {
+    // The whole reason the engine's payload is kept separately. If the drawn
+    // charts were the source, flipping the switch twice would divide by the
+    // price twice and the charts would walk towards zero.
+    const source = payload();
+
+    historic.chartsInCurrency(source, "USD", "0.25");
+
+    expect(source.bars.data.datasets[0].data).toEqual([100, 50]);
+    expect(source.candles.data.datasets[0].data[0].o).toBe(100);
+  });
+
+  it("keeps ALGO when there is no usable price", () => {
+    // `.pricetip` carries the price and arrives with the rendered figures; a
+    // chart frame can land before it does. Dividing by nothing would blank the
+    // charts, so an unusable price means the payload is drawn as it came.
+    [null, undefined, "", "not a number", "0"].forEach((price) => {
+      const source = payload();
+      expect(historic.chartsInCurrency(source, "USD", price)).toBe(source);
+    });
+  });
+
+  it("leaves a figure it cannot read alone", () => {
+    expect(historic.scaleFigure(null, 0.25)).toBe(null);
+    expect(historic.scaleFigure("", 0.25)).toBe("");
+    expect(historic.scaleFigure("40", 0.25)).toBe(160);
+  });
+
+  it("passes a null point through rather than reading keys off it", () => {
+    // Chart.js uses null for a gap in a series.
+    expect(historic.pointInCurrency(null, 0.25)).toBe(null);
+  });
+
+  it("scales a bar given as a point object", () => {
+    expect(historic.pointInCurrency({ x: 5, y: 100 }, 0.25)).toEqual({
+      x: 5,
+      y: 400,
+    });
+  });
+
+  it("returns a chart with no data untouched", () => {
+    expect(historic.chartInCurrency(undefined, 0.25)).toBe(undefined);
+    const bare = { xmin: 0, xmax: 1 };
+    expect(historic.chartInCurrency(bare, 0.25)).toBe(bare);
+  });
+
+  it("copes with a dataset carrying no data array", () => {
+    const charts = historic.chartInCurrency(
+      { data: { datasets: [{ label: "ALGO" }] } },
+      0.25,
+    );
+
+    expect(charts.data.datasets[0].data).toEqual([]);
+    expect(charts.data.datasets[0].label).toBe("ALGO");
+  });
+
+  it("reads the reader's currency and the page's price", () => {
+    mountPrice("0.5");
+
+    expect(historic.currentCurrency()).toBe("ALGO");
+    localStorage.setItem("hcur", "USD");
+    expect(historic.currentCurrency()).toBe("USD");
+    expect(historic.currentPrice()).toBe("0.5");
+  });
+
+  it("has no price to report before the figures arrive", () => {
+    document.body.innerHTML = "";
+
+    expect(historic.currentPrice()).toBe(null);
+  });
+
+  it("draws a chart that arrives while the reader is in USD", () => {
+    // The second half of the same fault. Even once the switch redrew the
+    // charts, a frame pushed by the engine afterwards would come in at ALGO
+    // scale and sit there until the reader flipped the switch again.
+    mountPrice("0.25");
+    localStorage.setItem("hcur", "USD");
+    const widget = freshHistoric();
+
+    widget.populateCharts(payload());
+
+    const bars = document.getElementById("id-bars").chart;
+    expect(bars.data.datasets[0].data).toEqual([400, 200]);
+  });
+
+  it("redraws both charts when the switch is thrown", () => {
+    mountPrice("0.25");
+    const widget = freshHistoric();
+    widget.populateCharts(payload());
+    const bars = document.getElementById("id-bars").chart;
+    const candles = document.getElementById("id-candles").chart;
+    expect(bars.data.datasets[0].data).toEqual([100, 50]);
+
+    widget.setCurrency("USD");
+
+    expect(bars.data.datasets[0].data).toEqual([400, 200]);
+    expect(candles.data.datasets[0].data[0].o).toBe(400);
+    expect(bars.update).toHaveBeenCalled();
+    expect(candles.update).toHaveBeenCalled();
+  });
+
+  it("switching back and forth does not shrink the charts", () => {
+    // The compounding this is built to prevent: rescale from the drawn figures
+    // and four flips leave the charts at a 256th of their value.
+    mountPrice("0.25");
+    const widget = freshHistoric();
+    widget.populateCharts(payload());
+    const bars = document.getElementById("id-bars").chart;
+
+    widget.setCurrency("USD");
+    widget.setCurrency("ALGO");
+    widget.setCurrency("USD");
+    widget.setCurrency("ALGO");
+
+    expect(bars.data.datasets[0].data).toEqual([100, 50]);
+  });
+
+  it("switches currency before any chart data has arrived", () => {
+    // `resetHistoric` calls `setCurrency` on every `assets_end`, and the charts
+    // come down a different message. The figures still have to convert when
+    // there is nothing to redraw yet.
+    mountPrice("0.25");
+    const widget = freshHistoric();
+
+    expect(() => widget.setCurrency("USD")).not.toThrow();
+    expect($(".switch input").prop("checked")).toBe(true);
+  });
+
+  it("switches currency when the payload arrived but the charts were not built", () => {
+    // A chart frame landing before the canvases exist: the payload is kept and
+    // the draw throws, so the two pieces of state disagree. `messageReceived`
+    // swallows that throw, which leaves the reader on a page whose switch must
+    // still work.
+    document.body.innerHTML = `
+      <div class="pricetip" data-price="0.25" data-pricealgo="4.0" data-total="100"></div>
+      <div class="switch"><input type="checkbox"></div>
+    `;
+    const widget = freshHistoric();
+    try {
+      widget.populateCharts(payload());
+    } catch (error) {
+      // No canvas to draw on; the payload has been kept all the same.
+    }
+
+    expect(() => widget.setCurrency("USD")).not.toThrow();
+  });
+
+  it("does not ask the server for a view it has not changed", () => {
+    // A currency is not a pan. The x axis is time and the switch does not move
+    // it, so nothing here may reach `submitView`.
+    mountPrice("0.25");
+    const widget = freshHistoric();
+    widget.populateCharts(payload());
+    htmx.trigger.mockClear();
+
+    widget.setCurrency("USD");
+
+    expect(htmx.trigger).not.toHaveBeenCalled();
   });
 });
 /*
