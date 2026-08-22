@@ -1327,3 +1327,61 @@ describe("currency tooltips", () => {
     expect(document.querySelector(".val").dataset.tip).toBeDefined();
   });
 });
+/*
+ * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ * SECTION: The loading bar
+ * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * `.progress` is a state rather than a description: `historic.js` puts it on
+ * `.historic-progress` while there is work in flight, and the stylesheet shows
+ * the bar only while it is there.
+ *
+ * The fixture had no such element, so none of this was exercised -- and while
+ * the bar had no rules at all it was invisible, so nobody noticed that a bundle
+ * whose data is already computed never takes it down again. Those assets simply
+ * stream in and stop; no unlock message is ever sent. It swept for as long as
+ * the page stayed open.
+ */
+describe("the loading bar", () => {
+  function mountBar() {
+    document.body.innerHTML +=
+      '<div class="historic-progress"><div class="indeterminate"></div></div>';
+    return document.querySelector(".historic-progress");
+  }
+
+  it("goes up when the widget starts working", () => {
+    const bar = mountBar();
+
+    historic.mainHistoric();
+
+    expect(bar.classList.contains("progress")).toBe(true);
+  });
+
+  it("comes down once the assets have arrived", () => {
+    const bar = mountBar();
+    historic.mainHistoric();
+
+    historic.clearAssetsPending();
+
+    expect(bar.classList.contains("progress")).toBe(false);
+  });
+
+  it("comes down on assets_end, which is the message that ends the wait", () => {
+    // The path a reader actually takes: the engine streams the assets and says
+    // it is done. No lock message is involved.
+    const bar = mountBar();
+    historic.mainHistoric();
+
+    historic.messageReceived({
+      detail: { message: JSON.stringify({ type: "assets_end" }) },
+    });
+
+    expect(bar.classList.contains("progress")).toBe(false);
+  });
+
+  it("says nothing when the page has no loading bar", () => {
+    document.querySelectorAll(".historic-progress").forEach((el) => el.remove());
+
+    expect(() => historic.clearAssetsPending()).not.toThrow();
+  });
+});

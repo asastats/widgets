@@ -268,6 +268,18 @@
   padding: 0.5rem 0;
 }
 
+/* The portfolio total, over the category row that breaks it down.
+
+   It was the one heading in this widget with no rule of its own, so it sat
+   hard left while `.cons-grid` under it, `.cons-expand` under that and
+   `.phase-address` above were all centred -- the summary block reads as one
+   thing and the number it is about was the only part not lined up with it.
+   Less obvious while the `.sr-only` label was still rendering as visible text,
+   because the line was longer and looked deliberate. */
+.historic-total {
+  text-align: center;
+}
+
 .historic-toolbar,
 .historic-chart-actions,
 .historic-process-action,
@@ -464,8 +476,7 @@
 .phase-address { text-align: center; }
 .phase-bar { min-width: 0; }
 
-.progress,
-.historic-progress {
+.progress {
   position: relative;
   height: 4px;
   width: 100%;
@@ -474,7 +485,14 @@
   border-radius: 2px;
 }
 
-.historic-progress { margin: 1rem 0; }
+/* `.progress` is a state, not a description. `historic.js` puts it on this
+   element while there is work in flight and takes it off when there is not, so
+   the loading bar is only a bar while it is saying something -- without the
+   `:not()` it sweeps for as long as the page is open, which is what happened
+   the first time these rules went in. The phase bars in `processing.html` carry
+   `.progress` in the markup instead, because those are always on screen. */
+.historic-progress:not(.progress) { display: none; }
+.historic-progress.progress { margin: 1rem 0; }
 
 .progress > .determinate {
   position: absolute;

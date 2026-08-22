@@ -240,7 +240,7 @@
     `data-tip`, not `data-tooltip`: the styling behind `.tooltip` reads the
     former, so every tooltip on this page had a value nothing displayed.
   {% endcomment %}
-  <h2>
+  <h2 class="historic-total">
     <span class="sr-only">Total value:</span>
     <span class="pricetip tooltip" data-price={{ data.total.priceusdc }} data-pricealgo={{ data.total.pricealgo }} data-total={{ data.total.totalusdc }} data-totalwnft={{ data.total.total }} data-totalnft={{ data.total.nft }} data-tip='{{ data.total.totalusdc|floatformat:"2g" }} USD ({{ data.total.pricealgo|floatformat:"2g" }} USD/ALGO)'>{{ data.total.total|floatformat:"2g" }} ALGO</span>
   </h2>

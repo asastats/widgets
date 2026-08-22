@@ -279,6 +279,13 @@ function drawPendingMarker() {
 function clearAssetsPending() {
   requestPending = false;
   clearAssetsTimeout();
+  // The loading bar goes with the pending state. `mainHistoric` starts it on
+  // load and `setUILocked` drives it after that, but a bundle whose data is
+  // already computed never gets an unlock message -- the assets simply stream
+  // in and stop -- so nothing took it down and it swept for as long as the page
+  // stayed open. It was invisible until the rules for it were written, which is
+  // why it went unnoticed.
+  $(".historic-progress").removeClass("progress");
   if (pendingMarker) {
     var chart = pendingMarker.chart;
     pendingMarker = null;

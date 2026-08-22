@@ -58,6 +58,7 @@ PRESENTATION_ONLY = [
     "cons-text",
     "cons-value",
     "determinate",
+    "historic-total",
     "hoverable",
     "indeterminate",
     "nft-element-image",
@@ -184,6 +185,37 @@ def test_the_progress_bars_have_something_to_show(stylesheet):
     assert "background" in _rule(stylesheet, "determinate"), (
         "the fill has no colour, so a part-finished phase looks like an empty one"
     )
+
+
+def test_the_loading_bar_is_a_bar_only_while_there_is_work(stylesheet):
+    """`.progress` is a state the script drives, not a description.
+
+    `historic.js` puts `.progress` on `.historic-progress` while work is in
+    flight and takes it off when it is done, so the rules that give the bar an
+    appearance have to be conditional on it. The first version of them was not,
+    and the bar swept for as long as the page stayed open -- which had been
+    invisible up to then only because the element had no rules at all.
+
+    The phase bars in `processing.html` are the other case: they carry
+    `.progress` in the markup because they are always on screen, so styling
+    `.progress` itself is right and it is `.historic-progress` alone that must
+    show nothing.
+    """
+    idle = re.search(
+        r"\.historic-progress:not\(\.progress\)[^{]*\{([^}]*)\}", stylesheet
+    )
+    assert idle, "the loading bar has no idle state, so it animates forever"
+    assert "display: none" in idle.group(1) or "height: 0" in idle.group(1)
+
+
+def test_the_total_is_centred_over_the_row_it_breaks_down(stylesheet):
+    """It was the one heading here with no rule, so it sat hard left.
+
+    `.cons-grid` below it, `.cons-expand` below that and `.phase-address` above
+    are all centred; the summary reads as one block and the figure it is about
+    was the only part not lined up with it.
+    """
+    assert "text-align: center" in _rule(stylesheet, "historic-total")
 
 
 def test_the_nft_thumbnail_cannot_burst_its_card(stylesheet):
