@@ -18,8 +18,9 @@ for every router.
 """
 
 import json
+import logging
 
-from api.client import engine_request
+from api.client import BackendError, engine_request
 from api.widgets import bundle_and_addresses_from_path
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
@@ -30,9 +31,17 @@ from widgethost.enforcement import WidgetAccessMixin
 
 from .manifest import MANIFEST
 
+logger = logging.getLogger(__name__)
+
 #: Engine paths behind the two router scopes.
-QUOTE_PATH = "router/quote/"
-GROUP_PATH = "router/group/"
+#:
+#: Absolute from the engine root, because :func:`api.client._request` builds the
+#: URL by plain concatenation - ``f"{ASASTATS_API_URL}{path}"``. A path without
+#: the leading slash and prefix produced ``http://host:8001router/quote/``,
+#: which never reached the engine at all. Every other caller in that module
+#: passes ``/api/v2/...`` for the same reason.
+QUOTE_PATH = "/api/v2/internal/router/quote/"
+GROUP_PATH = "/api/v2/internal/router/group/"
 
 
 class AsastatsSwapView(WidgetAccessMixin, TemplateView):
@@ -121,15 +130,31 @@ class _RouterEndpoint(WidgetAccessMixin, View):
         # the address is the gated one rather than whatever the body claims,
         # so a tampered body cannot quote or build for somebody else
         payload["address"] = self.address
-        return JsonResponse(
-            engine_request(
+        # `.json()` because `engine_request` hands back the `requests.Response`
+        # rather than a decoded body - passing the response object itself made
+        # every call 500 with "In order to allow non-dict objects to be
+        # serialized set the safe parameter to False", which reads like a
+        # serialization setting and is really a missing decode.
+        try:
+            answered = engine_request(
                 self.scope,
                 "POST",
                 self.path,
                 self.manifest.engine_endpoints,
                 json=payload,
+            ).json()
+        except BackendError as error:
+            # The engine refuses for reasons a reader can act on - a restricted
+            # deployment cannot build a group for anyone, and says so. Letting
+            # that escape turns a 503 and one useful sentence into a 500 and a
+            # stack trace, so the status and the detail are passed through.
+            logger.info("asastats router refused: %s", error)
+            return JsonResponse(
+                {"error": error.detail or "the router is unavailable"},
+                status=error.status_code or 502,
             )
-        )
+
+        return JsonResponse(answered)
 
     def test_func(self):
         """Gate on permission plus the address being the user's own.

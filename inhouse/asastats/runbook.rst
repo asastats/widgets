@@ -8,22 +8,48 @@ This is the only router widget whose router is ours. Folks and Haystack are vend
 reached from the browser by their own SDKs; this one quotes in the ASA Stats engine and
 the browser talks only to us.
 
-Not yet operable
-----------------
+State
+-----
 
-**The two engine endpoints this widget declares do not exist yet.** The widget
-validates, renders and gates correctly, but every quote fails until they are built and
-granted:
+**The two engine endpoints exist and this widget is published.** ``core/urls.py``
+routes both, implemented as ``InternalRouterQuoteView`` and
+``InternalRouterGroupView`` with ``required_scope`` set to match:
 
 - ``router:quote`` → ``POST /api/v2/internal/router/quote/``
 - ``router:group`` → ``POST /api/v2/internal/router/group/``
 
 Both must also appear in the deployment token's ``scopes``; ASA Stats grants those at
-the engine and a fork cannot raise its own. Until then, leave the widget unpublished
-rather than published-and-broken — ``category = "swap"`` means the registry would
-otherwise offer it as a selectable router.
+the engine and a fork cannot raise its own.
 
-The routing code they must wrap is the smart router package, whose quoting entry points
+**Quoting works. Group building answers 503 for every caller**, and will until the
+mainnet deployment is redeployed unrestricted: ``engine/core/router.py:_deployment()``
+raises ``RouterUnavailable`` when ``deployment.restricted``. So a reader can see a
+quote and cannot execute it. ``integration_tests/test_asastats_integration.py`` pins
+that state deliberately — when the unrestricted deployment lands, the test that
+records the 503 is the one that should start failing.
+
+.. warning::
+
+   An earlier version of this section said to *leave the widget unpublished rather
+   than published-and-broken, because* ``category = "swap"`` *means the registry
+   would otherwise offer it as a selectable router*. **That mitigation never
+   worked, and it caused a live bug.**
+
+   ``widgethost.registry`` discovers a widget from the presence of its
+   ``widget.toml``, and ``swap_routers()`` returns everything declaring
+   ``category = "swap"`` — neither consults ``INHOUSE_WIDGETS``. Leaving the widget
+   out of that list therefore stopped its **URLs being mounted** while doing nothing
+   at all to stop it **being offered**. Worse, ``swap_routers()`` sorts by id and
+   ``asastats`` sorts first, so ``Profile.preferred_router_or_default`` returned it
+   as the default for every profile that had never chosen a router — whose entry URL
+   then resolved to ``""``, because ``swap_entry_url`` swallows ``NoReverseMatch``
+   and returns empty so callers "degrade gracefully".
+
+   Nothing failed loudly and nothing logged. The lesson is that discovery and
+   mounting are two mechanisms: a widget is hidden only when its manifest says so,
+   never by being left off a list.
+
+The routing code these wrap is the smart router package, whose quoting entry points
 are ``router.quote.quote_fixed_input`` and ``router.quote.quote_fixed_output``, and
 whose group builder is ``router.legs.legs_for_quote`` followed by
 ``router.build.assemble``.

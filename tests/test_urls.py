@@ -19,7 +19,20 @@ class TestWidgetsUrls:
         assert "widgets.inhouse.historic.urls" in str(url.urlconf_name)
 
     def test_widgets_urls_patterns_count(self):
-        assert len(urls.urlpatterns) == 5
+        assert len(urls.urlpatterns) == 6
+
+    def test_widgets_urls_mounts_the_asastats_router(self):
+        """Our own router is mounted, which is what makes its URL reversible.
+
+        `widgethost.registry` discovers a widget from its `widget.toml` while
+        this module mounts only what `INHOUSE_WIDGETS` names. asastats was
+        discovered but not mounted, so it was offered on the settings page and
+        - sorting first among the swap routers - was the default for every
+        profile that had never chosen one, while `swap_entry_url` returned "".
+        """
+        url = self._url_from_pattern(r"^asastats/")
+        assert isinstance(url, URLResolver)
+        assert "widgets.inhouse.asastats.urls" in str(url.urlconf_name)
 
 
 class TestWidgetsUrlsFallback:
@@ -40,6 +53,7 @@ class TestWidgetsUrlsFallback:
                 ("re", ("include", "inhouse.folks.urls")),
                 ("re", ("include", "inhouse.haystack.urls")),
                 ("re", ("include", "inhouse.hogswap.urls")),
+                ("re", ("include", "inhouse.asastats.urls")),
                 ("re", ("include", "inhouse.swapcore.urls")),
             ]
         finally:

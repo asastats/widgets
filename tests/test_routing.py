@@ -38,6 +38,7 @@ class TestWidgetsRouting:
                 ("inhouse.folks.routing",),
                 ("inhouse.haystack.routing",),
                 ("inhouse.hogswap.routing",),
+                ("inhouse.asastats.routing",),
                 ("inhouse.swapcore.routing",),
             ]
         finally:
