@@ -2,6 +2,7 @@
 
 import json
 
+from api.client import BackendError
 from widgets.inhouse.asastats.views import (
     AsastatsGroupView,
     AsastatsQuoteView,
@@ -75,18 +76,31 @@ class TestInhouseAsastatsViewsRouterEndpoint:
         view.address = "ADDR_ONE"
         return view
 
+    def _answers(self, mocker, payload):
+        """Patch `engine_request` to answer the way it really answers.
+
+        It returns the `requests.Response`, **not** a decoded body. Mocking it
+        with a plain dict is what hid a real bug for the life of this widget:
+        the view passed the response object straight to `JsonResponse` with no
+        `.json()`, every call 500'd, and all of these tests passed anyway
+        because the mock had a shape the real function never had. A mock is a
+        claim about a contract, and this one was false.
+        """
+        answer = mocker.MagicMock()
+        answer.json.return_value = payload
+        return mocker.patch(
+            "widgets.inhouse.asastats.views.engine_request", return_value=answer
+        )
+
     def test_inhouse_asastats_views_endpoint_forwards_to_the_engine(self, mocker):
         view = self._view(mocker)
-        call = mocker.patch(
-            "widgets.inhouse.asastats.views.engine_request",
-            return_value={"amount_out": "9"},
-        )
+        call = self._answers(mocker, {"amount_out": "9"})
         response = view.post(view.request)
         assert json.loads(response.content) == {"amount_out": "9"}
         scope, method, path, allowed = call.call_args.args
         assert scope == "router:quote"
         assert method == "POST"
-        assert path == "router/quote/"
+        assert path == "/api/v2/internal/router/quote/"
         assert "router:quote" in allowed
 
     def test_inhouse_asastats_views_endpoint_overrides_the_body_address(
@@ -99,9 +113,7 @@ class TestInhouseAsastatsViewsRouterEndpoint:
         check decorative.
         """
         view = self._view(mocker, body=b'{"address": "SOMEONE_ELSE"}')
-        call = mocker.patch(
-            "widgets.inhouse.asastats.views.engine_request", return_value={}
-        )
+        call = self._answers(mocker, {})
         view.post(view.request)
         assert call.call_args.kwargs["json"]["address"] == "ADDR_ONE"
 
@@ -138,15 +150,63 @@ class TestInhouseAsastatsViewsRouterEndpoint:
 
     def test_inhouse_asastats_views_group_endpoint_uses_its_own_scope(self, mocker):
         view = self._view(mocker, cls=AsastatsGroupView)
-        call = mocker.patch(
-            "widgets.inhouse.asastats.views.engine_request", return_value={}
-        )
+        call = self._answers(mocker, {})
         view.post(view.request)
         scope, _, path, _ = call.call_args.args
         assert scope == "router:group"
-        assert path == "router/group/"
+        assert path == "/api/v2/internal/router/group/"
 
     def test_inhouse_asastats_views_both_endpoints_are_gated_the_same_way(self):
         """The group endpoint spends assets; it must not be the laxer of the two."""
         assert AsastatsQuoteView.test_func is _RouterEndpoint.test_func
         assert AsastatsGroupView.test_func is _RouterEndpoint.test_func
+
+    def test_inhouse_asastats_views_endpoint_passes_a_refusal_through(self, mocker):
+        """The engine's status and its sentence both reach the caller.
+
+        A restricted deployment answers 503 explaining that no group can be
+        built for anyone. Letting `BackendError` escape turned that into a 500
+        and a stack trace, so the reader saw a crash where there was a reason.
+        """
+        view = self._view(mocker, cls=AsastatsGroupView)
+        mocker.patch(
+            "widgets.inhouse.asastats.views.engine_request",
+            side_effect=BackendError(
+                "503: ...", status_code=503, detail="RESTRICT_TO_ADMIN, so no group"
+            ),
+        )
+        response = view.post(view.request)
+        assert response.status_code == 503
+        assert json.loads(response.content) == {
+            "error": "RESTRICT_TO_ADMIN, so no group"
+        }
+
+    def test_inhouse_asastats_views_endpoint_refusal_without_a_detail(self, mocker):
+        """A backend that answers with no JSON body still gets a usable status.
+
+        `detail` is None whenever the response would not decode, so the message
+        falls back rather than rendering "null" to the reader.
+        """
+        view = self._view(mocker)
+        mocker.patch(
+            "widgets.inhouse.asastats.views.engine_request",
+            side_effect=BackendError("500: <html>", status_code=500),
+        )
+        response = view.post(view.request)
+        assert response.status_code == 500
+        assert json.loads(response.content) == {"error": "the router is unavailable"}
+
+    def test_inhouse_asastats_views_endpoint_refusal_without_a_status(self, mocker):
+        """An error carrying no status is reported as a bad gateway, not a 200.
+
+        `BackendError` is raised in one place today, but the default matters:
+        `status=None` would make Django answer 200 with an error body, which is
+        the one outcome the adapter cannot detect.
+        """
+        view = self._view(mocker)
+        mocker.patch(
+            "widgets.inhouse.asastats.views.engine_request",
+            side_effect=BackendError("boom"),
+        )
+        response = view.post(view.request)
+        assert response.status_code == 502
