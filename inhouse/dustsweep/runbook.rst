@@ -60,7 +60,8 @@ Six dispositions, decided in :mod:`router.sweep`:
               asset, and anything frozen
 ``unpriced``  nothing could value it, so the sweep refuses to guess
 ``committed`` not free to sweep at all - an NFT, or a token the account holds
-              because of a position in some dApp. Shown as **In use**
+              because of a position in some dApp. Shown as **In use**, with the
+              disqualifying program named in the reason
 ============= ==================================================================
 
 What is free to sweep, and what only looks like it
@@ -74,17 +75,45 @@ dust, and the position breaks. This was the first real defect the widget hit.
 What can tell them apart is the account evaluation the address page is already
 built from. A holding is free to sweep when it is:
 
-* listed in ``asaitems`` - the engine valued it as this address's own holding,
-  **or**
-* listed in ``notevals`` - recognised but unvalued, still the address's own
-  (it will classify ``unpriced``, so nothing is given away on this alone),
-  **or**
-* **empty**. Nothing is left in it to belong to a position, and closing it moves
-  no tokens at all;
+* listed in ``asaitems`` **with no program but** ``Balance`` - the engine valued
+  it as this address's own wallet holding, **or**
+* listed in ``notevals`` under the same program rule - recognised but unvalued,
+  still the address's own (it will classify ``unpriced``, so nothing is given
+  away on this alone), **or**
+* **empty**, *and* carrying no position anywhere. Nothing is left in it to
+  belong to a position, and closing it moves no tokens at all;
 
 and it is **not** in ``nftcollections``. That last rule is unconditional and
 beats all three positives: an NFT worth nothing today is not dust, and
 forfeiting one to its creator destroys something that cannot be re-minted.
+
+Any program but ``Balance`` disqualifies the asset
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The evaluation itemises each holding by program - ``Balance`` for what sits
+plainly in the wallet, and ``Staked``, ``Locked``, ``Deposited``,
+``Collateral``, ``Supplied``, ``Borrowed``, ``Added`` and the rest for what does
+not. **Any of the latter disqualifies the whole asset**, including its
+``Balance`` half.
+
+This is a rule about intent, not mechanics. The wallet portion of a staked asset
+really is spendable - checked against ``account_info``, ``Balance`` matched the
+chain on 245 of 245 holdings - and sweeping it would roughly double what a sweep
+finds. But somebody who has staked, lent or collateralised a token has said they
+want it, and a sweep is for the ones they do not. It also has real bite: 38 of
+the 76 asaitems in the captured sample payload carry more than one program.
+
+It runs **before** the empty rule, which is not a technicality. An account whose
+tokens are all staked holds the asset at zero, and that opt-in is the slot the
+protocol will pay back into - an ASA cannot be sent to an account that is not
+opted in, so closing it would make the eventual withdrawal fail.
+
+A listing with *no* programs at all (the captured payload's one noteval) is read
+as "no position recorded" and stays free: the chain supplies the amount, so an
+absent ``Balance`` entry says nothing a sweep needs. A malformed program entry
+likewise does not disqualify - failing closed there would let a serializer
+change silently empty every sweep, and the case where the evaluation cannot be
+read at all is handled separately and reported.
 
 Anything else with a balance is, by elimination, held because of something the
 account is doing elsewhere. Note this is a rule about *availability*, not value:
