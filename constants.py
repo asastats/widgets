@@ -7,5 +7,6 @@ INHOUSE_WIDGETS = [
     "hogswap",
     "asastats",
     "swapcore",
+    "dustsweep",
 ]
 THIRDPARTY_WIDGETS = []

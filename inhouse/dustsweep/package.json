@@ -1,0 +1,23 @@
+{
+  "name": "asastats-widget-dustsweep",
+  "private": true,
+  "scripts": {
+    "test": "jest"
+  },
+  "jest": {
+    "verbose": true,
+    "collectCoverage": true,
+    "coverageDirectory": "<rootDir>/tests/javascript/coverage",
+    "collectCoverageFrom": [
+      "<rootDir>/static/dustsweep/*.js",
+      "!<rootDir>/static/dustsweep/*.min*.js",
+      "!<rootDir>/tests/javascript/coverage/**"
+    ],
+    "coverageReporters": ["lcov", "text"],
+    "testEnvironment": "jsdom"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1"
+  }
+}

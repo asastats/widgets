@@ -1,0 +1,49 @@
+{% extends 'base.html' %}{% load static %}{% load core_extras %}
+{% block title %}Dust Sweep - {{ WEBSITE_NAME }}{% endblock %}
+{% block content %}
+{# Page context handed to the controller via data-*. The plan URL is the whole #}
+{# configuration: every decision a sweep makes is made in the engine, so there #}
+{# is no threshold, no asset list and no fee here that a user could edit into  #}
+{# something the server would then act on.                                     #}
+<div id="id-dustsweep"
+     data-widget="{{ widget_id }}"
+     data-bundle="{{ bundle }}"
+     data-addresses="{{ addresses }}"
+     data-plan-url="{% url 'dustsweep_plan' %}"
+     data-explorer-base="{% explorer_base %}"
+     data-explorer-tx-path="{% explorer_tx_path %}">
+
+  <h1 class="dustsweep-page-title">Dust Sweep</h1>
+
+  {% if linked_addresses %}
+  <p class="dustsweep-intro">
+    Closing an empty asset holding returns the 0.1&nbsp;ALGO it locks. Most of
+    what a sweep recovers is that minimum balance rather than the tokens
+    themselves.
+  </p>
+
+  {# Native <details> per address, matching the swap shell: no framework #}
+  {# component to initialise, and the controller plans on first open.    #}
+  <ul class="dustsweep-addresses" id="id-dustsweep-addresses">
+    {% for address in linked_addresses %}
+    <li data-address="{{ address }}">
+      <details class="dustsweep-address">
+        <summary>{{ address|short_address }}</summary>
+        <div class="id-dustsweep-panel" id="id-dustsweep-panel-{{ forloop.counter }}"
+             data-address="{{ address }}"></div>
+      </details>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <blockquote id="id-dustsweep-locked">
+    Connect the wallet that owns an address on this page to sweep it.
+  </blockquote>
+  {% endif %}
+</div>
+
+{# Requires the wallet swap bridge (window.asastatsSwap: activeAddress/ #}
+{# signAndSend/signAndSendPartial, dispatching 'asastats:swap-ready') to be #}
+{# loaded on this page -- it ships with the wallet bundle. #}
+<script src="{% static 'dustsweep/dustsweep.js' %}"></script>
+{% endblock %}

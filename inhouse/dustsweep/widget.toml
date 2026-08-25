@@ -1,0 +1,46 @@
+id = "dustsweep"
+name = "Dust Sweep"
+version = "0.1.0"
+
+# Ours, so there is nobody to pay out.
+origin = "inhouse"
+
+# Engine-backed. Everything a sweep decides - what is dust, what is worth
+# converting, what may be forfeited and which group to sign next - is decided in
+# the engine against live chain state. The browser renders the answer and
+# collects one signature at a time.
+capability = "engine-backed"
+revenue_account = ""
+
+# Three scopes:
+#   router:sweep     -> POST /api/v2/internal/router/sweep/
+#   account:holdings -> the holdings panel, shared with every swap widget
+#   assets:lookup    -> asset names for the lines the sweep lists
+#
+# `router:sweep` is its own scope rather than a reuse of `router:quote`. A
+# deployment that can quote a swap must not thereby be able to plan a sweep for
+# any address it names: the sweep reads a whole account and decides what to give
+# away, which is a different power.
+engine_endpoints = [
+    "router:sweep",
+    "account:holdings",
+    "assets:lookup",
+]
+
+# Host-injected context, matching the swap widgets'.
+data = ["portfolio:bundle", "profile:permission", "walletauth:linked_addresses"]
+
+# No external host: the browser talks only to us.
+hosts = []
+
+# **Not "swap".** A swap category puts a widget on the settings page as a
+# selectable router, and this is not a router - it is a tool that uses one.
+# `test_widgets_constants_lists_every_swap_router_it_discovers` globs for
+# `category = "swap"`, so naming it that here would also make the sweep an
+# option a user could set as their default router.
+category = "tools"
+
+# A sweep acts on one address at a time and is gated by
+# walletauth:linked_addresses plus a live signature, so it is not scaled by
+# address count. 0 = any authenticated profile, mirroring the swap widgets.
+required_permission = 0

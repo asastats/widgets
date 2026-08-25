@@ -19,7 +19,18 @@ class TestWidgetsUrls:
         assert "widgets.inhouse.historic.urls" in str(url.urlconf_name)
 
     def test_widgets_urls_patterns_count(self):
-        assert len(urls.urlpatterns) == 6
+        assert len(urls.urlpatterns) == 7
+
+    def test_widgets_urls_mounts_the_dust_sweep(self):
+        """Mounted, which is what makes `dustsweep_plan` reversible.
+
+        The sweep is not a swap router, so the manifest tripwire that caught
+        asastats globbed for a category this widget does not declare. It is
+        mounted because the list names it, and this is what says so.
+        """
+        url = self._url_from_pattern(r"^dustsweep/")
+        assert isinstance(url, URLResolver)
+        assert "widgets.inhouse.dustsweep.urls" in str(url.urlconf_name)
 
     def test_widgets_urls_mounts_the_asastats_router(self):
         """Our own router is mounted, which is what makes its URL reversible.
@@ -55,6 +66,7 @@ class TestWidgetsUrlsFallback:
                 ("re", ("include", "inhouse.hogswap.urls")),
                 ("re", ("include", "inhouse.asastats.urls")),
                 ("re", ("include", "inhouse.swapcore.urls")),
+                ("re", ("include", "inhouse.dustsweep.urls")),
             ]
         finally:
             mocker.stopall()
