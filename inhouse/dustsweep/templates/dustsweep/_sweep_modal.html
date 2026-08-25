@@ -1,0 +1,85 @@
+{# Dust Sweep modal. Opened by a .id-dustsweep-open button carrying           #}
+{# data-address; dustsweep.js plans against that address and renders the       #}
+{# result into .id-dustsweep-panel.                                            #}
+{#                                                                             #}
+{# Anatomy is the swap modal's, deliberately: a native <dialog>, a flex shell  #}
+{# with a fixed head and foot around a scrolling panel, a segmented control    #}
+{# and one primary action. The swap modal is the design the rest of the site   #}
+{# is moving onto, so this follows it rather than inventing a second language. #}
+{#                                                                             #}
+{# What is *not* copied is the class names. A sweep is not a swap, and reusing #}
+{# .swap-* would tie this to rules that will be changed for swap reasons.      #}
+{#                                                                             #}
+{# Nothing here is a sweep decision. The threshold chips are the only input,   #}
+{# and the engine clamps whatever they send: no asset list, no creator         #}
+{# address, no fee and no disposition is server-rendered, because any of those #}
+{# would be a value a reader could edit into something we then acted on.       #}
+<dialog id="dustsweep-modal" class="dustsweep-modal">
+  <div class="dustsweep-shell">
+
+    <div class="dustsweep-head">
+      <h2 class="dustsweep-title">Dust Sweep</h2>
+      <span class="dustsweep-tag id-dustsweep-address-tag"></span>
+      <span class="dustsweep-head-spacer"></span>
+
+      <button type="button" class="dustsweep-iconbtn id-dustsweep-threshold-toggle"
+              aria-expanded="false" aria-controls="dustsweep-threshold-pop"
+              title="What counts as dust">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" aria-hidden="true">
+          <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/>
+          <circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>
+        </svg>
+        <span class="dustsweep-num id-dustsweep-threshold-value">1 ALGO</span>
+      </button>
+
+      <button type="button" class="dustsweep-iconbtn dustsweep-iconbtn-plain id-dustsweep-close"
+              aria-label="Close dust sweep">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+             stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <div class="dustsweep-threshold" id="dustsweep-threshold-pop" hidden>
+      <span class="dustsweep-micro">Sweep holdings worth up to</span>
+      <div class="dustsweep-threshold-row">
+        <button type="button" class="dustsweep-chip id-dustsweep-threshold-preset"
+                data-threshold="0.1">0.1</button>
+        <button type="button" class="dustsweep-chip id-dustsweep-threshold-preset"
+                data-threshold="1" aria-pressed="true">1</button>
+        <button type="button" class="dustsweep-chip id-dustsweep-threshold-preset"
+                data-threshold="5">5</button>
+        <input type="text" class="dustsweep-threshold-custom dustsweep-num id-dustsweep-threshold-custom"
+               inputmode="decimal" placeholder="ALGO" aria-label="Custom dust threshold in ALGO">
+      </div>
+    </div>
+
+    {# Three figures, because they are the three questions a reader has: what #}
+    {# do I get back, how many times must I sign, and how much of my account  #}
+    {# does this touch.                                                        #}
+    <dl class="dustsweep-summary id-dustsweep-summary"></dl>
+
+    <div class="dustsweep-modes" role="tablist" aria-label="Which holdings to show">
+      <button type="button" role="tab" data-dustsweep-filter="sweeping"
+              aria-selected="true">To sweep</button>
+      <button type="button" role="tab" data-dustsweep-filter="all"
+              aria-selected="false">Everything</button>
+    </div>
+
+    <div class="id-dustsweep-panel dustsweep-panel"></div>
+
+    <p class="dustsweep-notice id-dustsweep-notice"></p>
+
+    <div class="dustsweep-cta-wrap">
+      <button type="button" class="dustsweep-cta id-dustsweep-cta" disabled>
+        Reading your holdings…
+      </button>
+      <p class="dustsweep-why id-dustsweep-why"></p>
+    </div>
+
+    <div class="dustsweep-foot">
+      <span class="dustsweep-num id-dustsweep-progress"></span>
+      <span class="dustsweep-foot-note">Closing a holding returns the 0.1 ALGO it locks.</span>
+    </div>
+  </div>
+</dialog>
