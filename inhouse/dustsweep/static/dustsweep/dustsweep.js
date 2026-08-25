@@ -284,6 +284,105 @@ function closeOutProblems(encoded, address, described) {
 }
 
 /* ------------------------------------------------------------------ *
+ * what each disposition means to a reader
+ * ------------------------------------------------------------------ */
+
+/**
+ * How each disposition is labelled, and whether it is swept by default.
+ *
+ * **`included` is the whole of the per-line policy**, and the asymmetry in it
+ * is deliberate. Everything the engine could value is swept unless the reader
+ * says otherwise; `unpriced` is the one disposition that starts *off*, because
+ * it is the one where the engine is admitting it does not know what the token
+ * is worth. Turning it on is the reader accepting that, line by line, which is
+ * the only way an unvalued holding is ever given away.
+ *
+ * `keep` has no entry: it is not actionable, so it carries no control at all
+ * rather than a disabled one.
+ */
+var DISPOSITIONS = {
+  close: { label: "Close", included: true, tone: "close" },
+  forfeit: { label: "Forfeit", included: true, tone: "forfeit" },
+  convert: { label: "Convert", included: true, tone: "convert" },
+  unpriced: { label: "Unpriced", included: false, tone: "unpriced" },
+};
+
+/** Return whether a sweep can do anything at all with this holding. */
+function isActionable(holding) {
+  return Object.prototype.hasOwnProperty.call(DISPOSITIONS, holding.disposition);
+}
+
+/** Return whether this holding is swept unless the reader says otherwise. */
+function includedByDefault(holding) {
+  var meta = DISPOSITIONS[holding.disposition];
+  return meta ? meta.included : false;
+}
+
+/**
+ * Return whether this holding is currently going to be swept.
+ *
+ * @param {Object} holding a plan line
+ * @param {Map} choices asset id to the reader's explicit choice
+ * @returns {boolean}
+ */
+function isIncluded(holding, choices) {
+  if (choices && choices.has(holding.asset)) return choices.get(holding.asset);
+
+  return includedByDefault(holding);
+}
+
+/**
+ * Return the two per-line lists the engine takes, from the reader's choices.
+ *
+ * Only *deviations* from the default are sent, which is what lets the plan be
+ * refetched after every signature without the reader's decisions being reset:
+ * a holding that appears for the first time takes its default, and one they
+ * touched keeps what they said.
+ *
+ * The two lists are not mirror images. `opted_in` widens what the sweep gives
+ * away and `excluded` narrows it, so a holding can only reach `opted_in` by
+ * being unvalued and switched on, and can only reach `excluded` by being
+ * something the engine would otherwise have swept.
+ *
+ * @param {Array<Object>} holdings the plan's holdings
+ * @param {Map} choices asset id to the reader's explicit choice
+ * @returns {{opted_in: Array<number>, excluded: Array<number>}}
+ */
+function choicePayload(holdings, choices) {
+  var optedIn = [];
+  var excluded = [];
+  (holdings || []).forEach(function (holding) {
+    if (!isActionable(holding)) return;
+
+    var wanted = isIncluded(holding, choices);
+    if (includedByDefault(holding)) {
+      if (!wanted) excluded.push(holding.asset);
+    } else if (wanted) {
+      optedIn.push(holding.asset);
+    }
+  });
+  return { opted_in: optedIn, excluded: excluded };
+}
+
+/**
+ * Return the holdings a filter should show.
+ *
+ * "sweeping" is the default view because a reader opening a sweep wants to see
+ * what is about to happen, not an inventory. "all" exists so the holdings the
+ * sweep decided to leave alone are still visible - a reader who cannot see why
+ * their token was skipped has no way to tell "kept deliberately" from "missed".
+ *
+ * @param {Array<Object>} holdings the plan's holdings
+ * @param {string} filter "sweeping" or "all"
+ * @returns {Array<Object>}
+ */
+function visibleLines(holdings, filter) {
+  if (filter === "all") return (holdings || []).slice();
+
+  return (holdings || []).filter(isActionable);
+}
+
+/* ------------------------------------------------------------------ *
  * the loop
  * ------------------------------------------------------------------ */
 
@@ -292,7 +391,7 @@ function closeOutProblems(encoded, address, described) {
  *
  * @param {string} planUrl the widget's plan endpoint
  * @param {string} address the account being swept
- * @param {Object} options threshold and opt-in choices
+ * @param {Object} options threshold and the two per-line lists
  * @returns {Promise<Object>} the plan
  */
 async function fetchPlan(planUrl, address, options) {
@@ -362,107 +461,398 @@ function whenSweepReady(fn) {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * what the reader is told
+ * ------------------------------------------------------------------ */
+
+/** Return microALGO as a short ALGO string. */
+function algo(microalgo) {
+  return ((Number(microalgo) || 0) / 1e6).toFixed(2);
+}
+
 /**
- * Return the sentence describing what a plan will do, for the panel heading.
+ * Return the three figures the summary strip shows.
+ *
+ * `recoverable` is deliberately the minimum balance alone - the certain half.
+ * A close returns exactly 0.1 ALGO whatever the token is worth, while
+ * conversion proceeds depend on quotes not taken yet, and promising the
+ * uncertain half up front is how a sweep ends up having under-delivered.
+ *
+ * @param {Object} plan the engine's answer
+ * @returns {Array<{label: string, value: string}>}
+ */
+function summaryFigures(plan) {
+  var summary = (plan && plan.summary) || {};
+  var swept =
+    (summary.close || 0) + (summary.forfeit || 0) + (summary.convert || 0);
+  return [
+    { label: "You recover", value: algo(summary.recoverable) + " ALGO" },
+    { label: "Signatures", value: String(summary.prompts || 0) },
+    { label: "Holdings", value: String(swept) },
+  ];
+}
+
+/**
+ * Return the sentence describing what a plan will do.
  *
  * @param {Object} plan the engine's answer
  * @returns {string} a sentence
  */
 function summarise(plan) {
-  var summary = plan.summary || {};
-  if (!plan.next) {
+  var summary = (plan && plan.summary) || {};
+  if (!plan || !plan.next) {
     return summary.unpriced
       ? "Nothing to sweep. " + summary.unpriced +
           " holdings could not be valued and were left alone."
       : "Nothing to sweep.";
   }
 
-  var recoverable = ((summary.recoverable || 0) / 1e6).toFixed(1);
   return (
     summary.prompts +
     (summary.prompts === 1 ? " signature" : " signatures") +
     " to recover about " +
-    recoverable +
+    algo(summary.recoverable) +
     " ALGO"
   );
 }
 
-/* istanbul ignore next -- DOM wiring; the unit-tested core is the helpers above */
+/**
+ * Return the label the primary action should carry.
+ *
+ * @param {Object} plan the engine's answer
+ * @returns {string}
+ */
+function ctaLabel(plan) {
+  if (!plan || !plan.next) return "Nothing to sweep";
+
+  return plan.next.label
+    ? plan.next.label.charAt(0).toUpperCase() + plan.next.label.slice(1)
+    : "Sign the next group";
+}
+
+/**
+ * Return the progress line, or "" when there is nothing in flight.
+ *
+ * Counts signatures rather than percentages, because that is the unit the
+ * reader is actually spending and the only one they can plan around.
+ *
+ * @param {Object} plan the engine's answer
+ * @param {number} signed how many groups have been signed in this session
+ * @returns {string}
+ */
+function progressLabel(plan, signed) {
+  var remaining = ((plan && plan.summary) || {}).prompts || 0;
+  if (!remaining && !signed) return "";
+
+  return "Signature " + (signed + 1) + " of " + (signed + remaining);
+}
+
+/* ------------------------------------------------------------------ *
+ * DOM
+ * ------------------------------------------------------------------ */
+
+/* istanbul ignore next -- DOM wiring; the unit-tested core is above */
+function state() {
+  return {
+    address: "",
+    plan: null,
+    choices: new Map(),
+    filter: "sweeping",
+    threshold: 1,
+    signed: 0,
+    busy: false,
+  };
+}
+
+/* istanbul ignore next -- DOM wiring */
 function start() {
   var root = document.getElementById("id-dustsweep");
-  if (!root) return;
+  var modal = document.getElementById("dustsweep-modal");
+  if (!root || !modal) return;
 
   var planUrl = root.dataset.planUrl;
-  root.querySelectorAll(".id-dustsweep-panel").forEach(function (panel) {
-    var details = panel.closest("details");
-    if (!details) return;
+  var current = state();
 
-    details.addEventListener("toggle", function () {
-      if (details.open && !panel.dataset.loaded) {
-        panel.dataset.loaded = "1";
-        refresh(panel, planUrl, panel.dataset.address);
+  root.querySelectorAll(".id-dustsweep-open").forEach(function (button) {
+    button.addEventListener("click", function () {
+      current = state();
+      current.address = button.dataset.address;
+      modal.querySelector(".id-dustsweep-address-tag").textContent =
+        current.address.slice(0, 6) + "…" + current.address.slice(-4);
+      modal.showModal();
+      reload(modal, planUrl, current);
+    });
+  });
+
+  modal.querySelector(".id-dustsweep-close").addEventListener("click", function () {
+    modal.close();
+  });
+
+  modal.querySelectorAll("[data-dustsweep-filter]").forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      current.filter = tab.dataset.dustsweepFilter;
+      modal.querySelectorAll("[data-dustsweep-filter]").forEach(function (other) {
+        other.setAttribute("aria-selected", String(other === tab));
+      });
+      renderLines(modal, current);
+    });
+  });
+
+  var pop = modal.querySelector("#dustsweep-threshold-pop");
+  modal
+    .querySelector(".id-dustsweep-threshold-toggle")
+    .addEventListener("click", function (event) {
+      pop.hidden = !pop.hidden;
+      event.currentTarget.setAttribute("aria-expanded", String(!pop.hidden));
+    });
+
+  modal.querySelectorAll(".id-dustsweep-threshold-preset").forEach(function (chip) {
+    chip.addEventListener("click", function () {
+      setThreshold(modal, current, Number(chip.dataset.threshold));
+      reload(modal, planUrl, current);
+    });
+  });
+
+  modal
+    .querySelector(".id-dustsweep-threshold-custom")
+    .addEventListener("change", function (event) {
+      var typed = parseFloat(event.target.value);
+      if (!isNaN(typed) && typed > 0) {
+        setThreshold(modal, current, typed);
+        reload(modal, planUrl, current);
       }
     });
+
+  modal.querySelector(".id-dustsweep-cta").addEventListener("click", function () {
+    sign(modal, planUrl, current);
   });
 }
 
 /* istanbul ignore next -- DOM wiring */
-async function refresh(panel, planUrl, address) {
-  panel.textContent = "Reading your holdings…";
+function setThreshold(modal, current, value) {
+  current.threshold = value;
+  modal.querySelector(".id-dustsweep-threshold-value").textContent =
+    value + " ALGO";
+  modal.querySelectorAll(".id-dustsweep-threshold-preset").forEach(function (chip) {
+    chip.setAttribute(
+      "aria-pressed",
+      String(Number(chip.dataset.threshold) === value)
+    );
+  });
+}
+
+/* istanbul ignore next -- DOM wiring */
+async function reload(modal, planUrl, current) {
+  var cta = modal.querySelector(".id-dustsweep-cta");
+  cta.disabled = true;
+  cta.textContent = "Reading your holdings…";
+  setNotice(modal, "");
   try {
-    var plan = await fetchPlan(planUrl, address, {});
-    render(panel, planUrl, address, plan);
+    current.plan = await fetchPlan(planUrl, current.address, {
+      threshold_algo: current.threshold,
+      ...choicePayload(current.plan && current.plan.holdings, current.choices),
+    });
+    render(modal, current);
   } catch (error) {
-    panel.textContent = "Could not plan a sweep: " + error.message;
+    cta.textContent = "Nothing to sweep";
+    setNotice(modal, error.message, true);
   }
 }
 
 /* istanbul ignore next -- DOM wiring */
-function render(panel, planUrl, address, plan) {
-  panel.textContent = "";
-  var heading = document.createElement("p");
-  heading.textContent = summarise(plan);
-  panel.appendChild(heading);
-
-  if (!plan.next) return;
-
-  var why = document.createElement("p");
-  why.className = "dustsweep-why";
-  why.textContent = plan.next.label + " — " + plan.next.why;
-  panel.appendChild(why);
-
-  var button = document.createElement("button");
-  button.type = "button";
-  button.className = "dustsweep-sign";
-  button.textContent = plan.next.label;
-  button.addEventListener("click", async function () {
-    button.disabled = true;
-    try {
-      await signAction(plan.next, address, window.asastatsSwap);
-      refresh(panel, planUrl, address);
-    } catch (error) {
-      why.textContent = error.message;
-      button.disabled = false;
-    }
+function render(modal, current) {
+  var plan = current.plan;
+  var summary = modal.querySelector(".id-dustsweep-summary");
+  summary.textContent = "";
+  summaryFigures(plan).forEach(function (figure) {
+    var cell = document.createElement("div");
+    var term = document.createElement("dt");
+    term.textContent = figure.label;
+    var value = document.createElement("dd");
+    value.textContent = figure.value;
+    cell.append(term, value);
+    summary.appendChild(cell);
   });
-  panel.appendChild(button);
+
+  renderLines(modal, current);
+
+  var cta = modal.querySelector(".id-dustsweep-cta");
+  cta.textContent = ctaLabel(plan);
+  cta.disabled = !plan || !plan.next || current.busy;
+  modal.querySelector(".id-dustsweep-why").textContent =
+    (plan && plan.next && plan.next.why) || "";
+  modal.querySelector(".id-dustsweep-progress").textContent = progressLabel(
+    plan,
+    current.signed
+  );
+
+  if (plan && plan.conversions_unavailable) {
+    setNotice(
+      modal,
+      "Conversions are unavailable right now, so only close-outs are offered. " +
+        plan.conversions_unavailable
+    );
+  }
+}
+
+/* istanbul ignore next -- DOM wiring */
+function renderLines(modal, current) {
+  var panel = modal.querySelector(".id-dustsweep-panel");
+  panel.textContent = "";
+  var holdings = visibleLines(
+    (current.plan && current.plan.holdings) || [],
+    current.filter
+  );
+
+  if (!holdings.length) {
+    var empty = document.createElement("p");
+    empty.className = "dustsweep-empty";
+    empty.textContent =
+      current.filter === "all"
+        ? "This address holds no assets."
+        : "Nothing here is dust.";
+    panel.appendChild(empty);
+    return;
+  }
+
+  var list = document.createElement("ul");
+  list.className = "dustsweep-lines";
+  holdings.forEach(function (holding) {
+    list.appendChild(renderLine(holding, current));
+  });
+  panel.appendChild(list);
+}
+
+/* istanbul ignore next -- DOM wiring */
+function renderLine(holding, current) {
+  var meta = DISPOSITIONS[holding.disposition];
+  var row = document.createElement("li");
+  row.className = "dustsweep-line";
+  row.dataset.asset = String(holding.asset);
+
+  var unit = document.createElement("span");
+  unit.className = "dustsweep-line-unit";
+  unit.textContent = holding.unit;
+
+  var badge = document.createElement("span");
+  badge.className =
+    "dustsweep-badge dustsweep-badge-" + (meta ? meta.tone : "keep");
+  badge.textContent = meta ? meta.label : "Keep";
+
+  var value = document.createElement("span");
+  value.className = "dustsweep-line-value";
+  value.textContent = holding.value === null ? "—" : algo(holding.value);
+
+  var reason = document.createElement("span");
+  reason.className = "dustsweep-line-reason";
+  reason.textContent = holding.reason;
+
+  row.append(unit, badge, value, reason);
+
+  if (meta) {
+    var toggle = document.createElement("label");
+    toggle.className = "dustsweep-line-toggle";
+    var box = document.createElement("input");
+    box.type = "checkbox";
+    box.className = "dustsweep-line-include";
+    box.checked = isIncluded(holding, current.choices);
+    box.addEventListener("change", function () {
+      current.choices.set(holding.asset, box.checked);
+      current.dirty = true;
+    });
+    toggle.appendChild(box);
+    row.insertBefore(toggle, value);
+  }
+
+  return row;
+}
+
+/* istanbul ignore next -- DOM wiring */
+function setNotice(modal, text, isError) {
+  var notice = modal.querySelector(".id-dustsweep-notice");
+  notice.textContent = text || "";
+  notice.classList.toggle("dustsweep-notice-error", Boolean(isError));
+}
+
+/* istanbul ignore next -- DOM wiring */
+async function sign(modal, planUrl, current) {
+  if (current.busy || !current.plan || !current.plan.next) return;
+
+  // Signing is the only thing here that needs the wallet. The interface is
+  // wired without it on purpose - a reader has to be able to open the sweep
+  // and see what it would do *before* deciding to connect - so this is where
+  // the bridge's absence is reported rather than at load.
+  if (!window.asastatsSwap) {
+    setNotice(modal, "Connect your wallet to sign this group.", true);
+    return;
+  }
+
+  var cta = modal.querySelector(".id-dustsweep-cta");
+  current.busy = true;
+  cta.disabled = true;
+  cta.textContent = "Check your wallet…";
+  setNotice(modal, "");
+  try {
+    var txid = await signAction(
+      current.plan.next,
+      current.address,
+      window.asastatsSwap
+    );
+    current.signed += 1;
+    setNotice(modal, "Signed. Submitted as " + txid + ".");
+    current.busy = false;
+    await reload(modal, planUrl, current);
+  } catch (error) {
+    current.busy = false;
+    setNotice(modal, error.message, true);
+    render(modal, current);
+  }
+}
+
+/**
+ * Wire the interface, once the document has a body to wire.
+ *
+ * **Not gated on the wallet bridge.** It used to be, and the modal then never
+ * opened for anybody who had not already connected: `whenSweepReady` waits for
+ * `window.asastatsSwap`, which ships with the wallet bundle and is absent in a
+ * bare browser. Reading what a sweep would do is exactly the thing a reader
+ * wants before connecting, so the gate belongs on the signature and nowhere
+ * else - see `sign`.
+ */
+/* istanbul ignore next -- DOM wiring */
+function boot() {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", start, { once: true });
+  } else {
+    start();
+  }
 }
 
 /* istanbul ignore else -- in the browser we self-start; under jest we export */
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     CLOSE_OUTS_PER_GROUP: CLOSE_OUTS_PER_GROUP,
+    DISPOSITIONS: DISPOSITIONS,
     addressToBytes: addressToBytes,
+    algo: algo,
     b64ToBytes: b64ToBytes,
+    choicePayload: choicePayload,
     closeOutProblems: closeOutProblems,
     csrfToken: csrfToken,
+    ctaLabel: ctaLabel,
     decodeMsgpack: decodeMsgpack,
     fetchPlan: fetchPlan,
+    includedByDefault: includedByDefault,
+    isActionable: isActionable,
+    isIncluded: isIncluded,
+    progressLabel: progressLabel,
     sameBytes: sameBytes,
     signAction: signAction,
     summarise: summarise,
+    summaryFigures: summaryFigures,
+    visibleLines: visibleLines,
     whenSweepReady: whenSweepReady,
   };
 } else {
-  whenSweepReady(start);
+  boot();
 }

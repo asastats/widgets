@@ -430,7 +430,7 @@ describe("summarise", () => {
         summary: { prompts: 7, recoverable: 3_000_000 },
         next: { kind: "close" },
       })
-    ).toBe("7 signatures to recover about 3.0 ALGO");
+    ).toBe("7 signatures to recover about 3.00 ALGO");
   });
 
   test("says signature, singular, when there is one", () => {
@@ -439,7 +439,7 @@ describe("summarise", () => {
         summary: { prompts: 1, recoverable: 100_000 },
         next: { kind: "close" },
       })
-    ).toBe("1 signature to recover about 0.1 ALGO");
+    ).toBe("1 signature to recover about 0.10 ALGO");
   });
 
   test("says nothing to sweep when there is nothing to do", () => {
@@ -457,7 +457,7 @@ describe("summarise", () => {
   test("reports zero when nothing is recoverable", () => {
     expect(
       sweep.summarise({ summary: { prompts: 1 }, next: { kind: "convert" } })
-    ).toBe("1 signature to recover about 0.0 ALGO");
+    ).toBe("1 signature to recover about 0.00 ALGO");
   });
 
   test("mentions holdings it refused to value", () => {
@@ -487,5 +487,263 @@ describe("whenSweepReady", () => {
     expect(fn).not.toHaveBeenCalled();
     window.dispatchEvent(new CustomEvent("asastats:swap-ready"));
     expect(fn).toHaveBeenCalled();
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * the per-line choice, which is what makes the list a choice
+ * ------------------------------------------------------------------ */
+
+const line = (asset, disposition, extra = {}) => ({
+  asset,
+  unit: "U" + asset,
+  amount: "1",
+  value: 1,
+  creator: CREATOR,
+  disposition,
+  reason: "because",
+  ...extra,
+});
+
+describe("isActionable", () => {
+  test.each(["close", "forfeit", "convert", "unpriced"])(
+    "%s is something a sweep can act on",
+    (disposition) => {
+      expect(sweep.isActionable(line(1, disposition))).toBe(true);
+    }
+  );
+
+  test("keep is not, so it carries no control at all", () => {
+    // Not a disabled checkbox - no checkbox. A control that cannot be used is
+    // an invitation to try.
+    expect(sweep.isActionable(line(1, "keep"))).toBe(false);
+  });
+
+  test("an unknown disposition is treated as not actionable", () => {
+    // Fails closed: a disposition this build has never heard of must not
+    // become a line the reader can sweep.
+    expect(sweep.isActionable(line(1, "something-new"))).toBe(false);
+  });
+});
+
+describe("includedByDefault", () => {
+  test.each(["close", "forfeit", "convert"])(
+    "%s is swept unless the reader says otherwise",
+    (disposition) => {
+      expect(sweep.includedByDefault(line(1, disposition))).toBe(true);
+    }
+  );
+
+  test("unpriced starts off, because the engine is admitting it does not know", () => {
+    // The asymmetry that keeps the forfeit safe. Everything the engine could
+    // value is on by default; the one disposition where it could not is the
+    // one the reader has to switch on themselves.
+    expect(sweep.includedByDefault(line(1, "unpriced"))).toBe(false);
+  });
+
+  test("keep is off, whatever else happens", () => {
+    expect(sweep.includedByDefault(line(1, "keep"))).toBe(false);
+  });
+});
+
+describe("choicePayload", () => {
+  test("sends nothing when the reader has touched nothing", () => {
+    // Only deviations cross the wire, which is what lets the plan be refetched
+    // after every signature without resetting anyone's decisions.
+    const holdings = [line(1, "close"), line(2, "forfeit"), line(3, "unpriced")];
+    expect(sweep.choicePayload(holdings, new Map())).toEqual({
+      opted_in: [],
+      excluded: [],
+    });
+  });
+
+  test("a deselected forfeit becomes an exclusion", () => {
+    const holdings = [line(2, "forfeit")];
+    expect(sweep.choicePayload(holdings, new Map([[2, false]]))).toEqual({
+      opted_in: [],
+      excluded: [2],
+    });
+  });
+
+  test("a selected unpriced holding becomes an opt-in", () => {
+    const holdings = [line(3, "unpriced")];
+    expect(sweep.choicePayload(holdings, new Map([[3, true]]))).toEqual({
+      opted_in: [3],
+      excluded: [],
+    });
+  });
+
+  test("selecting something already on adds nothing", () => {
+    const holdings = [line(1, "close")];
+    expect(sweep.choicePayload(holdings, new Map([[1, true]]))).toEqual({
+      opted_in: [],
+      excluded: [],
+    });
+  });
+
+  test("deselecting something already off adds nothing", () => {
+    // In particular it must NOT land in `excluded`: an unpriced holding is not
+    // being swept anyway, and naming it would be noise the engine has to
+    // reconcile against `opted_in`.
+    const holdings = [line(3, "unpriced")];
+    expect(sweep.choicePayload(holdings, new Map([[3, false]]))).toEqual({
+      opted_in: [],
+      excluded: [],
+    });
+  });
+
+  test("a kept holding can never reach either list", () => {
+    // The reader has no control on that line, but a stale choice from an
+    // earlier plan could still be in the map - so this is the guard that stops
+    // a reclassified holding being swept on yesterday's answer.
+    const holdings = [line(9, "keep")];
+    const choices = new Map([[9, true]]);
+    expect(sweep.choicePayload(holdings, choices)).toEqual({
+      opted_in: [],
+      excluded: [],
+    });
+  });
+
+  test("the two lists never name the same asset", () => {
+    const holdings = [line(1, "close"), line(2, "forfeit"), line(3, "unpriced")];
+    const choices = new Map([
+      [1, false],
+      [2, false],
+      [3, true],
+    ]);
+    const payload = sweep.choicePayload(holdings, choices);
+    expect(payload).toEqual({ opted_in: [3], excluded: [1, 2] });
+    expect(payload.opted_in.filter((a) => payload.excluded.includes(a))).toEqual(
+      []
+    );
+  });
+
+  test("survives no holdings and no choices", () => {
+    expect(sweep.choicePayload(undefined, undefined)).toEqual({
+      opted_in: [],
+      excluded: [],
+    });
+  });
+});
+
+describe("isIncluded", () => {
+  test("an explicit choice wins over the default", () => {
+    expect(sweep.isIncluded(line(1, "close"), new Map([[1, false]]))).toBe(false);
+    expect(sweep.isIncluded(line(3, "unpriced"), new Map([[3, true]]))).toBe(true);
+  });
+
+  test("falls back to the default without a choice", () => {
+    expect(sweep.isIncluded(line(1, "close"), new Map())).toBe(true);
+    expect(sweep.isIncluded(line(3, "unpriced"), new Map())).toBe(false);
+  });
+
+  test("survives a missing choices map", () => {
+    expect(sweep.isIncluded(line(1, "close"), null)).toBe(true);
+  });
+});
+
+describe("visibleLines", () => {
+  const holdings = [line(1, "close"), line(9, "keep"), line(3, "unpriced")];
+
+  test("the default view shows only what the sweep would act on", () => {
+    expect(sweep.visibleLines(holdings, "sweeping").map((h) => h.asset)).toEqual([
+      1, 3,
+    ]);
+  });
+
+  test("the other view shows everything, including what was left alone", () => {
+    // A reader who cannot see why their token was skipped has no way to tell
+    // "kept deliberately" from "missed".
+    expect(sweep.visibleLines(holdings, "all")).toHaveLength(3);
+  });
+
+  test("does not hand back the caller's own array to mutate", () => {
+    expect(sweep.visibleLines(holdings, "all")).not.toBe(holdings);
+  });
+
+  test("survives no holdings", () => {
+    expect(sweep.visibleLines(undefined, "all")).toEqual([]);
+    expect(sweep.visibleLines(undefined, "sweeping")).toEqual([]);
+  });
+});
+
+describe("summaryFigures", () => {
+  test("the three questions a reader actually has", () => {
+    const figures = sweep.summaryFigures({
+      summary: { recoverable: 3_000_000, prompts: 7, close: 10, forfeit: 15, convert: 5 },
+    });
+    expect(figures).toEqual([
+      { label: "You recover", value: "3.00 ALGO" },
+      { label: "Signatures", value: "7" },
+      { label: "Holdings", value: "30" },
+    ]);
+  });
+
+  test("counts only what will be swept, not what is kept", () => {
+    const figures = sweep.summaryFigures({
+      summary: { close: 1, keep: 99, unpriced: 4 },
+    });
+    expect(figures[2].value).toBe("1");
+  });
+
+  test("survives an empty plan", () => {
+    expect(sweep.summaryFigures({})).toEqual([
+      { label: "You recover", value: "0.00 ALGO" },
+      { label: "Signatures", value: "0" },
+      { label: "Holdings", value: "0" },
+    ]);
+  });
+});
+
+describe("ctaLabel", () => {
+  test("capitalises the engine's own sentence", () => {
+    expect(sweep.ctaLabel({ next: { label: "close 16 holdings" } })).toBe(
+      "Close 16 holdings"
+    );
+  });
+
+  test("says so when there is nothing to do", () => {
+    expect(sweep.ctaLabel({ next: null })).toBe("Nothing to sweep");
+    expect(sweep.ctaLabel(null)).toBe("Nothing to sweep");
+  });
+
+  test("falls back rather than rendering an empty button", () => {
+    expect(sweep.ctaLabel({ next: { label: "" } })).toBe("Sign the next group");
+  });
+});
+
+describe("progressLabel", () => {
+  test("counts signatures, which is the unit the reader spends", () => {
+    expect(sweep.progressLabel({ summary: { prompts: 7 } }, 0)).toBe(
+      "Signature 1 of 7"
+    );
+    expect(sweep.progressLabel({ summary: { prompts: 6 } }, 1)).toBe(
+      "Signature 2 of 7"
+    );
+  });
+
+  test("is empty before anything is planned", () => {
+    expect(sweep.progressLabel({ summary: {} }, 0)).toBe("");
+    expect(sweep.progressLabel(null, 0)).toBe("");
+  });
+
+  test("still shows the total after the last signature", () => {
+    // prompts drops to 0 when the sweep finishes; the reader should see that
+    // they signed four of four, not a blank.
+    expect(sweep.progressLabel({ summary: { prompts: 0 } }, 4)).toBe(
+      "Signature 5 of 4"
+    );
+  });
+});
+
+describe("algo", () => {
+  test.each([
+    [100_000, "0.10"],
+    [3_000_000, "3.00"],
+    [0, "0.00"],
+    [null, "0.00"],
+    [undefined, "0.00"],
+  ])("%p microALGO reads as %s", (given, expected) => {
+    expect(sweep.algo(given)).toBe(expected);
   });
 });

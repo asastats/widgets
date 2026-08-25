@@ -22,19 +22,24 @@
     themselves.
   </p>
 
-  {# Native <details> per address, matching the swap shell: no framework #}
-  {# component to initialise, and the controller plans on first open.    #}
+  {# One row per linked address, each opening the modal for that address. A #}
+  {# sweep acts on one account at a time: the groups it builds are signed by #}
+  {# a single holder, so there is nothing to gain from spanning a bundle.    #}
   <ul class="dustsweep-addresses" id="id-dustsweep-addresses">
     {% for address in linked_addresses %}
     <li data-address="{{ address }}">
-      <details class="dustsweep-address">
-        <summary>{{ address|short_address }}</summary>
-        <div class="id-dustsweep-panel" id="id-dustsweep-panel-{{ forloop.counter }}"
-             data-address="{{ address }}"></div>
-      </details>
+      <div class="dustsweep-address">
+        <span class="dustsweep-address-name">{{ address|short_address }}</span>
+        <button type="button" class="dustsweep-open id-dustsweep-open"
+                data-address="{{ address }}">
+          Sweep this address
+        </button>
+      </div>
     </li>
     {% endfor %}
   </ul>
+
+  {% include "dustsweep/_sweep_modal.html" %}
   {% else %}
   <blockquote id="id-dustsweep-locked">
     Connect the wallet that owns an address on this page to sweep it.
