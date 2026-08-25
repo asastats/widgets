@@ -1,0 +1,491 @@
+/**
+ * Does the sweep controller refuse a group that is not what it was described as?
+ *
+ * That is the only question here worth much. A close-out group is sixteen
+ * transactions approved with one click, and `asset_close_to` moves an entire
+ * balance - so the tests below are mostly attempts to slip something past
+ * `closeOutProblems`, each one a transaction that is perfectly well-formed and
+ * not what the plan said.
+ *
+ * **The fixtures are real.** Every base64 string was produced by algosdk's own
+ * encoder rather than assembled by hand, because the decoder is being tested
+ * against Algorand's canonical msgpack and a hand-rolled fixture would only
+ * test it against my idea of that.
+ */
+
+const sweep = require("../../static/dustsweep/dustsweep.js");
+
+const ADDRESS = "OGRUNXPSMO7Z7EGOGONA7BVEIN7YIJZZB372GZGJIAPB363C6KB42CEN2M";
+const CREATOR = "2EVGZ4BGOSL3J64UYDE2BUGTNTBZZZLI54VUQQNZZLYCDODLY33UGXNSIU";
+
+// Encoded by algosdk. Each is a complete, valid Algorand transaction.
+const CLOSE_TO_SELF =
+  "iaZhY2xvc2XEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDpGFyY3bEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDo2ZlZc0D6KJmdgGiZ2jEIMBhxNj8Hb3e0tdgS+RWjj9tBBmHrDe95LYgtas5JIrfomx2zQPpo3NuZMQgcaNG3fJjv5+QzjOaD4akQ3+EJzkO/6NkyUAeHfti8oOkdHlwZaVheGZlcqR4YWlkBQ==";
+const FORFEIT_TO_CREATOR =
+  "iaZhY2xvc2XEINEqbPAmdJe0+5TAyaDQ02zDnOVo7ytIQbnK8CG4a8b3pGFyY3bEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDo2ZlZc0D6KJmdgGiZ2jEIMBhxNj8Hb3e0tdgS+RWjj9tBBmHrDe95LYgtas5JIrfomx2zQPpo3NuZMQgcaNG3fJjv5+QzjOaD4akQ3+EJzkO/6NkyUAeHfti8oOkdHlwZaVheGZlcqR4YWlkCQ==";
+const WITH_AMOUNT =
+  "iqRhYW10B6ZhY2xvc2XEINEqbPAmdJe0+5TAyaDQ02zDnOVo7ytIQbnK8CG4a8b3pGFyY3bEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDo2ZlZc0D6KJmdgGiZ2jEIMBhxNj8Hb3e0tdgS+RWjj9tBBmHrDe95LYgtas5JIrfomx2zQPpo3NuZMQgcaNG3fJjv5+QzjOaD4akQ3+EJzkO/6NkyUAeHfti8oOkdHlwZaVheGZlcqR4YWlkBQ==";
+const WITH_REKEY =
+  "iqZhY2xvc2XEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDpGFyY3bEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDo2ZlZc0D6KJmdgGiZ2jEIMBhxNj8Hb3e0tdgS+RWjj9tBBmHrDe95LYgtas5JIrfomx2zQPppXJla2V5xCDRKmzwJnSXtPuUwMmg0NNsw5zlaO8rSEG5yvAhuGvG96NzbmTEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDpHR5cGWlYXhmZXKkeGFpZAU=";
+const TO_STRANGER =
+  "iaZhY2xvc2XEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDpGFyY3bEINEqbPAmdJe0+5TAyaDQ02zDnOVo7ytIQbnK8CG4a8b3o2ZlZc0D6KJmdgGiZ2jEIMBhxNj8Hb3e0tdgS+RWjj9tBBmHrDe95LYgtas5JIrfomx2zQPpo3NuZMQgcaNG3fJjv5+QzjOaD4akQ3+EJzkO/6NkyUAeHfti8oOkdHlwZaVheGZlcqR4YWlkBQ==";
+const NO_CLOSE =
+  "iKRhcmN2xCBxo0bd8mO/n5DOM5oPhqRDf4QnOQ7/o2TJQB4d+2Lyg6NmZWXNA+iiZnYBomdoxCDAYcTY/B293tLXYEvkVo4/bQQZh6w3veS2ILWrOSSK36Jsds0D6aNzbmTEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDpHR5cGWlYXhmZXKkeGFpZAU=";
+const PAYMENT_DRAIN =
+  "iKVjbG9zZcQg0Sps8CZ0l7T7lMDJoNDTbMOc5WjvK0hBucrwIbhrxvejZmVlzQPoomZ2AaJnaMQgwGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit+ibHbNA+mjcmN2xCBxo0bd8mO/n5DOM5oPhqRDf4QnOQ7/o2TJQB4d+2Lyg6NzbmTEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDpHR5cGWjcGF5";
+const WRONG_ASSET =
+  "iaZhY2xvc2XEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDpGFyY3bEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDo2ZlZc0D6KJmdgGiZ2jEIMBhxNj8Hb3e0tdgS+RWjj9tBBmHrDe95LYgtas5JIrfomx2zQPpo3NuZMQgcaNG3fJjv5+QzjOaD4akQ3+EJzkO/6NkyUAeHfti8oOkdHlwZaVheGZlcqR4YWlkzQPn";
+
+const WRONG_SENDER =
+  "iaZhY2xvc2XEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDpGFyY3bEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDo2ZlZc0D6KJmdgGiZ2jEIMBhxNj8Hb3e0tdgS+RWjj9tBBmHrDe95LYgtas5JIrfomx2zQPpo3NuZMQg0Sps8CZ0l7T7lMDJoNDTbMOc5WjvK0hBucrwIbhrxvekdHlwZaVheGZlcqR4YWlkBQ==";
+
+/** The plan lines matching the two well-formed fixtures above. */
+const EMPTY_HOLDING = { asset: 5, amount: "0", creator: CREATOR };
+const FORFEITED_HOLDING = { asset: 9, amount: "1000", creator: CREATOR };
+
+describe("decodeMsgpack", () => {
+  test("reads the fields a close-out is judged on", () => {
+    const txn = sweep.decodeMsgpack(sweep.b64ToBytes(FORFEIT_TO_CREATOR));
+    expect(txn.type).toBe("axfer");
+    expect(txn.xaid).toBe(9);
+    expect(txn.aclose).toHaveLength(32);
+    expect(txn.snd).toHaveLength(32);
+  });
+
+  test("omits fields at their zero value, as canonical encoding does", () => {
+    // The amount is absent rather than present-and-zero, which is why the
+    // whitelist tests `txn.aamt` for truthiness rather than for equality.
+    const txn = sweep.decodeMsgpack(sweep.b64ToBytes(CLOSE_TO_SELF));
+    expect(txn.aamt).toBeUndefined();
+    expect(txn.rekey).toBeUndefined();
+  });
+
+  test("reads a multi-byte asset id", () => {
+    const txn = sweep.decodeMsgpack(sweep.b64ToBytes(WRONG_ASSET));
+    expect(txn.xaid).toBe(999);
+  });
+
+  test("reads every integer width", () => {
+    // 0x7f fixint, 0xcc uint8, 0xcd uint16, 0xce uint32, 0xcf uint64
+    const encoded = new Uint8Array([
+      0x85,
+      0xa1, 0x61, 0x7f,
+      0xa1, 0x62, 0xcc, 0xff,
+      0xa1, 0x63, 0xcd, 0x01, 0x00,
+      0xa1, 0x64, 0xce, 0x00, 0x01, 0x00, 0x00,
+      0xa1, 0x65, 0xcf, 0, 0, 0, 0, 0, 0, 0x01, 0x00,
+    ]);
+    expect(sweep.decodeMsgpack(encoded)).toEqual({
+      a: 127,
+      b: 255,
+      c: 256,
+      d: 65536,
+      e: 256,
+    });
+  });
+
+  test("reads the remaining container and literal tags", () => {
+    const encoded = new Uint8Array([
+      0x84,
+      0xa1, 0x61, 0x90 + 2, 0xc0, 0xc2,
+      0xa1, 0x62, 0xc3,
+      0xa1, 0x63, 0xc4, 0x02, 0xaa, 0xbb,
+      0xa1, 0x64, 0xd9, 0x03, 0x66, 0x6f, 0x6f,
+    ]);
+    const decoded = sweep.decodeMsgpack(encoded);
+    expect(decoded.a).toEqual([null, false]);
+    expect(decoded.b).toBe(true);
+    expect(Array.from(decoded.c)).toEqual([0xaa, 0xbb]);
+    expect(decoded.d).toBe("foo");
+  });
+
+  test("reads the wide container and binary tags", () => {
+    // map16, array16, str16, bin16 and bin32 - reachable in principle and
+    // cheap to support, so they are supported rather than left to throw.
+    const encoded = new Uint8Array([
+      0xde, 0x00, 0x03,
+      0xa1, 0x61, 0xdc, 0x00, 0x01, 0x2a,
+      0xa1, 0x62, 0xda, 0x00, 0x02, 0x68, 0x69,
+      0xa1, 0x63, 0xc5, 0x00, 0x01, 0x07,
+    ]);
+    const decoded = sweep.decodeMsgpack(encoded);
+    expect(decoded.a).toEqual([42]);
+    expect(decoded.b).toBe("hi");
+    expect(Array.from(decoded.c)).toEqual([7]);
+    expect(
+      Array.from(
+        sweep.decodeMsgpack(new Uint8Array([0xc6, 0, 0, 0, 1, 0x09]))
+      )
+    ).toEqual([9]);
+  });
+
+  test("throws on a tag it does not support rather than guessing", () => {
+    // 0xd0 is int8. A decoder that quietly returned something for an
+    // unsupported tag could mis-read a field the whitelist then approves.
+    expect(() => sweep.decodeMsgpack(new Uint8Array([0xd0, 0x01]))).toThrow(
+      /unsupported msgpack tag/
+    );
+  });
+});
+
+describe("addressToBytes", () => {
+  test("returns the 32 public-key bytes", () => {
+    expect(sweep.addressToBytes(ADDRESS)).toHaveLength(32);
+  });
+
+  test("matches what the transaction carries", () => {
+    const txn = sweep.decodeMsgpack(sweep.b64ToBytes(CLOSE_TO_SELF));
+    expect(sweep.sameBytes(txn.snd, sweep.addressToBytes(ADDRESS))).toBe(true);
+  });
+
+  test.each([null, undefined, 42, "", "TOOSHORT", ADDRESS + "A"])(
+    "returns null for %p rather than throwing",
+    (bad) => {
+      expect(sweep.addressToBytes(bad)).toBeNull();
+    }
+  );
+
+  test("returns null when a character is not base32", () => {
+    expect(sweep.addressToBytes("1".repeat(58))).toBeNull();
+  });
+});
+
+describe("sameBytes", () => {
+  test("is false for anything missing or of a different length", () => {
+    expect(sweep.sameBytes(null, new Uint8Array(1))).toBe(false);
+    expect(sweep.sameBytes(new Uint8Array(1), null)).toBe(false);
+    expect(sweep.sameBytes(new Uint8Array(1), new Uint8Array(2))).toBe(false);
+  });
+
+  test("compares content, not identity", () => {
+    expect(sweep.sameBytes(new Uint8Array([1, 2]), new Uint8Array([1, 2]))).toBe(
+      true
+    );
+    expect(sweep.sameBytes(new Uint8Array([1, 2]), new Uint8Array([1, 3]))).toBe(
+      false
+    );
+  });
+});
+
+describe("closeOutProblems accepts what the plan described", () => {
+  test("an empty holding closing to itself", () => {
+    expect(
+      sweep.closeOutProblems([CLOSE_TO_SELF], ADDRESS, [EMPTY_HOLDING])
+    ).toEqual([]);
+  });
+
+  test("a forfeit closing to the asset's creator", () => {
+    expect(
+      sweep.closeOutProblems([FORFEIT_TO_CREATOR], ADDRESS, [FORFEITED_HOLDING])
+    ).toEqual([]);
+  });
+
+  test("both together, which is what a real group looks like", () => {
+    expect(
+      sweep.closeOutProblems(
+        [CLOSE_TO_SELF, FORFEIT_TO_CREATOR],
+        ADDRESS,
+        [EMPTY_HOLDING, FORFEITED_HOLDING]
+      )
+    ).toEqual([]);
+  });
+});
+
+describe("closeOutProblems refuses what it was not described as", () => {
+  test("a payment, which could drain the whole ALGO balance", () => {
+    // The single most damaging thing that could hide in a batch of sixteen:
+    // `close_remainder_to` sends every microALGO the account holds.
+    const problems = sweep.closeOutProblems([PAYMENT_DRAIN], ADDRESS, [
+      EMPTY_HOLDING,
+    ]);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/is a pay, not an asset transfer/);
+  });
+
+  test("a transfer that moves an amount", () => {
+    const problems = sweep.closeOutProblems([WITH_AMOUNT], ADDRESS, [
+      EMPTY_HOLDING,
+    ]);
+    expect(problems).toContain(
+      "transaction 1 moves an amount rather than closing"
+    );
+  });
+
+  test("a rekey, which hands the account away permanently", () => {
+    const problems = sweep.closeOutProblems([WITH_REKEY], ADDRESS, [
+      EMPTY_HOLDING,
+    ]);
+    expect(problems).toContain("transaction 1 rekeys the account");
+  });
+
+  test("a transfer sent by somebody else", () => {
+    // Would fail at signing anyway - the wallet holds one key - but a group
+    // containing it is a group whose contents were not what was described, and
+    // finding that out before the prompt is the whole point.
+    const problems = sweep.closeOutProblems([WRONG_SENDER], ADDRESS, [
+      EMPTY_HOLDING,
+    ]);
+    expect(problems).toContain("transaction 1 is not sent by you");
+  });
+
+  test("a transfer paying somebody else", () => {
+    const problems = sweep.closeOutProblems([TO_STRANGER], ADDRESS, [
+      EMPTY_HOLDING,
+    ]);
+    expect(problems).toContain("transaction 1 pays somebody else");
+  });
+
+  test("a transfer that closes nothing", () => {
+    const problems = sweep.closeOutProblems([NO_CLOSE], ADDRESS, [
+      EMPTY_HOLDING,
+    ]);
+    expect(problems).toContain("transaction 1 does not close the holding");
+  });
+
+  test("a well-formed close-out of an asset the plan never listed", () => {
+    // The rule that makes this bind rather than restate the response. Nothing
+    // is wrong with this transaction in isolation - it is a correct close-out
+    // to the right owner. It is simply not the one that was described.
+    const problems = sweep.closeOutProblems([WRONG_ASSET], ADDRESS, [
+      EMPTY_HOLDING,
+    ]);
+    expect(problems).toEqual([
+      "transaction 1 closes asset 999, which was not listed",
+    ]);
+  });
+
+  test("the right asset closed to the wrong address", () => {
+    // Asset 5 was described as an empty holding, so it must close to self.
+    // Here it closes to the creator, which for a *held* asset would be a
+    // forfeit - a real transfer of value the plan did not describe.
+    const problems = sweep.closeOutProblems(
+      [FORFEIT_TO_CREATOR],
+      ADDRESS,
+      [{ asset: 9, amount: "0", creator: CREATOR }]
+    );
+    expect(problems).toEqual([
+      "transaction 1 closes asset 9 to an unexpected address",
+    ]);
+  });
+
+  test("one bad transaction among fifteen good ones", () => {
+    // The reason a whitelist exists at all: nobody reads the sixteenth line.
+    const group = new Array(15).fill(CLOSE_TO_SELF).concat([PAYMENT_DRAIN]);
+    const problems = sweep.closeOutProblems(group, ADDRESS, [EMPTY_HOLDING]);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/transaction 16 is a pay/);
+  });
+
+  test("a group over the protocol limit", () => {
+    const group = new Array(17).fill(CLOSE_TO_SELF);
+    const problems = sweep.closeOutProblems(group, ADDRESS, [EMPTY_HOLDING]);
+    expect(problems[0]).toMatch(/over the limit of 16/);
+  });
+
+  test("a transaction that will not decode", () => {
+    const problems = sweep.closeOutProblems(["!!!!"], ADDRESS, [EMPTY_HOLDING]);
+    expect(problems).toEqual(["transaction 1 could not be decoded"]);
+  });
+
+  test("an empty or absent group", () => {
+    expect(sweep.closeOutProblems([], ADDRESS, [])).toEqual([
+      "the group carries no transactions",
+    ]);
+    expect(sweep.closeOutProblems(null, ADDRESS, [])).toEqual([
+      "the group carries no transactions",
+    ]);
+  });
+
+  test("an unreadable sweep address, before anything else is judged", () => {
+    expect(sweep.closeOutProblems([CLOSE_TO_SELF], "nope", [])).toEqual([
+      "the address being swept is unreadable",
+    ]);
+  });
+
+  test("a described holding with no creator cannot match a forfeit", () => {
+    const problems = sweep.closeOutProblems(
+      [FORFEIT_TO_CREATOR],
+      ADDRESS,
+      [{ asset: 9, amount: "1000", creator: null }]
+    );
+    expect(problems).toEqual([
+      "transaction 1 closes asset 9 to an unexpected address",
+    ]);
+  });
+
+  test("a missing holdings list refuses everything rather than allowing it", () => {
+    const problems = sweep.closeOutProblems([CLOSE_TO_SELF], ADDRESS, undefined);
+    expect(problems).toEqual([
+      "transaction 1 closes asset 5, which was not listed",
+    ]);
+  });
+});
+
+describe("signAction", () => {
+  test("a close-out group is inspected before it reaches the wallet", async () => {
+    const bridge = { signAndSend: jest.fn(), signAndSendPartial: jest.fn() };
+    const action = {
+      kind: "close",
+      transactions: [PAYMENT_DRAIN],
+      holdings: [EMPTY_HOLDING],
+    };
+    await expect(signActionOf(action, bridge)).rejects.toThrow(
+      /This group was refused/
+    );
+    expect(bridge.signAndSend).not.toHaveBeenCalled();
+  });
+
+  test("a good close-out group is signed", async () => {
+    const bridge = { signAndSend: jest.fn().mockResolvedValue("TXID") };
+    const action = {
+      kind: "close",
+      transactions: [CLOSE_TO_SELF],
+      holdings: [EMPTY_HOLDING],
+    };
+    await expect(signActionOf(action, bridge)).resolves.toBe("TXID");
+    expect(bridge.signAndSend).toHaveBeenCalledWith([CLOSE_TO_SELF], {});
+  });
+
+  test("a conversion goes through the quote-signed path", async () => {
+    // It carries the engine's quote authorisation, which `signAndSend` would
+    // destroy by re-assigning group ids.
+    const bridge = { signAndSendPartial: jest.fn().mockResolvedValue("TXID") };
+    const action = { kind: "convert", transactions: ["X"] };
+    await expect(signActionOf(action, bridge)).resolves.toBe("TXID");
+    expect(bridge.signAndSendPartial).toHaveBeenCalledWith(action);
+  });
+
+  test("a wallet without the quote-signed path is told so", async () => {
+    const bridge = { signAndSend: jest.fn() };
+    const action = { kind: "convert", transactions: ["X"] };
+    await expect(signActionOf(action, bridge)).rejects.toThrow(
+      /does not support quote-signed groups/
+    );
+  });
+
+  function signActionOf(action, bridge) {
+    return sweep.signAction(action, ADDRESS, bridge);
+  }
+});
+
+describe("fetchPlan", () => {
+  afterEach(() => {
+    delete global.fetch;
+    document.cookie = "csrftoken=; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  });
+
+  test("posts to the gated address and returns the plan", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ next: null }),
+    });
+    const plan = await sweep.fetchPlan("/dustsweep/plan", ADDRESS, {
+      threshold_algo: 1,
+    });
+    expect(plan).toEqual({ next: null });
+    const [url, options] = global.fetch.mock.calls[0];
+    expect(url).toBe("/dustsweep/plan?address=" + ADDRESS);
+    expect(JSON.parse(options.body)).toEqual({ threshold_algo: 1 });
+  });
+
+  test("sends the CSRF token Django set", () => {
+    document.cookie = "csrftoken=abc123";
+    expect(sweep.csrfToken()).toBe("abc123");
+  });
+
+  test("reports no token rather than sending undefined", () => {
+    expect(sweep.csrfToken()).toBe("");
+  });
+
+  test("raises the engine's own sentence on a refusal", async () => {
+    // A restricted router answers 503 explaining why. That sentence is the
+    // only thing a reader could act on, so it must survive to the panel.
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: "RESTRICT_TO_ADMIN, so no group" }),
+    });
+    await expect(sweep.fetchPlan("/p", ADDRESS, {})).rejects.toThrow(
+      "RESTRICT_TO_ADMIN, so no group"
+    );
+  });
+
+  test("falls back to a readable message when there is no body", async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, json: async () => ({}) });
+    await expect(sweep.fetchPlan("/p", ADDRESS, {})).rejects.toThrow(
+      "the sweep is unavailable"
+    );
+  });
+
+  test("defaults the options to an empty body", async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    await sweep.fetchPlan("/p", ADDRESS);
+    expect(global.fetch.mock.calls[0][1].body).toBe("{}");
+  });
+});
+
+describe("summarise", () => {
+  test("counts the signatures and the certain half of the recovery", () => {
+    expect(
+      sweep.summarise({
+        summary: { prompts: 7, recoverable: 3_000_000 },
+        next: { kind: "close" },
+      })
+    ).toBe("7 signatures to recover about 3.0 ALGO");
+  });
+
+  test("says signature, singular, when there is one", () => {
+    expect(
+      sweep.summarise({
+        summary: { prompts: 1, recoverable: 100_000 },
+        next: { kind: "close" },
+      })
+    ).toBe("1 signature to recover about 0.1 ALGO");
+  });
+
+  test("says nothing to sweep when there is nothing to do", () => {
+    expect(sweep.summarise({ summary: {}, next: null })).toBe(
+      "Nothing to sweep."
+    );
+  });
+
+  test("survives a plan with no summary at all", () => {
+    // An engine answering something unexpected must not blank the panel with
+    // a TypeError - the user still needs to be told nothing happened.
+    expect(sweep.summarise({})).toBe("Nothing to sweep.");
+  });
+
+  test("reports zero when nothing is recoverable", () => {
+    expect(
+      sweep.summarise({ summary: { prompts: 1 }, next: { kind: "convert" } })
+    ).toBe("1 signature to recover about 0.0 ALGO");
+  });
+
+  test("mentions holdings it refused to value", () => {
+    // These are the ones a user might otherwise think were missed. Saying so
+    // is what makes the refusal to guess visible rather than silent.
+    expect(sweep.summarise({ summary: { unpriced: 3 }, next: null })).toBe(
+      "Nothing to sweep. 3 holdings could not be valued and were left alone."
+    );
+  });
+});
+
+describe("whenSweepReady", () => {
+  afterEach(() => {
+    delete window.asastatsSwap;
+  });
+
+  test("runs at once when the bridge is already published", () => {
+    window.asastatsSwap = {};
+    const fn = jest.fn();
+    sweep.whenSweepReady(fn);
+    expect(fn).toHaveBeenCalled();
+  });
+
+  test("waits for the bridge's ready event otherwise", () => {
+    const fn = jest.fn();
+    sweep.whenSweepReady(fn);
+    expect(fn).not.toHaveBeenCalled();
+    window.dispatchEvent(new CustomEvent("asastats:swap-ready"));
+    expect(fn).toHaveBeenCalled();
+  });
+});
