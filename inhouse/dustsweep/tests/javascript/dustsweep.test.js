@@ -524,6 +524,101 @@ describe("isActionable", () => {
     // become a line the reader can sweep.
     expect(sweep.isActionable(line(1, "something-new"))).toBe(false);
   });
+
+  test("committed is not, so nothing the reader does can sweep it", () => {
+    // The whole point of the disposition. These are the tokens an account
+    // holds because of a position in some dApp, and the engine refuses them
+    // whatever the request body says - so offering a control here would be a
+    // control that silently does nothing.
+    expect(sweep.isActionable(line(1, "committed"))).toBe(false);
+    expect(sweep.includedByDefault(line(1, "committed"))).toBe(false);
+  });
+
+  test("committed reaches neither list the reader's choices produce", () => {
+    const choices = new Map([[1, true]]);
+    expect(sweep.choicePayload([line(1, "committed")], choices)).toEqual({
+      opted_in: [],
+      excluded: [],
+    });
+  });
+});
+
+describe("badgeFor", () => {
+  test.each([
+    ["close", "Close", "close"],
+    ["forfeit", "Forfeit", "forfeit"],
+    ["convert", "Convert", "convert"],
+    ["unpriced", "Unpriced", "unpriced"],
+  ])("%s keeps its own badge", (disposition, label, tone) => {
+    expect(sweep.badgeFor(line(1, disposition))).toEqual(
+      expect.objectContaining({ label, tone })
+    );
+  });
+
+  test("committed reads as In use rather than as a verdict on its value", () => {
+    // "Committed" is the engine's word for it; the reader's question is why
+    // their token is not being swept, and the answer is that it is in use
+    // somewhere. The sentence in `reason` says where.
+    expect(sweep.badgeFor(line(1, "committed"))).toEqual({
+      label: "In use",
+      tone: "committed",
+    });
+  });
+
+  test("keep still reads as Keep", () => {
+    expect(sweep.badgeFor(line(1, "keep"))).toEqual({
+      label: "Keep",
+      tone: "keep",
+    });
+  });
+
+  test("a disposition this build has never heard of falls back to Keep", () => {
+    // The safe fallback: an unrecognised line is shown as left alone, which is
+    // also what `isActionable` will do with it.
+    expect(sweep.badgeFor(line(1, "something-new"))).toEqual({
+      label: "Keep",
+      tone: "keep",
+    });
+  });
+});
+
+describe("degradedNotice", () => {
+  test("says nothing about a plan that is whole", () => {
+    expect(sweep.degradedNotice({})).toBe("");
+    expect(sweep.degradedNotice(null)).toBe("");
+    expect(
+      sweep.degradedNotice({
+        evaluation_unavailable: null,
+        conversions_unavailable: null,
+      })
+    ).toBe("");
+  });
+
+  test("an unreadable evaluation is explained as a limit on the sweep", () => {
+    // Not on the account. A reader who sees three of their thirty holdings
+    // offered will otherwise conclude the other twenty-seven are gone.
+    const notice = sweep.degradedNotice({ evaluation_unavailable: "no redis" });
+    expect(notice).toContain("only empty holdings are offered");
+    expect(notice).toContain("no redis");
+  });
+
+  test("a router outage is explained as losing the conversions only", () => {
+    const notice = sweep.degradedNotice({ conversions_unavailable: "no app" });
+    expect(notice).toContain("Conversions are unavailable");
+    expect(notice).toContain("no app");
+  });
+
+  test("the evaluation outage is the one reported when both are true", () => {
+    // It is the larger of the two and subsumes the other: without an
+    // evaluation there is nothing to convert anyway, so naming the router
+    // would explain the wrong half of a plan that looks empty.
+    const notice = sweep.degradedNotice({
+      evaluation_unavailable: "no redis",
+      conversions_unavailable: "no app",
+    });
+    expect(notice).toContain("only empty holdings are offered");
+    expect(notice).not.toContain("no app");
+  });
 });
 
 describe("includedByDefault", () => {
@@ -643,7 +738,12 @@ describe("isIncluded", () => {
 });
 
 describe("visibleLines", () => {
-  const holdings = [line(1, "close"), line(9, "keep"), line(3, "unpriced")];
+  const holdings = [
+    line(1, "close"),
+    line(9, "keep"),
+    line(3, "unpriced"),
+    line(4, "committed"),
+  ];
 
   test("the default view shows only what the sweep would act on", () => {
     expect(sweep.visibleLines(holdings, "sweeping").map((h) => h.asset)).toEqual([
@@ -653,8 +753,13 @@ describe("visibleLines", () => {
 
   test("the other view shows everything, including what was left alone", () => {
     // A reader who cannot see why their token was skipped has no way to tell
-    // "kept deliberately" from "missed".
-    expect(sweep.visibleLines(holdings, "all")).toHaveLength(3);
+    // "kept deliberately" from "missed" - and after this change the commonest
+    // reason for skipping is that the token is somebody's dApp position, which
+    // is exactly the thing they will come looking for.
+    expect(sweep.visibleLines(holdings, "all")).toHaveLength(4);
+    expect(sweep.visibleLines(holdings, "all").map((h) => h.disposition)).toContain(
+      "committed"
+    );
   });
 
   test("does not hand back the caller's own array to mutate", () => {

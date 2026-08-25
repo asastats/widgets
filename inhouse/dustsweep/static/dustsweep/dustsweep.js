@@ -307,9 +307,31 @@ var DISPOSITIONS = {
   unpriced: { label: "Unpriced", included: false, tone: "unpriced" },
 };
 
+/**
+ * Dispositions the reader can see but cannot act on, and their badges.
+ *
+ * **Deliberately a second map rather than `included: false` entries.** Anything
+ * in `DISPOSITIONS` is *actionable*: the row grows a checkbox, and switching it
+ * on puts the asset in `opted_in`. That is right for `unpriced`, which is a
+ * holding the sweep could take if the reader vouches for it, and wrong for
+ * these two, which the engine will refuse whatever the body says. A checkbox
+ * that quietly does nothing is worse than no checkbox.
+ */
+var INERT = {
+  keep: { label: "Keep", tone: "keep" },
+  committed: { label: "In use", tone: "committed" },
+};
+
 /** Return whether a sweep can do anything at all with this holding. */
 function isActionable(holding) {
   return Object.prototype.hasOwnProperty.call(DISPOSITIONS, holding.disposition);
+}
+
+/** Return the badge a holding wears, actionable or not. */
+function badgeFor(holding) {
+  return (
+    DISPOSITIONS[holding.disposition] || INERT[holding.disposition] || INERT.keep
+  );
 }
 
 /** Return whether this holding is swept unless the reader says otherwise. */
@@ -686,13 +708,42 @@ function render(modal, current) {
     current.signed
   );
 
-  if (plan && plan.conversions_unavailable) {
-    setNotice(
-      modal,
-      "Conversions are unavailable right now, so only close-outs are offered. " +
-        plan.conversions_unavailable
+  var degraded = degradedNotice(plan);
+  if (degraded) setNotice(modal, degraded);
+}
+
+/**
+ * Return the sentence explaining a plan that is thinner than it should be.
+ *
+ * **The evaluation outage is reported first, and says the more alarming thing**,
+ * because it is the one a reader would otherwise misread as a fact about their
+ * account rather than about the sweep. Somebody who sees three of their thirty
+ * holdings offered needs to be told the sweep is degraded; being told only that
+ * conversions are unavailable would explain the wrong half.
+ *
+ * @param {Object} plan the engine's answer
+ * @returns {string} the notice, or "" when the plan is whole
+ */
+function degradedNotice(plan) {
+  if (!plan) return "";
+
+  if (plan.evaluation_unavailable) {
+    return (
+      "Your holdings could not be checked against this address's portfolio, " +
+      "so only empty holdings are offered - nothing that still holds a " +
+      "balance will be touched. " +
+      plan.evaluation_unavailable
     );
   }
+
+  if (plan.conversions_unavailable) {
+    return (
+      "Conversions are unavailable right now, so only close-outs are offered. " +
+      plan.conversions_unavailable
+    );
+  }
+
+  return "";
 }
 
 /* istanbul ignore next -- DOM wiring */
@@ -734,10 +785,10 @@ function renderLine(holding, current) {
   unit.className = "dustsweep-line-unit";
   unit.textContent = holding.unit;
 
+  var tone = badgeFor(holding);
   var badge = document.createElement("span");
-  badge.className =
-    "dustsweep-badge dustsweep-badge-" + (meta ? meta.tone : "keep");
-  badge.textContent = meta ? meta.label : "Keep";
+  badge.className = "dustsweep-badge dustsweep-badge-" + tone.tone;
+  badge.textContent = tone.label;
 
   var value = document.createElement("span");
   value.className = "dustsweep-line-value";
@@ -833,14 +884,17 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     CLOSE_OUTS_PER_GROUP: CLOSE_OUTS_PER_GROUP,
     DISPOSITIONS: DISPOSITIONS,
+    INERT: INERT,
     addressToBytes: addressToBytes,
     algo: algo,
     b64ToBytes: b64ToBytes,
+    badgeFor: badgeFor,
     choicePayload: choicePayload,
     closeOutProblems: closeOutProblems,
     csrfToken: csrfToken,
     ctaLabel: ctaLabel,
     decodeMsgpack: decodeMsgpack,
+    degradedNotice: degradedNotice,
     fetchPlan: fetchPlan,
     includedByDefault: includedByDefault,
     isActionable: isActionable,
