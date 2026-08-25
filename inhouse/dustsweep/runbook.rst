@@ -17,9 +17,17 @@ State
 
    Conversions route through the ASA Stats router, and the mainnet deployment
    is compiled with ``RESTRICT_TO_ADMIN``. ``engine/core/router.py:_deployment``
-   raises ``RouterUnavailable`` for every caller, so the engine answers **503**
-   and no conversion group can be built until an unrestricted application is
-   deployed. A plan still returns, and still offers the close-outs.
+   raises ``RouterUnavailable`` for every caller, so no conversion group can be
+   built until an unrestricted application is deployed.
+
+   A plan still returns **200**, still offers the close-outs, and names the
+   outage in ``conversions_unavailable`` so a caller can tell a swept account
+   from a router that cannot build. That is not free: ``plan`` catches the
+   exception rather than letting it out. It did let it out until 2026-08-25,
+   which turned a restricted router into a 503 for the whole sweep - an account
+   with sixteen empty holdings and one convertible one was refused instead of
+   being offered its 1.6 ALGO. Found by calling the endpoint for real, after
+   this page had already claimed it could not happen.
 
    Separately, the deployment credential must be granted ``router:sweep``
    before the endpoint answers at all - see `Granting the scope`_. Until then
