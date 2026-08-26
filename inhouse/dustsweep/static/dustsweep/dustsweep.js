@@ -334,6 +334,26 @@ function badgeFor(holding) {
   );
 }
 
+/**
+ * Return the two texts that name a holding's asset: its unit, and its id.
+ *
+ * **The id is shown, not just carried.** A unit name is not an identity -
+ * anyone can mint a second "USDC" - and the asset id is the only handle a
+ * reader can paste into an explorer to see what they are about to close out or
+ * give away. It is also the fallback name: `_asset_facts` returns no unit for
+ * an asset whose parameters could not be read, and a row labelled with nothing
+ * is a row nobody can check.
+ *
+ * @param {Object} holding a plan line
+ * @returns {{unit: string, id: string}}
+ */
+function assetLabels(holding) {
+  return {
+    unit: (holding && holding.unit) || "Unnamed",
+    id: "#" + ((holding && holding.asset) != null ? holding.asset : "?"),
+  };
+}
+
 /** Return whether this holding is swept unless the reader says otherwise. */
 function includedByDefault(holding) {
   var meta = DISPOSITIONS[holding.disposition];
@@ -781,9 +801,17 @@ function renderLine(holding, current) {
   row.className = "dustsweep-line";
   row.dataset.asset = String(holding.asset);
 
+  // unit and id share one grid cell, so the row keeps its three columns
+  var labels = assetLabels(holding);
+  var named = document.createElement("span");
+  named.className = "dustsweep-line-asset";
   var unit = document.createElement("span");
   unit.className = "dustsweep-line-unit";
-  unit.textContent = holding.unit;
+  unit.textContent = labels.unit;
+  var assetId = document.createElement("span");
+  assetId.className = "dustsweep-line-id";
+  assetId.textContent = labels.id;
+  named.append(unit, assetId);
 
   var tone = badgeFor(holding);
   var badge = document.createElement("span");
@@ -798,7 +826,7 @@ function renderLine(holding, current) {
   reason.className = "dustsweep-line-reason";
   reason.textContent = holding.reason;
 
-  row.append(unit, badge, value, reason);
+  row.append(named, badge, value, reason);
 
   if (meta) {
     var toggle = document.createElement("label");
@@ -887,6 +915,7 @@ if (typeof module !== "undefined" && module.exports) {
     INERT: INERT,
     addressToBytes: addressToBytes,
     algo: algo,
+    assetLabels: assetLabels,
     b64ToBytes: b64ToBytes,
     badgeFor: badgeFor,
     choicePayload: choicePayload,

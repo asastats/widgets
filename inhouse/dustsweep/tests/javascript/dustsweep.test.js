@@ -582,6 +582,38 @@ describe("badgeFor", () => {
   });
 });
 
+describe("assetLabels", () => {
+  test("carries the asset id alongside the unit", () => {
+    // The unit alone cannot be checked against anything: unit names are not
+    // unique on Algorand, so a reader about to close out "USDC" has no way to
+    // tell which "USDC" it is without the id.
+    expect(sweep.assetLabels(line(31566704, "close"))).toEqual({
+      unit: "U31566704",
+      id: "#31566704",
+    });
+  });
+
+  test("an asset whose unit could not be read still names itself", () => {
+    // `_asset_facts` returns no unit for an asset whose parameters are
+    // unreadable, and those are exactly the rows worth looking up.
+    expect(sweep.assetLabels(line(5, "unpriced", { unit: null }))).toEqual({
+      unit: "Unnamed",
+      id: "#5",
+    });
+  });
+
+  test("asset 0 is still shown as 0 rather than as unknown", () => {
+    // Falsy but real. ALGO never reaches a row, but an id must never be able to
+    // read as missing because of its value.
+    expect(sweep.assetLabels(line(0, "keep")).id).toBe("#0");
+  });
+
+  test("a line with no asset at all says so instead of inventing one", () => {
+    expect(sweep.assetLabels({}).id).toBe("#?");
+    expect(sweep.assetLabels(undefined)).toEqual({ unit: "Unnamed", id: "#?" });
+  });
+});
+
 describe("degradedNotice", () => {
   test("says nothing about a plan that is whole", () => {
     expect(sweep.degradedNotice({})).toBe("");
