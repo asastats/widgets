@@ -884,3 +884,54 @@ describe("algo", () => {
     expect(sweep.algo(given)).toBe(expected);
   });
 });
+
+/* ------------------------------------------------------------------ *
+ * which account the address-page entry may offer
+ * ------------------------------------------------------------------ */
+
+describe("sweepableAddress", () => {
+  const OTHER = "2EVGZ4BGOSL3J64UYDE2BUGTNTBZZZLI54VUQQNZZLYCDODLY33UGXNSIU";
+
+  test("offers the connected account when the page shows it", () => {
+    expect(sweep.sweepableAddress([ADDRESS, OTHER], ADDRESS)).toBe(ADDRESS);
+  });
+
+  test("offers nothing while no wallet is connected", () => {
+    // The reason the button is rendered hidden rather than pointed at a guess:
+    // a sweep built for an account the wallet is not on cannot be signed, and
+    // the reader would find that out at the signature prompt.
+    expect(sweep.sweepableAddress([ADDRESS, OTHER], null)).toBe("");
+    expect(sweep.sweepableAddress([ADDRESS, OTHER], "")).toBe("");
+  });
+
+  test("offers nothing when the connected account is not on this page", () => {
+    // A wallet is connected to one account at a time and the reader may be
+    // looking at somebody else's address. The sweep acts on what is on screen.
+    expect(sweep.sweepableAddress([OTHER], ADDRESS)).toBe("");
+  });
+
+  test("offers nothing when the reader owns none of the page's addresses", () => {
+    expect(sweep.sweepableAddress([], ADDRESS)).toBe("");
+    expect(sweep.sweepableAddress(null, ADDRESS)).toBe("");
+  });
+
+  test("never settles for a partial match", () => {
+    // Addresses are compared whole. A prefix match would let a lookalike
+    // address stand in for the one the wallet actually holds.
+    expect(sweep.sweepableAddress([ADDRESS], ADDRESS.slice(0, 40))).toBe("");
+    expect(sweep.sweepableAddress([ADDRESS.slice(0, 40)], ADDRESS)).toBe("");
+  });
+});
+
+describe("shortAddress", () => {
+  test("keeps both ends, which is what tells two addresses apart", () => {
+    expect(sweep.shortAddress(ADDRESS)).toBe(
+      ADDRESS.slice(0, 6) + "…" + ADDRESS.slice(-4)
+    );
+  });
+
+  test("has nothing to say about nothing", () => {
+    expect(sweep.shortAddress("")).toBe("");
+    expect(sweep.shortAddress(null)).toBe("");
+  });
+});
