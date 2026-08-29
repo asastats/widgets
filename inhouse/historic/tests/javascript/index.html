@@ -8,6 +8,10 @@
   `.historic-tab-panel` toggled by `hidden`, `.fitem`, `.item-header`,
   `.item-body` -- and no framework classes. The widget templates name no
   framework, so neither does this.
+
+  Page chrome (nav / footer / login modal) below has been updated to the
+  DaisyUI base template; the widget block itself (inside `hx-ext="ws"`) is
+  left byte-for-byte as captured, per the note above.
 -->
 <html lang="en">
 <head>
@@ -34,22 +38,15 @@
 </script>
 
 <header>
-  <nav class="z-depth-0">
-      <div class="nav-wrapper container">
-          
-          <a href="/" class="brand-logo"><img id="brand" src="/static/asastats.png" alt="ASA Stats logo"></a>
-          <a href="#" data-target="slide-out" class="sidenav-trigger button-collapse" aria-label="Menu"><span aria-hidden="true">&#9776;</span></a>
-          <ul class="right hide-on-med-and-down" id="nav-mobile">
-            
+  <div class="navbar border-b border-base-300 bg-base-100">
+    <div class="mx-auto flex w-full max-w-6xl items-center px-4">
+      <div class="navbar-start">
+        <div class="dropdown">
+          <div tabindex="0" role="button" aria-label="Menu" class="btn btn-ghost sidenav-trigger button-collapse lg:hidden">
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </div>
+          <ul tabindex="0" id="slide-out" class="sidenav menu dropdown-content menu-sm z-30 mt-3 w-56 rounded-box bg-base-100 p-2 shadow">
             <li><a href="#modalLogin" class="modal-trigger">Log in</a></li>
-            <li><a href="/api/v2/schema/swagger-ui/">API</a></li>
-            <li><a href="/subscriptions/">Subscriptions</a></li>
-            
-          </ul>
-          <ul class="sidenav" id="slide-out">
-            
-            <li><a href="#modalLogin" class="modal-trigger">Log in</a></li>
-            
             <li><a href="/about/">About</a></li>
             <li><a href="/tokenomics/">Tokenomics</a></li>
             <li><a href="/subscriptions/">Subscriptions</a></li>
@@ -57,15 +54,25 @@
             <li><a href="/faq/">FAQ</a></li>
             <li><a href="/features/">Features</a></li>
             <li><a href="/disclaimer/">Disclaimer</a></li>
-            
           </ul>
-          
+        </div>
+        <a href="/" class="brand-logo btn btn-ghost px-2 text-xl">
+          <img id="brand" class="h-8 w-auto" src="/static/asastats.png" alt="ASA Stats logo">
+        </a>
       </div>
-  </nav>
+      <div class="navbar-end hidden lg:flex">
+        <ul id="nav-mobile" class="menu menu-horizontal px-1">
+          <li><a href="#modalLogin" class="modal-trigger">Log in</a></li>
+          <li><a href="/api/v2/schema/swagger-ui/">API</a></li>
+          <li><a href="/subscriptions/">Subscriptions</a></li>
+        </ul>
+      </div>
+    </div>
+  </div>
 </header>
 
 <main>
-  <div class="container">
+  <div class="mx-auto w-full max-w-6xl px-4 py-8">
     
 <div hx-ext="ws" ws-connect="/widgets/historic/540A5D8CEC896E073F9170AF0A962503E69147CF/">
   <h1>Historic data</h1>
@@ -104,12 +111,12 @@
 
   </div>
 </main>
-<footer class="page-footer">
-  <div class="container">
-    <div class="col s12 center-align socfooter">
+<footer class="page-footer border-t border-base-300">
+  <div class="mx-auto max-w-6xl px-4 py-6">
+    <div class="socfooter flex flex-wrap items-center justify-center gap-3">
       <a class="stkbtn govbtn" href="https://app.cometa.farm/stake" target="_blank" rel="noopener" title="ASA Stats Token staking on Cometa"></a><a class="frmbtn liqbtn" href="https://app.pact.fi/pool/2757667443" target="_blank" rel="noopener" title="ALGO-ASASTATS liquidity pool on Pact"></a>
     </div>
-    <div class="col s12 center-align socfooter">
+    <div class="socfooter mt-3 flex flex-wrap items-center justify-center gap-3">
       <a class="scbtn iosbtn" href="https://apps.apple.com/us/app/asa-stats-mobile/id6443547246" target="_blank" rel="noopener" title="ASA Stats Mobile on App Store"></a>
       <a class="scbtn andrbtn" href="https://play.google.com/store/apps/details?id=com.asastats.app" target="_blank" rel="noopener" title="ASA Stats Mobile on Play Store"></a>
       <a class="scbtn dark-toggle brightbtn" href="#" title="Dark/bright side of the Moon"></a>
@@ -120,92 +127,103 @@
       <a class="scbtn githbtn" href="https://github.com/asastats" target="_blank" rel="noopener" title="ASA Stats on GitHub"></a>
     </div>
   </div>
-  <div id="footer" class="footer-copyright" data-mode="">
-      <div class="container center-align">
-        <a href="https://app.pact.fi/swap?pair=ALGO:0/ASA+STATS+TOKEN:393537671" target="_blank" rel="noopener" title="Buy ASA Stats Token on Pact">Buy ASASTATS</a>
-        
-        &emsp;&emsp;<a href="#modalLogin" class="modal-trigger">Log in</a>
-        
-        &emsp;&emsp;<a href="/about/">About</a>
-        &emsp;&emsp;<a href="/tokenomics/">Tokenomics</a>
-        &emsp;&emsp;<a href="/subscriptions/">Subscriptions</a>
-        &emsp;&emsp;<a href="/api/v2/schema/swagger-ui/">API</a>
-        &emsp;&emsp;<a href="/faq/">FAQ</a>
-        &emsp;&emsp;<a href="/features/">Features</a>
-        &emsp;&emsp;<a href="https://www.asastats.com/auth_privacy.html" target="_blank" rel="noopener">Privacy</a>
-        &emsp;&emsp;<a href="/disclaimer/">Disclaimer</a>
-        
-        &emsp;&emsp;<span class="txt mydark-text">&copy;&nbsp;2025&nbsp;ASA&nbsp;Stats</span>
-      </div>
+  <div id="footer" class="footer-copyright border-t border-base-300" data-mode="">
+    <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-4 gap-y-1 px-4 py-4 text-center text-sm">
+      <a class="link link-hover" href="https://app.pact.fi/swap?pair=ALGO:0/ASA+STATS+TOKEN:393537671" target="_blank" rel="noopener" title="Buy ASA Stats Token on Pact">Buy ASASTATS</a>
+      <a href="#modalLogin" class="link link-hover modal-trigger">Log in</a>
+      <a class="link link-hover" href="/about/">About</a>
+      <a class="link link-hover" href="/tokenomics/">Tokenomics</a>
+      <a class="link link-hover" href="/subscriptions/">Subscriptions</a>
+      <a class="link link-hover" href="/api/v2/schema/swagger-ui/">API</a>
+      <a class="link link-hover" href="/faq/">FAQ</a>
+      <a class="link link-hover" href="/features/">Features</a>
+      <a class="link link-hover" href="https://www.asastats.com/auth_privacy.html" target="_blank" rel="noopener">Privacy</a>
+      <a class="link link-hover" href="/disclaimer/">Disclaimer</a>
+      <span class="txt mydark-text">&copy;&nbsp;2025&nbsp;ASA&nbsp;Stats</span>
+    </div>
   </div>
 </footer>
-<div id="modalLogin" class="modal">
+
+<dialog id="modalLogin" class="modal">
+  <div class="modal-box max-w-2xl">
+    <form method="dialog">
+      <button class="btn btn-circle btn-ghost btn-sm absolute right-2 top-2" id="id_cancel" aria-label="Close">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </form>
+
     <form class="login" id="modal_login_form" method="POST" action="/accounts/login/">
-    <div class="modal-content">
-        <div class="row">
-          <div class="col s12 m6 push-m6">
-                <h3 class="center-align">Log in</h3>
-                <div class="center-align">
-                    <div class="divider col s12 m10 offset-m1"></div>
-                    <input type="hidden" name="csrfmiddlewaretoken" value="T899jQ2tS0ohs7j9eVyIu57XYMXBfnp8YiinfWxlO9blfOrNC2xq4iGGub8g1Gd8">
-                    <div class="row center-align">
-                        <div class="input-field col s12 m10 offset-m1">
-                            <i class="material-icons prefix" aria-hidden="true">account_circle</i>
-                            <input autofocus="autofocus" id="id_login_modal" name="login" placeholder="Username or email" type="text" required />
-                            <label for="id_login_modal">Login:</label>
-                        </div>
-                        <div class="input-field col s12 m10 offset-m1">
-                            <i class="material-icons prefix" aria-hidden="true">lock</i>
-                            <input id="id_password_modal" name="password" autocomplete="off" placeholder="Password" type="password" required />
-                            <label for="id_password_modal">Password:</label>
-                        </div>
-                        <div class="input-field col s12 m10 offset-m1">
-                          <div>
-                          <label title="Remember me on this computer">
-                            <input name="remember" type="checkbox">
-                            <span>Remember me</span>
-                          </label>
-                          </div>
-                        </div>
-                        <div class="center-align col s12">
-                            <button class="waves-effect btn-flat auth modal-action modal-close" id="id_cta_modal" type="submit">Log in <i class="material-icons right" aria-hidden="true">verified_user</i></button>
-                        </div>
-                    </div>
+      <input type="hidden" name="csrfmiddlewaretoken" value="T899jQ2tS0ohs7j9eVyIu57XYMXBfnp8YiinfWxlO9blfOrNC2xq4iGGub8g1Gd8">
+
+      <div class="grid gap-8 md:grid-cols-2">
+        <div>
+          <h3 class="text-center text-lg font-semibold">Log in</h3>
+          <div class="divider"></div>
+
+          <div class="flex flex-col gap-3">
+            <label class="input input-bordered flex items-center gap-2" for="id_login_modal">
+              <svg class="h-4 w-4 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21a8 8 0 1 0-16 0"/><circle cx="12" cy="7" r="4"/></svg>
+              <input autofocus="autofocus" id="id_login_modal" name="login" placeholder="Username or email" type="text" required class="grow" />
+            </label>
+
+            <label class="input input-bordered flex items-center gap-2" for="id_password_modal">
+              <svg class="h-4 w-4 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <input id="id_password_modal" name="password" autocomplete="off" placeholder="Password" type="password" required class="grow" />
+            </label>
+
+            <label class="label cursor-pointer justify-start gap-2" title="Remember me on this computer">
+              <input name="remember" type="checkbox" class="checkbox checkbox-sm">
+              <span class="label-text">Remember me</span>
+            </label>
+
+            <button class="btn btn-primary auth" id="id_cta_modal" type="submit">
+              Log in
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 12 2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="text-center">
+          <h3 class="text-lg font-semibold">By social media</h3>
+          <div class="divider"></div>
+
+          <div class="flex flex-col gap-2">
+            <div class="socialsmall flex items-center justify-center gap-2">
+              <img src="/static/img/social/discord.png" alt="Discord logo" class="h-5 w-5" />
+              <a class="btn btn-ghost btn-sm" role="button" href="/accounts/discord/login/">Sign in with Discord</a>
+            </div>
+            <div class="socialsmall flex items-center justify-center gap-2">
+              <img src="/static/img/social/twitter.png" alt="X logo" class="h-5 w-5" />
+              <a class="btn btn-ghost btn-sm" role="button" href="/accounts/twitter_oauth2/login/">Sign in with X</a>
+            </div>
+            <div class="socialsmall flex items-center justify-center gap-2">
+              <img src="/static/img/social/reddit.png" alt="Reddit logo" class="h-5 w-5" />
+              <a class="btn btn-ghost btn-sm" role="button" href="/accounts/reddit/login/">Sign in with Reddit</a>
+            </div>
+            <div class="socialsmall flex items-center justify-center gap-2">
+              <img src="/static/img/social/github.png" alt="GitHub logo" class="h-5 w-5" />
+              <a class="btn btn-ghost btn-sm" role="button" href="/accounts/github/login/">Sign in with GitHub</a>
+            </div>
+            <div class="socialsmall flex items-center justify-center gap-2">
+              <img src="/static/img/social/google.png" alt="Google logo" class="h-5 w-5" />
+              <a class="btn btn-ghost btn-sm" role="button" href="/accounts/google/login/">Sign in with Google</a>
             </div>
           </div>
-          <div class="col s12 m6 pull-m6 center-align">
-              <h3>By social media</h3>
-              <div class="row">
-                  <div class="divider col s12"></div><br>
-                  <div class="valign-wrapper col s12 socialsmall">
-                    <img src="/static/img/social/discord.png" alt="Discord logo" /><a class="waves-effect waves-dark btn-flat" role="button" href="/accounts/discord/login/">Sign in with Discord</a>
-                  </div>
-                  <div class="valign-wrapper col s12 socialsmall">
-                    <img src="/static/img/social/twitter.png" alt="X logo" /><a class="waves-effect waves-dark btn-flat" role="button" href="/accounts/twitter_oauth2/login/">Sign in with X</a>
-                  </div>
-                  <div class="valign-wrapper col s12 socialsmall">
-                    <img src="/static/img/social/reddit.png" alt="Reddit logo" /><a class="waves-effect waves-dark btn-flat" role="button" href="/accounts/reddit/login/">Sign in with Reddit</a>
-                  </div>
-                  <div class="valign-wrapper col s12 socialsmall">
-                    <img src="/static/img/social/github.png" alt="GitHub logo" /><a class="waves-effect waves-dark btn-flat" role="button" href="/accounts/github/login/">Sign in with GitHub</a>
-                  </div>
-                  <div class="valign-wrapper col s12 socialsmall">
-                    <img src="/static/img/social/google.png" alt="Google logo" /><a class="waves-effect waves-dark btn-flat" role="button" href="/accounts/google/login/">Sign in with Google</a>
-                  </div>
-              </div>
-          </div>
         </div>
-        <div class="divider col s12 m10 offset-m1"></div>
-        <div class="row center-align col s12">
-            <a class="secondaryAction waves-effect waves-light btn-flat" href="/accounts/password/reset/">Forgot password?</a>
-            <a class="secondaryAction waves-effect waves-light btn-flat" href="/accounts/signup/">Don't have an account?</a>
-        </div>
-        <div class="right-align col s12">
-            <a href="#" class="waves-effect btn-flat modal-close" id="id_cancel">Cancel<i class="material-icons right" aria-hidden="true">highlight_off</i></a>&nbsp;
-        </div>
-    </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="flex flex-wrap items-center justify-center gap-4 text-sm">
+        <a class="secondaryAction link link-hover" href="/accounts/password/reset/">Forgot password?</a>
+        <a class="secondaryAction link link-hover" href="/accounts/signup/">Don't have an account?</a>
+      </div>
     </form>
-</div>
+  </div>
+  <form method="dialog" class="modal-backdrop">
+    <button>close</button>
+  </form>
+</dialog>
 
 <script src="/static/historic/jquery-2.2.4.min.js"></script>
 <script src="/static/historic/site.min007.js"></script>
