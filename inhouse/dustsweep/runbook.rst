@@ -241,6 +241,29 @@ small job, so ``decodeMsgpack`` reads the subset a transaction uses. Addresses
 are compared as raw bytes, which needs base32 only - encoding one back to text
 would need SHA-512/256, which WebCrypto does not offer.
 
+The wire format is not the bridge's format
+------------------------------------------
+
+The plan is JSON, so its transactions are base64 and its keys snake_case. The
+bridge takes neither::
+
+    signAndSend(group: Uint8Array[], opts)
+    signAndSendPartial({transactions, signedTransactions, quoteSignerIndex})
+
+``signAction`` converts, and is the only place that does. Handing the strings
+through instead produced, from a reader pressing the first close-out button::
+
+    RangeError: Extra 339 of 340 byte(s) found at buffer[1]
+
+which names neither base64 nor this widget: ``decodeUnsignedTransaction``
+coerces an array-like of characters into one byte each, and a close-out is
+exactly 340 base64 characters, so msgpack read a complete object in the first
+byte and called the other 339 trailing garbage. **This is not a symptom of a
+restricted deployment.** ``RESTRICT_TO_ADMIN`` can only take the *conversion*
+half away, and it says so in ``conversions_unavailable``; a close-out group is
+built by ``router.sweep.close_out_group`` from suggested parameters alone and
+never reaches the router application at all.
+
 The fee waiver
 ==============
 

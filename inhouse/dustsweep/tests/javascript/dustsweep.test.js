@@ -343,16 +343,59 @@ describe("signAction", () => {
       holdings: [EMPTY_HOLDING],
     };
     await expect(signActionOf(action, bridge)).resolves.toBe("TXID");
-    expect(bridge.signAndSend).toHaveBeenCalledWith([CLOSE_TO_SELF], {});
+    expect(bridge.signAndSend).toHaveBeenCalledWith(
+      [sweep.b64ToBytes(CLOSE_TO_SELF)],
+      {}
+    );
+  });
+
+  test("the wallet is handed bytes, never the base64 it arrived as", async () => {
+    // The bug this is holding shut, in the words the reader got:
+    //
+    //     RangeError: Extra 339 of 340 byte(s) found at buffer[1]
+    //
+    // `signAndSend` takes `Uint8Array[]` and passes each entry to algosdk's
+    // `decodeUnsignedTransaction`, which turns an array-like of characters
+    // into one byte each. A close-out is exactly 340 base64 characters, so
+    // the decoder read a complete msgpack object in the first byte and called
+    // the remaining 339 trailing garbage - naming neither base64 nor this
+    // widget. Asserted on the *type* because the length and the content were
+    // both plausible; only the type was wrong.
+    const bridge = { signAndSend: jest.fn().mockResolvedValue("TXID") };
+    const action = {
+      kind: "close",
+      transactions: [CLOSE_TO_SELF, FORFEIT_TO_CREATOR],
+      holdings: [EMPTY_HOLDING, FORFEITED_HOLDING],
+    };
+    await signActionOf(action, bridge);
+
+    const [group] = bridge.signAndSend.mock.calls[0];
+    expect(group).toHaveLength(2);
+    group.forEach((entry, index) => {
+      expect(entry).toBeInstanceOf(Uint8Array);
+      // Base64 is a third longer than what it encodes, so a group that was
+      // never decoded is exactly as long as the strings that arrived - which
+      // is the arithmetic behind "340 byte(s)" in the reader's error.
+      expect(entry.length).toBeLessThan(action.transactions[index].length);
+    });
   });
 
   test("a conversion goes through the quote-signed path", async () => {
     // It carries the engine's quote authorisation, which `signAndSend` would
     // destroy by re-assigning group ids.
     const bridge = { signAndSendPartial: jest.fn().mockResolvedValue("TXID") };
-    const action = { kind: "convert", transactions: ["X"] };
+    const action = {
+      kind: "convert",
+      transactions: [CLOSE_TO_SELF],
+      signed_transactions: { 0: FORFEIT_TO_CREATOR },
+      quote_signer_index: 0,
+    };
     await expect(signActionOf(action, bridge)).resolves.toBe("TXID");
-    expect(bridge.signAndSendPartial).toHaveBeenCalledWith(action);
+    expect(bridge.signAndSendPartial).toHaveBeenCalledWith({
+      transactions: [sweep.b64ToBytes(CLOSE_TO_SELF)],
+      signedTransactions: { 0: sweep.b64ToBytes(FORFEIT_TO_CREATOR) },
+      quoteSignerIndex: 0,
+    });
   });
 
   test("a wallet without the quote-signed path is told so", async () => {
@@ -366,6 +409,25 @@ describe("signAction", () => {
   function signActionOf(action, bridge) {
     return sweep.signAction(action, ADDRESS, bridge);
   }
+});
+
+describe("partialGroup", () => {
+  test("a direct group carries no backend signature and still converts", () => {
+    // `quote_signer_index` is only present on a routed group. The bridge
+    // rejects the result either way, and it must reject it for what it is
+    // rather than crash on a missing key on the way there.
+    const group = sweep.partialGroup({ transactions: [CLOSE_TO_SELF] });
+    expect(group.signedTransactions).toEqual({});
+    expect(group.quoteSignerIndex).toBeNaN();
+  });
+
+  test("an action with no transactions produces an empty group", () => {
+    expect(sweep.partialGroup({})).toEqual({
+      transactions: [],
+      signedTransactions: {},
+      quoteSignerIndex: NaN,
+    });
+  });
 });
 
 describe("fetchPlan", () => {

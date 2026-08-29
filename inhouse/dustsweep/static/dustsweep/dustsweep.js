@@ -459,6 +459,30 @@ function csrfToken() {
 }
 
 /**
+ * Return the engine's conversion payload in the shape the bridge signs.
+ *
+ * The wire format and the bridge's format are not the same thing, and it is
+ * `swap.js`'s `AsastatsAdapter.buildSwapGroup` that says what the difference
+ * is: JSON carries base64 and snake_case, `signAndSendPartial` wants decoded
+ * bytes and camelCase. Written out here rather than borrowed, because the two
+ * widgets ship separately and neither may import the other's module.
+ *
+ * @param {Object} action the plan's `next`, kind "convert"
+ * @returns {Object} `{transactions, signedTransactions, quoteSignerIndex}`
+ */
+function partialGroup(action) {
+  var signed = {};
+  Object.keys(action.signed_transactions || {}).forEach(function (index) {
+    signed[index] = b64ToBytes(action.signed_transactions[index]);
+  });
+  return {
+    transactions: (action.transactions || []).map(b64ToBytes),
+    signedTransactions: signed,
+    quoteSignerIndex: Number(action.quote_signer_index),
+  };
+}
+
+/**
  * Sign and submit the action the plan chose, refusing anything unexpected.
  *
  * A conversion goes through `signAndSendPartial`, which preserves the engine's
@@ -466,6 +490,20 @@ function csrfToken() {
  * through `signAndSend`. Only the close-out path is inspected here - a
  * conversion carries a router call the contract itself checks, including its
  * refusal of any group containing a close.
+ *
+ * **Both bridge methods take decoded bytes, and this used to hand them the
+ * base64.** `signAndSend(group: Uint8Array[])` passes each entry straight to
+ * `decodeUnsignedTransaction`, which coerces a string array-like into one byte
+ * per *character* - so a 340-character close-out arrived as 340 zero bytes and
+ * msgpack read one complete object in the first of them:
+ *
+ *     RangeError: Extra 339 of 340 byte(s) found at buffer[1]
+ *
+ * which named neither base64 nor this widget. The conversion path had the same
+ * fault in a second form, passing the whole JSON action where the bridge wants
+ * three named fields, and would have failed its own way at the first signature.
+ * Decoding is therefore done here, at the single point where the wire format
+ * becomes an argument.
  *
  * @param {Object} action the plan's `next`
  * @param {string} address the account being swept
@@ -477,7 +515,7 @@ async function signAction(action, address, bridge) {
     if (typeof bridge.signAndSendPartial !== "function") {
       throw new Error("The connected wallet does not support quote-signed groups");
     }
-    return await bridge.signAndSendPartial(action);
+    return await bridge.signAndSendPartial(partialGroup(action));
   }
 
   var problems = closeOutProblems(action.transactions, address, action.holdings);
@@ -485,7 +523,9 @@ async function signAction(action, address, bridge) {
     throw new Error("This group was refused: " + problems.join("; "));
   }
 
-  return await bridge.signAndSend(action.transactions, {});
+  // No `|| []` guard: `closeOutProblems` has already refused anything that is
+  // not a non-empty array, and threw above.
+  return await bridge.signAndSend(action.transactions.map(b64ToBytes), {});
 }
 
 /**
@@ -1028,6 +1068,7 @@ if (typeof module !== "undefined" && module.exports) {
     includedByDefault: includedByDefault,
     isActionable: isActionable,
     isIncluded: isIncluded,
+    partialGroup: partialGroup,
     progressLabel: progressLabel,
     sameBytes: sameBytes,
     shortAddress: shortAddress,
