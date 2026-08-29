@@ -334,6 +334,26 @@ function badgeFor(holding) {
   );
 }
 
+/**
+ * Return the two texts that name a holding's asset: its unit, and its id.
+ *
+ * **The id is shown, not just carried.** A unit name is not an identity -
+ * anyone can mint a second "USDC" - and the asset id is the only handle a
+ * reader can paste into an explorer to see what they are about to close out or
+ * give away. It is also the fallback name: `_asset_facts` returns no unit for
+ * an asset whose parameters could not be read, and a row labelled with nothing
+ * is a row nobody can check.
+ *
+ * @param {Object} holding a plan line
+ * @returns {{unit: string, id: string}}
+ */
+function assetLabels(holding) {
+  return {
+    unit: (holding && holding.unit) || "Unnamed",
+    id: "#" + ((holding && holding.asset) != null ? holding.asset : "?"),
+  };
+}
+
 /** Return whether this holding is swept unless the reader says otherwise. */
 function includedByDefault(holding) {
   var meta = DISPOSITIONS[holding.disposition];
@@ -439,6 +459,30 @@ function csrfToken() {
 }
 
 /**
+ * Return the engine's conversion payload in the shape the bridge signs.
+ *
+ * The wire format and the bridge's format are not the same thing, and it is
+ * `swap.js`'s `AsastatsAdapter.buildSwapGroup` that says what the difference
+ * is: JSON carries base64 and snake_case, `signAndSendPartial` wants decoded
+ * bytes and camelCase. Written out here rather than borrowed, because the two
+ * widgets ship separately and neither may import the other's module.
+ *
+ * @param {Object} action the plan's `next`, kind "convert"
+ * @returns {Object} `{transactions, signedTransactions, quoteSignerIndex}`
+ */
+function partialGroup(action) {
+  var signed = {};
+  Object.keys(action.signed_transactions || {}).forEach(function (index) {
+    signed[index] = b64ToBytes(action.signed_transactions[index]);
+  });
+  return {
+    transactions: (action.transactions || []).map(b64ToBytes),
+    signedTransactions: signed,
+    quoteSignerIndex: Number(action.quote_signer_index),
+  };
+}
+
+/**
  * Sign and submit the action the plan chose, refusing anything unexpected.
  *
  * A conversion goes through `signAndSendPartial`, which preserves the engine's
@@ -446,6 +490,20 @@ function csrfToken() {
  * through `signAndSend`. Only the close-out path is inspected here - a
  * conversion carries a router call the contract itself checks, including its
  * refusal of any group containing a close.
+ *
+ * **Both bridge methods take decoded bytes, and this used to hand them the
+ * base64.** `signAndSend(group: Uint8Array[])` passes each entry straight to
+ * `decodeUnsignedTransaction`, which coerces a string array-like into one byte
+ * per *character* - so a 340-character close-out arrived as 340 zero bytes and
+ * msgpack read one complete object in the first of them:
+ *
+ *     RangeError: Extra 339 of 340 byte(s) found at buffer[1]
+ *
+ * which named neither base64 nor this widget. The conversion path had the same
+ * fault in a second form, passing the whole JSON action where the bridge wants
+ * three named fields, and would have failed its own way at the first signature.
+ * Decoding is therefore done here, at the single point where the wire format
+ * becomes an argument.
  *
  * @param {Object} action the plan's `next`
  * @param {string} address the account being swept
@@ -457,7 +515,7 @@ async function signAction(action, address, bridge) {
     if (typeof bridge.signAndSendPartial !== "function") {
       throw new Error("The connected wallet does not support quote-signed groups");
     }
-    return await bridge.signAndSendPartial(action);
+    return await bridge.signAndSendPartial(partialGroup(action));
   }
 
   var problems = closeOutProblems(action.transactions, address, action.holdings);
@@ -465,7 +523,9 @@ async function signAction(action, address, bridge) {
     throw new Error("This group was refused: " + problems.join("; "));
   }
 
-  return await bridge.signAndSend(action.transactions, {});
+  // No `|| []` guard: `closeOutProblems` has already refused anything that is
+  // not a non-empty array, and threw above.
+  return await bridge.signAndSend(action.transactions.map(b64ToBytes), {});
 }
 
 /**
@@ -481,6 +541,43 @@ function whenSweepReady(fn) {
   } else {
     window.addEventListener("asastats:swap-ready", fn, { once: true });
   }
+}
+
+/**
+ * Return the account the sweep entry may offer, or "".
+ *
+ * **A sweep is only ever offered for the account the wallet is connected to.**
+ * Every other address is unofferable by construction: the group is signed by one
+ * key, the wallet holds one active account, and a button for any other account
+ * builds transactions that account cannot sign. The reader used to discover that
+ * at the signature prompt.
+ *
+ * Both halves of the question are asked here. `candidates` is what the server
+ * knows - the reader's own addresses among those this page shows - and `active`
+ * is what the browser knows. An account that is connected but not on this page
+ * is not offered either: the sweep acts on what the reader is looking at.
+ *
+ * @param {string[]} candidates addresses this page shows and the reader owns
+ * @param {string} active the wallet's connected account, or "" / null
+ * @returns {string} the address to sweep, or "" when there is none
+ */
+function sweepableAddress(candidates, active) {
+  if (!active || !candidates) return "";
+  for (var i = 0; i < candidates.length; i++) {
+    if (candidates[i] === active) return active;
+  }
+  return "";
+}
+
+/**
+ * Return an address shortened for a button label.
+ *
+ * @param {string} address a full Algorand address
+ * @returns {string} e.g. "STATS6…4PK2Q", or "" for nothing
+ */
+function shortAddress(address) {
+  if (!address) return "";
+  return address.slice(0, 6) + "…" + address.slice(-4);
 }
 
 /* ------------------------------------------------------------------ *
@@ -586,6 +683,66 @@ function state() {
   };
 }
 
+/**
+ * How often the entry re-reads which account the wallet is on, in ms.
+ *
+ * Polled rather than driven by an event because the wallet bundle publishes
+ * exactly one - `asastats:swap-ready`, at bootstrap - and says nothing when a
+ * reader connects, switches account or disconnects afterwards. `swap.js` lives
+ * with that by re-reading at click time, which a button that must appear and
+ * disappear cannot do. One property read a second is not a cost worth designing
+ * around; a sweep entry that never appears because the reader connected after
+ * the page loaded is.
+ */
+var CONNECTION_POLL_MS = 1000;
+
+/**
+ * Keep the address-page sweep entry pointed at the connected account.
+ *
+ * Only the address-page entry (`.dustsweep-toolbar`, one button whose account
+ * this decides) is touched. The standalone sweep page lists the reader's
+ * addresses as a directory with an account already on each button, and is not a
+ * page they arrived at to read something else.
+ *
+ * The toolbar is also moved into `#id-dustsweep-slot` when the page offers one,
+ * so the button sits with Historic data and CSV export rather than above the
+ * page in a strip of its own. Moved rather than rendered there: this markup
+ * arrives in an htmx partial, because it is the one per-reader thing on a page
+ * whose cache entry is shared, and the partial has one mount point.
+ *
+ * @param {Element} root the `#id-dustsweep` container
+ */
+/* istanbul ignore next -- DOM wiring; sweepableAddress carries the decision */
+function offerToConnectedAccount(root) {
+  if (!root.classList.contains("dustsweep-toolbar")) return;
+
+  var button = root.querySelector(".id-dustsweep-open");
+  if (!button) return;
+  var tag = button.querySelector(".dustsweep-open-address");
+  var candidates = (root.dataset.addresses || "").split(/\s+/).filter(Boolean);
+
+  var slot = document.getElementById("id-dustsweep-slot");
+  if (slot && slot !== root.parentNode) slot.appendChild(root);
+
+  var refresh = function () {
+    var bridge = window.asastatsSwap;
+    var active =
+      bridge && typeof bridge.activeAddress === "function"
+        ? bridge.activeAddress()
+        : "";
+    var address = sweepableAddress(candidates, active);
+    if (address === button.dataset.address) return;
+
+    button.dataset.address = address;
+    if (tag) tag.textContent = shortAddress(address);
+    root.hidden = !address;
+  };
+
+  refresh();
+  whenSweepReady(refresh);
+  window.setInterval(refresh, CONNECTION_POLL_MS);
+}
+
 /* istanbul ignore next -- DOM wiring */
 function start() {
   var root = document.getElementById("id-dustsweep");
@@ -595,12 +752,15 @@ function start() {
   var planUrl = root.dataset.planUrl;
   var current = state();
 
+  offerToConnectedAccount(root);
+
   root.querySelectorAll(".id-dustsweep-open").forEach(function (button) {
     button.addEventListener("click", function () {
+      if (!button.dataset.address) return;
       current = state();
       current.address = button.dataset.address;
       modal.querySelector(".id-dustsweep-address-tag").textContent =
-        current.address.slice(0, 6) + "…" + current.address.slice(-4);
+        shortAddress(current.address);
       modal.showModal();
       reload(modal, planUrl, current);
     });
@@ -781,9 +941,17 @@ function renderLine(holding, current) {
   row.className = "dustsweep-line";
   row.dataset.asset = String(holding.asset);
 
+  // unit and id share one grid cell, so the row keeps its three columns
+  var labels = assetLabels(holding);
+  var named = document.createElement("span");
+  named.className = "dustsweep-line-asset";
   var unit = document.createElement("span");
   unit.className = "dustsweep-line-unit";
-  unit.textContent = holding.unit;
+  unit.textContent = labels.unit;
+  var assetId = document.createElement("span");
+  assetId.className = "dustsweep-line-id";
+  assetId.textContent = labels.id;
+  named.append(unit, assetId);
 
   var tone = badgeFor(holding);
   var badge = document.createElement("span");
@@ -798,7 +966,7 @@ function renderLine(holding, current) {
   reason.className = "dustsweep-line-reason";
   reason.textContent = holding.reason;
 
-  row.append(unit, badge, value, reason);
+  row.append(named, badge, value, reason);
 
   if (meta) {
     var toggle = document.createElement("label");
@@ -887,6 +1055,7 @@ if (typeof module !== "undefined" && module.exports) {
     INERT: INERT,
     addressToBytes: addressToBytes,
     algo: algo,
+    assetLabels: assetLabels,
     b64ToBytes: b64ToBytes,
     badgeFor: badgeFor,
     choicePayload: choicePayload,
@@ -899,9 +1068,12 @@ if (typeof module !== "undefined" && module.exports) {
     includedByDefault: includedByDefault,
     isActionable: isActionable,
     isIncluded: isIncluded,
+    partialGroup: partialGroup,
     progressLabel: progressLabel,
     sameBytes: sameBytes,
+    shortAddress: shortAddress,
     signAction: signAction,
+    sweepableAddress: sweepableAddress,
     summarise: summarise,
     summaryFigures: summaryFigures,
     visibleLines: visibleLines,
