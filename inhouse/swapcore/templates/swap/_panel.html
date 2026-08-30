@@ -93,6 +93,9 @@
         <div class="swap-amt-slot id-swap-slot-get">
           <input type="text" class="id-swap-out swap-amt swap-num" placeholder="0.0"
                  readonly tabindex="-1" aria-label="Amount you receive">
+          {# Empty until a quote arrives, and empty again whenever nothing #}
+          {# could price the output -- see `valueUsdc` in swap.js.         #}
+          <span class="id-swap-out-value swap-value" aria-live="polite"></span>
         </div>
         <input type="hidden" class="id-swap-to" data-decimals="" data-unit="" data-opted-in="">
         <button type="button" class="swap-assetbtn swap-assetbtn-empty id-swap-to-btn"

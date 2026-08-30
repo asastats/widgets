@@ -29,6 +29,23 @@
  * `raw` carries the router-specific payload that adapter.buildSwapGroup /
  * adapter.executeSwap need later.
  */
+/**
+ * Return a USDC amount as the helper text under the computed leg, or "".
+ *
+ * Two decimals and a leading `$`, which is what a reader is already holding in
+ * their head when they look at a swap. Empty for null, so the element collapses
+ * rather than claiming "$0.00" about a trade nobody could price -- `valueUsdc`
+ * is null exactly when the router had no price for the output asset.
+ *
+ * @param {number|null} value whole USDC
+ * @returns {string}
+ */
+function usdcHelper(value) {
+  if (value == null || !isFinite(value)) return "";
+
+  return "$" + Number(value).toFixed(2);
+}
+
 function makeQuote(q) {
   return {
     // "sell" = fixed-input (user fixes the source amount, output is computed);
@@ -46,6 +63,12 @@ function makeQuote(q) {
     // compute price impact, and rendering their silence as a confident "0%" is
     // a claim we would be making on their behalf.
     priceImpactPct: q.priceImpactPct == null ? null : q.priceImpactPct,
+    // What the output is worth in USDC, or null when nothing could price it.
+    // Null rather than 0, for the same reason `priceImpactPct` is: "$0.00"
+    // beside a real amount reads as a worthless trade rather than as a missing
+    // number, and this is a helper text -- it should disappear when it has
+    // nothing to say.
+    valueUsdc: q.valueUsdc == null ? null : q.valueUsdc,
     routeLabel: q.routeLabel,
     // [{name, pct}] per venue, when the router breaks the route down. `pct` is
     // null for routers that name their venues without weighting them.
@@ -360,6 +383,7 @@ var AsastatsAdapter = {
         // can make the group spend more than it was built to spend
         maximumSent: BigInt(quoted.maximum_sent),
         priceImpactPct: quoted.price_impact_pct,
+        valueUsdc: quoted.value_usdc,
         routeLabel: quoted.route_label,
         feesTotal: quoted.fees_total,
         raw: raw,
@@ -371,6 +395,7 @@ var AsastatsAdapter = {
       amountIn: BigInt(quoted.amount_in),
       minimumReceived: BigInt(quoted.minimum_received),
       priceImpactPct: quoted.price_impact_pct,
+      valueUsdc: quoted.value_usdc,
       routeLabel: quoted.route_label,
       feesTotal: quoted.fees_total,
       raw: raw,
@@ -974,6 +999,9 @@ function renderQuote(panel, q) {
   var outField = panel.querySelector(".id-swap-out");
   if (outField) outField.value = computed;
 
+  var valueEl = panel.querySelector(".id-swap-out-value");
+  if (valueEl) valueEl.textContent = usdcHelper(q.valueUsdc);
+
   out.textContent = "";
 
   // --- summary: the rate, a freshness ring, and the disclosure control -------
@@ -1118,6 +1146,10 @@ function clearQuote(panel) {
   // the new one is in flight is worse than showing nothing.
   var outField = panel.querySelector(".id-swap-out");
   if (outField) outField.value = "";
+  // Clear the helper with the amount it describes; a stale "$5.42" beside an
+  // empty field is worse than no figure at all.
+  var valueEl = panel.querySelector(".id-swap-out-value");
+  if (valueEl) valueEl.textContent = "";
   renderVenueCount(panel, null);
 }
 
@@ -2185,6 +2217,7 @@ if (typeof module !== "undefined" && module.exports) {
     HogswapAdapter: HogswapAdapter,
     ROUTERS: ROUTERS,
     makeQuote: makeQuote,
+    usdcHelper: usdcHelper,
     routeLabelFrom: routeLabelFrom,
     routePartsFrom: routePartsFrom,
     routePartsFromNames: routePartsFromNames,

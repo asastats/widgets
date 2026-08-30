@@ -3701,3 +3701,45 @@ describe("the redesigned panel — optional elements", () => {
     expect(modal.querySelector(".id-swap-slippage").value).toBe("9");
   });
 });
+
+describe("usdcHelper", () => {
+  /**
+   * The helper text under the computed leg. Two decimals and a leading `$`,
+   * because that is what a reader is already holding in their head when they
+   * look at a swap.
+   */
+  it("formats a value as dollars and cents", () => {
+    expect(F.usdcHelper(5.4231)).toBe("$5.42");
+    expect(F.usdcHelper(0.005)).toBe("$0.01");
+    expect(F.usdcHelper(1234.5)).toBe("$1234.50");
+  });
+
+  it("is empty when nothing could price the output", () => {
+    // Null, not zero: "$0.00" beside a real amount reads as a worthless trade
+    // rather than as a missing number, and `value_usdc` is null exactly when
+    // the router had no price for the output asset.
+    expect(F.usdcHelper(null)).toBe("");
+    expect(F.usdcHelper(undefined)).toBe("");
+  });
+
+  it("is empty rather than NaN for a figure it cannot read", () => {
+    expect(F.usdcHelper(Infinity)).toBe("");
+    expect(F.usdcHelper(NaN)).toBe("");
+  });
+
+  it("shows a genuine zero, which is not the same as no price", () => {
+    // A router that priced the output at zero has said something; that is a
+    // different statement from having no price, and the two must not collapse.
+    expect(F.usdcHelper(0)).toBe("$0.00");
+  });
+});
+
+describe("makeQuote carries the USDC value", () => {
+  it("keeps a value the router reported", () => {
+    expect(F.makeQuote({ valueUsdc: 5.42 }).valueUsdc).toBe(5.42);
+  });
+
+  it("normalises an absent value to null rather than undefined", () => {
+    expect(F.makeQuote({}).valueUsdc).toBeNull();
+  });
+});
