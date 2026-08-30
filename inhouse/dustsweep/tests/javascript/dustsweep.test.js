@@ -39,6 +39,21 @@ const WRONG_ASSET =
 const WRONG_SENDER =
   "iaZhY2xvc2XEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDpGFyY3bEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDo2ZlZc0D6KJmdgGiZ2jEIMBhxNj8Hb3e0tdgS+RWjj9tBBmHrDe95LYgtas5JIrfomx2zQPpo3NuZMQg0Sps8CZ0l7T7lMDJoNDTbMOc5WjvK0hBucrwIbhrxvekdHlwZaVheGZlcqR4YWlkBQ==";
 
+// Fee fixtures for `S3`. Identical to FORFEIT_TO_CREATOR but for the fee, so
+// anything they are refused for is the fee and nothing else.
+const FAT_FEE =
+  "iaZhY2xvc2XEINEqbPAmdJe0+5TAyaDQ02zDnOVo7ytIQbnK8CG4a8b3pGFyY3bEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDo2ZlZc4ATEtAomZ2AaJnaMQgwGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit+ibHbNA+mjc25kxCBxo0bd8mO/n5DOM5oPhqRDf4QnOQ7/o2TJQB4d+2Lyg6R0eXBlpWF4ZmVypHhhaWQJ";
+const AT_FEE_LIMIT =
+  "iaZhY2xvc2XEINEqbPAmdJe0+5TAyaDQ02zDnOVo7ytIQbnK8CG4a8b3pGFyY3bEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDo2ZlZc0nEKJmdgGiZ2jEIMBhxNj8Hb3e0tdgS+RWjj9tBBmHrDe95LYgtas5JIrfomx2zQPpo3NuZMQgcaNG3fJjv5+QzjOaD4akQ3+EJzkO/6NkyUAeHfti8oOkdHlwZaVheGZlcqR4YWlkCQ==";
+const OVER_FEE_LIMIT =
+  "iaZhY2xvc2XEINEqbPAmdJe0+5TAyaDQ02zDnOVo7ytIQbnK8CG4a8b3pGFyY3bEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDo2ZlZc0nEaJmdgGiZ2jEIMBhxNj8Hb3e0tdgS+RWjj9tBBmHrDe95LYgtas5JIrfomx2zQPpo3NuZMQgcaNG3fJjv5+QzjOaD4akQ3+EJzkO/6NkyUAeHfti8oOkdHlwZaVheGZlcqR4YWlkCQ==";
+/** Asset 5 closing to self with the fee omitted, as a zero fee is encoded. */
+const ZERO_FEE =
+  "iKZhY2xvc2XEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDpGFyY3bEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDomZ2AaJnaMQgwGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit+ibHbNA+mjc25kxCBxo0bd8mO/n5DOM5oPhqRDf4QnOQ7/o2TJQB4d+2Lyg6R0eXBlpWF4ZmVypHhhaWQF";
+/** Asset 5 closing to self, fee 0.05 ALGO - half of what the close returns. */
+const HALF_MBR_FEE =
+  "iaZhY2xvc2XEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDpGFyY3bEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDo2ZlZc3DUKJmdgGiZ2jEIMBhxNj8Hb3e0tdgS+RWjj9tBBmHrDe95LYgtas5JIrfomx2zQPpo3NuZMQgcaNG3fJjv5+QzjOaD4akQ3+EJzkO/6NkyUAeHfti8oOkdHlwZaVheGZlcqR4YWlkBQ==";
+
 /** The plan lines matching the two well-formed fixtures above. */
 const EMPTY_HOLDING = { asset: 5, amount: "0", creator: CREATOR };
 const FORFEITED_HOLDING = { asset: 9, amount: "1000", creator: CREATOR };
@@ -321,6 +336,184 @@ describe("closeOutProblems refuses what it was not described as", () => {
   });
 });
 
+describe("closeOutProblems bounds the fee", () => {
+  // `S3`: nothing else does. The engine builds these from the node's suggested
+  // parameters, the bridge preserves whatever arrives, and mainnet will take a
+  // fee up to the account's entire spendable balance.
+  test("a five ALGO fee is refused", () => {
+    const problems = sweep.closeOutProblems(
+      [FAT_FEE],
+      ADDRESS,
+      [FORFEITED_HOLDING]
+    );
+    expect(problems).toContain(
+      "transaction 1 pays a fee of 5.00 ALGO, over the limit of 0.01"
+    );
+  });
+
+  test("a fee exactly at the limit is allowed", () => {
+    // Congestion legitimately raises what a transaction costs, so the bound
+    // cannot sit at the protocol minimum.
+    expect(
+      sweep.closeOutProblems([AT_FEE_LIMIT], ADDRESS, [FORFEITED_HOLDING])
+    ).toEqual([]);
+  });
+
+  test("one microALGO over the limit is refused", () => {
+    expect(
+      sweep.closeOutProblems([OVER_FEE_LIMIT], ADDRESS, [FORFEITED_HOLDING])
+    ).toHaveLength(1);
+  });
+
+  test("the limit is a fraction of what a close-out returns", () => {
+    // Not decoration. Because the cap is a tenth of the minimum balance, a
+    // group of any size pays at most a tenth of what it releases - so "the
+    // fees exceed what the group recovers" is unreachable and needs no rule of
+    // its own. This test is what fails if someone raises the constant past the
+    // point where that stops being true.
+    expect(sweep.MAX_CLOSE_OUT_FEE).toBeLessThan(sweep.HOLDING_MINIMUM_BALANCE);
+    expect(sweep.MAX_CLOSE_OUT_FEE * sweep.CLOSE_OUTS_PER_GROUP).toBeLessThan(
+      sweep.HOLDING_MINIMUM_BALANCE * sweep.CLOSE_OUTS_PER_GROUP
+    );
+  });
+
+  test("a transaction with no fee field at all is allowed", () => {
+    // Canonical encoding omits a zero fee entirely, so the rule reads an
+    // absent field. Refusing that would refuse a group that costs nothing.
+    expect(sweep.decodeMsgpack(sweep.b64ToBytes(ZERO_FEE)).fee).toBeUndefined();
+    expect(sweep.closeOutProblems([ZERO_FEE], ADDRESS, [EMPTY_HOLDING])).toEqual(
+      []
+    );
+  });
+
+  test("a mid-sized fee is still refused well below what a close returns", () => {
+    // 0.05 ALGO is half of what closing the holding hands back, and a reader
+    // told they recover 0.1 would be surprised to net 0.05.
+    const problems = sweep.closeOutProblems(
+      [HALF_MBR_FEE],
+      ADDRESS,
+      [EMPTY_HOLDING]
+    );
+    expect(problems).toEqual([
+      "transaction 1 pays a fee of 0.05 ALGO, over the limit of 0.01",
+    ]);
+  });
+
+  test("an honest group passes both fee rules", () => {
+    expect(
+      sweep.closeOutProblems(
+        [CLOSE_TO_SELF, FORFEIT_TO_CREATOR],
+        ADDRESS,
+        [EMPTY_HOLDING, FORFEITED_HOLDING]
+      )
+    ).toEqual([]);
+  });
+});
+
+describe("forfeitTargetProblems", () => {
+  /**
+   * `S2`: `closeOutProblems` compares a forfeit's destination against
+   * `described[].creator`, and both halves arrive in the same response. These
+   * cover the half that does not - the creator read from the chain.
+   */
+  const bridgeSaying = (creator) => ({
+    assetCreator: jest.fn().mockResolvedValue(creator),
+  });
+
+  test("a forfeit to the chain's creator is accepted", async () => {
+    const bridge = bridgeSaying(CREATOR);
+    await expect(
+      sweep.forfeitTargetProblems([FORFEIT_TO_CREATOR], [FORFEITED_HOLDING], bridge)
+    ).resolves.toEqual([]);
+    expect(bridge.assetCreator).toHaveBeenCalledWith(9);
+  });
+
+  test("a forfeit the engine described consistently is still refused", async () => {
+    // The finding itself. `closeOutProblems` passes this group, because the
+    // plan names the same address the transaction closes to; the chain does
+    // not agree, and that is the only opinion here not supplied by the engine.
+    const described = [{ asset: 9, amount: "1000", creator: ADDRESS }];
+    expect(
+      sweep.closeOutProblems([FORFEIT_TO_CREATOR], ADDRESS, described)
+    ).not.toEqual([]);
+
+    await expect(
+      sweep.forfeitTargetProblems(
+        [FORFEIT_TO_CREATOR],
+        [FORFEITED_HOLDING],
+        bridgeSaying(ADDRESS)
+      )
+    ).resolves.toEqual([
+      "transaction 1 forfeits asset 9 to an address that is not its creator on chain",
+    ]);
+  });
+
+  test("an empty holding needs no lookup at all", async () => {
+    // Its destination is the connected account, which was never in doubt.
+    const bridge = bridgeSaying(CREATOR);
+    await expect(
+      sweep.forfeitTargetProblems([CLOSE_TO_SELF], [EMPTY_HOLDING], bridge)
+    ).resolves.toEqual([]);
+    expect(bridge.assetCreator).not.toHaveBeenCalled();
+  });
+
+  test("a bridge that cannot answer refuses rather than allows", async () => {
+    // Fails closed: refusing costs a reader one sweep, signing an unverifiable
+    // forfeit costs them the holding.
+    await expect(
+      sweep.forfeitTargetProblems([FORFEIT_TO_CREATOR], [FORFEITED_HOLDING], {})
+    ).resolves.toEqual([
+      "this wallet connection cannot confirm who an asset's creator is, and " +
+        "the sweep will not give a holding away on the engine's word alone",
+    ]);
+  });
+
+  test("an unreadable asset refuses rather than allows", async () => {
+    await expect(
+      sweep.forfeitTargetProblems(
+        [FORFEIT_TO_CREATOR],
+        [FORFEITED_HOLDING],
+        bridgeSaying(null)
+      )
+    ).resolves.toEqual([
+      "transaction 1 forfeits asset 9, whose creator could not be confirmed on chain",
+    ]);
+  });
+
+  test("a lookup that throws is a refusal, not an exception", async () => {
+    const bridge = {
+      assetCreator: jest.fn().mockRejectedValue(new Error("network down")),
+    };
+    await expect(
+      sweep.forfeitTargetProblems([FORFEIT_TO_CREATOR], [FORFEITED_HOLDING], bridge)
+    ).resolves.toHaveLength(1);
+  });
+
+  test("one lookup per distinct asset, however many transactions", async () => {
+    const bridge = bridgeSaying(CREATOR);
+    await sweep.forfeitTargetProblems(
+      [FORFEIT_TO_CREATOR, FORFEIT_TO_CREATOR, FORFEIT_TO_CREATOR],
+      [FORFEITED_HOLDING],
+      bridge
+    );
+    expect(bridge.assetCreator).toHaveBeenCalledTimes(1);
+  });
+
+  test("a missing holdings list forfeits nothing, so it asks nothing", async () => {
+    const bridge = { assetCreator: jest.fn() };
+    await expect(
+      sweep.forfeitTargetProblems([FORFEIT_TO_CREATOR], undefined, bridge)
+    ).resolves.toEqual([]);
+    expect(bridge.assetCreator).not.toHaveBeenCalled();
+  });
+
+  test("an undecodable transaction is left to closeOutProblems", async () => {
+    await expect(
+      sweep.forfeitTargetProblems(["!!!"], [FORFEITED_HOLDING], bridgeSaying(CREATOR))
+    ).resolves.toEqual([]);
+  });
+});
+
 describe("signAction", () => {
   test("a close-out group is inspected before it reaches the wallet", async () => {
     const bridge = { signAndSend: jest.fn(), signAndSendPartial: jest.fn() };
@@ -361,7 +554,10 @@ describe("signAction", () => {
     // the remaining 339 trailing garbage - naming neither base64 nor this
     // widget. Asserted on the *type* because the length and the content were
     // both plausible; only the type was wrong.
-    const bridge = { signAndSend: jest.fn().mockResolvedValue("TXID") };
+    const bridge = {
+      signAndSend: jest.fn().mockResolvedValue("TXID"),
+      assetCreator: jest.fn().mockResolvedValue(CREATOR),
+    };
     const action = {
       kind: "close",
       transactions: [CLOSE_TO_SELF, FORFEIT_TO_CREATOR],
@@ -867,12 +1063,23 @@ describe("visibleLines", () => {
 });
 
 describe("summaryFigures", () => {
-  test("the three questions a reader actually has", () => {
+  test("the four questions a reader actually has", () => {
+    // `Network fees` joined these for `S3`: the planner had always computed it
+    // and sent it, and nothing rendered it, so no number on this screen would
+    // have moved if every fee in the group had been a thousand times larger.
     const figures = sweep.summaryFigures({
-      summary: { recoverable: 3_000_000, prompts: 7, close: 10, forfeit: 15, convert: 5 },
+      summary: {
+        recoverable: 3_000_000,
+        fees: 16_000,
+        prompts: 7,
+        close: 10,
+        forfeit: 15,
+        convert: 5,
+      },
     });
     expect(figures).toEqual([
       { label: "You recover", value: "3.00 ALGO" },
+      { label: "Network fees", value: "0.02 ALGO" },
       { label: "Signatures", value: "7" },
       { label: "Holdings", value: "30" },
     ]);
@@ -882,12 +1089,13 @@ describe("summaryFigures", () => {
     const figures = sweep.summaryFigures({
       summary: { close: 1, keep: 99, unpriced: 4 },
     });
-    expect(figures[2].value).toBe("1");
+    expect(figures[3].value).toBe("1");
   });
 
   test("survives an empty plan", () => {
     expect(sweep.summaryFigures({})).toEqual([
       { label: "You recover", value: "0.00 ALGO" },
+      { label: "Network fees", value: "0.00 ALGO" },
       { label: "Signatures", value: "0" },
       { label: "Holdings", value: "0" },
     ]);
