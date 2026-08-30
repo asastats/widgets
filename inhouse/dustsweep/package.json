@@ -17,6 +17,7 @@
     "testEnvironment": "jsdom"
   },
   "devDependencies": {
+    "fast-check": "^4.9.0",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1"
   }
