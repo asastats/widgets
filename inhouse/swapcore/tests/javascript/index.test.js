@@ -14,6 +14,7 @@ function panelHTML(holdings) {
         <input type="hidden" class="id-swap-to" data-decimals="" data-unit="" data-opted-in="">
         <input class="id-swap-amount">
         <input class="id-swap-out" readonly>
+        <span class="id-swap-out-value"></span>
         <input class="id-swap-slippage" value="0.5">
         <div class="id-swap-quote"></div>
         <div class="id-swap-status"></div>
@@ -2756,6 +2757,7 @@ function legPanel(options = {}) {
             <button class="id-swap-flip"></button>
             <div class="swap-amt-slot id-swap-slot-get">
               <input class="id-swap-out" readonly>
+        <span class="id-swap-out-value"></span>
             </div>
             <input type="hidden" class="id-swap-to" data-decimals="" data-unit="" data-opted-in="">
             <button class="id-swap-to-btn" data-swap-pick="to">
@@ -3741,5 +3743,79 @@ describe("makeQuote carries the USDC value", () => {
 
   it("normalises an absent value to null rather than undefined", () => {
     expect(F.makeQuote({}).valueUsdc).toBeNull();
+  });
+});
+
+describe("the USDC helper in the panel", () => {
+  /**
+   * `renderQuote` and `clearQuote` write the figure the engine sent as
+   * `value_usdc`. Both branches guard on the element existing, because the
+   * modal and the inline panel are not the same markup and one of them had no
+   * slot for it until this shipped.
+   */
+  function panelWithQuote(valueUsdc) {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-swap-from").value = "0";
+    F.renderQuote(panel, {
+      mode: "sell",
+      amountIn: BigInt(2000000),
+      amountOut: BigInt(1000000),
+      minimumReceived: BigInt(990000),
+      priceImpactPct: 0.1,
+      feesTotal: 3000,
+      routeLabel: "ASA Stats",
+      valueUsdc: valueUsdc,
+    });
+    return panel;
+  }
+
+  test("renders the value beside the amount it describes", () => {
+    expect(
+      panelWithQuote(5.4231).querySelector(".id-swap-out-value").textContent,
+    ).toBe("$5.42");
+  });
+
+  test("renders nothing when the router could not price the output", () => {
+    // Not "$0.00": that would read as a worthless trade rather than as a
+    // missing number.
+    expect(
+      panelWithQuote(null).querySelector(".id-swap-out-value").textContent,
+    ).toBe("");
+  });
+
+  test("clearQuote empties it with the amount", () => {
+    // A stale "$5.42" beside an empty field is worse than no figure at all.
+    const panel = panelWithQuote(5.42);
+    expect(panel.querySelector(".id-swap-out-value").textContent).toBe("$5.42");
+
+    F.clearQuote(panel);
+
+    expect(panel.querySelector(".id-swap-out").value).toBe("");
+    expect(panel.querySelector(".id-swap-out-value").textContent).toBe("");
+  });
+
+  test("both paths survive a panel that has no slot for it", () => {
+    // The guard is not defensive habit: `renderQuote` runs against the modal
+    // and the inline panel, and they are not the same markup -- one of them
+    // had no slot for this until it shipped. A real panel with exactly that
+    // element removed is the case, rather than an empty div that would return
+    // early for an unrelated reason.
+    const panel = mountPanel([]);
+    panel.querySelector(".id-swap-from").value = "0";
+    panel.querySelector(".id-swap-out-value").remove();
+
+    expect(() =>
+      F.renderQuote(panel, {
+        mode: "sell",
+        amountIn: BigInt(2000000),
+        amountOut: BigInt(1000000),
+        minimumReceived: BigInt(990000),
+        priceImpactPct: 0.1,
+        feesTotal: 3000,
+        routeLabel: "ASA Stats",
+        valueUsdc: 1.5,
+      }),
+    ).not.toThrow();
+    expect(() => F.clearQuote(panel)).not.toThrow();
   });
 });
