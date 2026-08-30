@@ -31,11 +31,11 @@
         <span class="swap-micro">
           <span class="id-swap-from-label-sell">You pay</span>
           <span class="id-swap-from-label-buy">You pay (estimated)</span>
-          {# The computed leg's worth in USDC. One per leg because
+          {% comment %} The computed leg's worth in USDC. One per leg because
              `positionAmountField` moves `.id-swap-out` between them with the
              mode, so the figure has to be able to follow it; `renderQuote`
              fills whichever leg holds the output and clears the other. Empty
-             whenever nothing could price that asset. #}
+             whenever nothing could price that asset. {% endcomment %}
           <span class="id-swap-out-value swap-value" aria-live="polite"></span>
         </span>
         {# "Available", not "Balance": the engine nets the minimum balance out  #}
@@ -57,10 +57,11 @@
                   data-unit="{{ asset.unit }}"
                   data-name="{{ asset.name }}"
                   data-amount="{{ asset.amount }}"
-                  {# Whole USDC per whole unit, or empty when nothing priced it.
-                     What the helper text is multiplied from for every router
-                     but ours -- theirs quote in the browser against an SDK
-                     that has never heard of USDC. #}
+                  {% comment %} Whole USDC per whole unit, or empty when
+                     nothing priced it. What the helper text is multiplied from
+                     for every router but ours -- theirs quote in the browser
+                     against an SDK that has never heard of USDC.
+                  {% endcomment %}
                   data-usdc-price="{{ asset.usdc_price|default_if_none:'' }}"
                   data-icon="{{ BASE_CDN_URL }}/icons/{{ asset.id }}t.png">{{ asset.unit|default:asset.id }}</option>
           {% endif %}{% endfor %}
@@ -98,11 +99,11 @@
         <span class="swap-micro">
           <span class="id-swap-to-label-sell">You receive (estimated)</span>
           <span class="id-swap-to-label-buy">You receive</span>
-          {# The computed leg's worth in USDC. One per leg because
+          {% comment %} The computed leg's worth in USDC. One per leg because
              `positionAmountField` moves `.id-swap-out` between them with the
              mode, so the figure has to be able to follow it; `renderQuote`
              fills whichever leg holds the output and clears the other. Empty
-             whenever nothing could price that asset. #}
+             whenever nothing could price that asset. {% endcomment %}
           <span class="id-swap-out-value swap-value" aria-live="polite"></span>
         </span>
       </div>
