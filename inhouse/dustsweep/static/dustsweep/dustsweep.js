@@ -214,6 +214,35 @@ var HOLDING_MINIMUM_BALANCE = 100000;
 var MAX_CLOSE_OUT_FEE = HOLDING_MINIMUM_BALANCE / 10;
 
 /**
+ * Return the plan lines that are shaped like plan lines, and nothing else.
+ *
+ * **Both checks below take `described` from an HTTP response, so its shape is
+ * not theirs to assume.** They used to reach straight for
+ * `(described || []).forEach`, which is fine for an array and throws for
+ * everything else -- a string, a number, a bare object. `closeOutProblems`
+ * already guarded the *group* with `Array.isArray` and did not guard the
+ * description, and that asymmetry was the whole of it.
+ *
+ * Found by the property tests in `dustsweep.property.test.js` on their first
+ * run. The example suite covers `undefined` and `[]`, which are the two ways
+ * an *array* can be missing, and no way for the field to be something else.
+ *
+ * An unreadable description yields no expected targets, so every transaction
+ * then fails the "was not listed" rule and the group is refused. Degrading to
+ * a refusal is the safe direction and the one the rest of this file takes.
+ *
+ * @param {*} described whatever arrived as the plan's holdings
+ * @returns {Array<Object>} the lines that can be read
+ */
+function planLines(described) {
+  if (!Array.isArray(described)) return [];
+
+  return described.filter(function (one) {
+    return one && typeof one === "object";
+  });
+}
+
+/**
  * Return every reason this group is not the close-out group it was described as.
  *
  * Structural, not advisory: each rule refuses a transaction shape rather than
@@ -273,7 +302,7 @@ function closeOutProblems(encoded, address, described) {
   }
 
   var expected = {};
-  (described || []).forEach(function (one) {
+  planLines(described).forEach(function (one) {
     // an empty holding closes to itself; a forfeit closes to the creator
     expected[one.asset] = Number(one.amount) === 0 ? address : one.creator;
   });
@@ -354,7 +383,7 @@ function closeOutProblems(encoded, address, described) {
  */
 async function forfeitTargetProblems(encoded, described, bridge) {
   var forfeited = {};
-  (described || []).forEach(function (one) {
+  planLines(described).forEach(function (one) {
     if (Number(one.amount) !== 0) forfeited[one.asset] = true;
   });
   if (!Object.keys(forfeited).length) return [];
@@ -1211,6 +1240,7 @@ if (typeof module !== "undefined" && module.exports) {
     isActionable: isActionable,
     isIncluded: isIncluded,
     partialGroup: partialGroup,
+    planLines: planLines,
     progressLabel: progressLabel,
     sameBytes: sameBytes,
     shortAddress: shortAddress,
