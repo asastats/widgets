@@ -9,6 +9,7 @@
       data-unit="{{ asset.unit }}"
       data-name="{{ asset.name }}"
       data-decimals="{{ asset.decimals }}"
+      data-usdc-price="{{ asset.usdc_price|default_if_none:'' }}"
       data-icon="{{ BASE_CDN_URL }}/icons/{{ asset.id }}t.png">
     <img src="{{ BASE_CDN_URL }}/icons/{{ asset.id }}t.png" alt=""
          class="swap-tok swapicon"

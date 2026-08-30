@@ -11,9 +11,16 @@ function panelHTML(holdings) {
         </select>
         <input class="id-swap-to-search">
         <div class="id-swap-to-results"></div>
-        <input type="hidden" class="id-swap-to" data-decimals="" data-unit="" data-opted-in="">
+        <input type="hidden" class="id-swap-to" data-decimals="" data-unit="" data-opted-in="" data-usdc-price="">
         <input class="id-swap-amount">
-        <input class="id-swap-out" readonly>
+        <div class="swap-leg swap-leg-get">
+          <span class="swap-micro"><span class="id-swap-out-value"></span></span>
+          <div class="swap-amt-slot id-swap-slot-get"><input class="id-swap-out" readonly></div>
+        </div>
+        <div class="swap-leg swap-leg-pay">
+          <span class="swap-micro"><span class="id-swap-out-value"></span></span>
+          <div class="swap-amt-slot id-swap-slot-pay"></div>
+        </div>
         <input class="id-swap-slippage" value="0.5">
         <div class="id-swap-quote"></div>
         <div class="id-swap-status"></div>
@@ -2755,9 +2762,16 @@ function legPanel(options = {}) {
             </button>
             <button class="id-swap-flip"></button>
             <div class="swap-amt-slot id-swap-slot-get">
-              <input class="id-swap-out" readonly>
+              <div class="swap-leg swap-leg-get">
+          <span class="swap-micro"><span class="id-swap-out-value"></span></span>
+          <div class="swap-amt-slot id-swap-slot-get"><input class="id-swap-out" readonly></div>
+        </div>
+        <div class="swap-leg swap-leg-pay">
+          <span class="swap-micro"><span class="id-swap-out-value"></span></span>
+          <div class="swap-amt-slot id-swap-slot-pay"></div>
+        </div>
             </div>
-            <input type="hidden" class="id-swap-to" data-decimals="" data-unit="" data-opted-in="">
+            <input type="hidden" class="id-swap-to" data-decimals="" data-unit="" data-opted-in="" data-usdc-price="">
             <button class="id-swap-to-btn" data-swap-pick="to">
               <img class="id-swap-to-icon" data-fallback="/icons/empty.png">
               <span class="id-swap-to-unit"></span>
@@ -3699,5 +3713,236 @@ describe("the redesigned panel — optional elements", () => {
     expect(F.applySlippage(modal, "9")).toBe(9);
     // The value the controller actually quotes on still lands.
     expect(modal.querySelector(".id-swap-slippage").value).toBe("9");
+  });
+});
+
+describe("usdcHelper", () => {
+  /**
+   * The helper text under the computed leg. Two decimals and a leading `$`,
+   * because that is what a reader is already holding in their head when they
+   * look at a swap.
+   */
+  it("formats a value as dollars and cents", () => {
+    expect(F.usdcHelper(5.4231)).toBe("$5.42");
+    expect(F.usdcHelper(0.005)).toBe("$0.01");
+    expect(F.usdcHelper(1234.5)).toBe("$1234.50");
+  });
+
+  it("is empty when nothing could price the output", () => {
+    // Null, not zero: "$0.00" beside a real amount reads as a worthless trade
+    // rather than as a missing number, and `value_usdc` is null exactly when
+    // the router had no price for the output asset.
+    expect(F.usdcHelper(null)).toBe("");
+    expect(F.usdcHelper(undefined)).toBe("");
+  });
+
+  it("is empty rather than NaN for a figure it cannot read", () => {
+    expect(F.usdcHelper(Infinity)).toBe("");
+    expect(F.usdcHelper(NaN)).toBe("");
+  });
+
+  it("shows a genuine zero, which is not the same as no price", () => {
+    // A router that priced the output at zero has said something; that is a
+    // different statement from having no price, and the two must not collapse.
+    expect(F.usdcHelper(0)).toBe("$0.00");
+  });
+});
+
+describe("makeQuote carries the USDC value", () => {
+  it("keeps a value the router reported", () => {
+    expect(F.makeQuote({ valueUsdc: 5.42 }).valueUsdc).toBe(5.42);
+  });
+
+  it("normalises an absent value to null rather than undefined", () => {
+    expect(F.makeQuote({}).valueUsdc).toBeNull();
+  });
+});
+
+describe("the USDC helper in the panel", () => {
+  /**
+   * `renderQuote` and `clearQuote` write the figure the engine sent as
+   * `value_usdc`. Both branches guard on the element existing, because the
+   * modal and the inline panel are not the same markup and one of them had no
+   * slot for it until this shipped.
+   */
+  function panelWithQuote(valueUsdc) {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-swap-from").value = "0";
+    F.renderQuote(panel, {
+      mode: "sell",
+      amountIn: BigInt(2000000),
+      amountOut: BigInt(1000000),
+      minimumReceived: BigInt(990000),
+      priceImpactPct: 0.1,
+      feesTotal: 3000,
+      routeLabel: "ASA Stats",
+      valueUsdc: valueUsdc,
+    });
+    return panel;
+  }
+
+  test("renders the value beside the amount it describes", () => {
+    expect(
+      panelWithQuote(5.4231).querySelector(".swap-leg-get .id-swap-out-value")
+        .textContent,
+    ).toBe("$5.42");
+  });
+
+  test("renders nothing when the router could not price the output", () => {
+    // Not "$0.00": that would read as a worthless trade rather than as a
+    // missing number.
+    expect(
+      panelWithQuote(null).querySelector(".swap-leg-get .id-swap-out-value")
+        .textContent,
+    ).toBe("");
+  });
+
+  test("clearQuote empties it with the amount", () => {
+    // A stale "$5.42" beside an empty field is worse than no figure at all.
+    const panel = panelWithQuote(5.42);
+    const slot = panel.querySelector(".swap-leg-get .id-swap-out-value");
+    expect(slot.textContent).toBe("$5.42");
+
+    F.clearQuote(panel);
+
+    expect(panel.querySelector(".id-swap-out").value).toBe("");
+    expect(slot.textContent).toBe("");
+  });
+
+  test("both paths survive a panel that has no slot for it", () => {
+    // The guard is not defensive habit: `renderQuote` runs against the modal
+    // and the inline panel, and they are not the same markup -- one of them
+    // had no slot for this until it shipped. A real panel with exactly that
+    // element removed is the case, rather than an empty div that would return
+    // early for an unrelated reason.
+    const panel = mountPanel([]);
+    panel.querySelector(".id-swap-from").value = "0";
+    panel.querySelectorAll(".id-swap-out-value").forEach((el) => el.remove());
+
+    expect(() =>
+      F.renderQuote(panel, {
+        mode: "sell",
+        amountIn: BigInt(2000000),
+        amountOut: BigInt(1000000),
+        minimumReceived: BigInt(990000),
+        priceImpactPct: 0.1,
+        feesTotal: 3000,
+        routeLabel: "ASA Stats",
+        valueUsdc: 1.5,
+      }),
+    ).not.toThrow();
+    expect(() => F.clearQuote(panel)).not.toThrow();
+  });
+});
+
+describe("setComputedValue follows the output field between legs", () => {
+  /**
+   * `positionAmountField` moves `.id-swap-out` between the pay and get legs
+   * with the mode, so a value pinned to one caption would be in the wrong leg
+   * half the time. There is one slot per leg and only the computed one is
+   * written; the other is cleared, because its amount is the number the reader
+   * typed and a currency figure beside it would read as a second opinion about
+   * a value they already chose.
+   */
+  function legs(panel) {
+    return {
+      get: panel.querySelector(".swap-leg-get .id-swap-out-value"),
+      pay: panel.querySelector(".swap-leg-pay .id-swap-out-value"),
+    };
+  }
+
+  test("writes into the leg holding the output and clears the other", () => {
+    const panel = mountPanel([]);
+    F.setComputedValue(panel, "$5.42");
+
+    const slot = legs(panel);
+    expect(slot.get.textContent).toBe("$5.42");
+    expect(slot.pay.textContent).toBe("");
+  });
+
+  test("follows the field when the mode moves it", () => {
+    const panel = mountPanel([]);
+    // buy mode puts the read-only output in the PAY leg
+    panel
+      .querySelector(".id-swap-slot-pay")
+      .appendChild(panel.querySelector(".id-swap-out"));
+
+    F.setComputedValue(panel, "$5.42");
+
+    const slot = legs(panel);
+    expect(slot.pay.textContent).toBe("$5.42");
+    expect(slot.get.textContent).toBe("");
+  });
+
+  test("clearing empties both, whichever leg is computed", () => {
+    const panel = mountPanel([]);
+    F.setComputedValue(panel, "$5.42");
+    F.setComputedValue(panel, "");
+
+    const slot = legs(panel);
+    expect(slot.get.textContent).toBe("");
+    expect(slot.pay.textContent).toBe("");
+  });
+
+  test("survives a panel with no output field at all", () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-swap-out").remove();
+
+    expect(() => F.setComputedValue(panel, "$5.42")).not.toThrow();
+    expect(legs(panel).get.textContent).toBe("");
+  });
+});
+
+describe("computedValueUsdc works for every router", () => {
+  /**
+   * Only the ASA Stats router can put a value on its own quote, because only
+   * it quotes in our engine. The rest quote in the browser against SDKs that
+   * have never heard of USDC, so the figure comes from the asset's own price
+   * -- which rides on the option the reader picked, exactly as `decimals`
+   * does.
+   */
+  test("prefers the value the router supplied", () => {
+    const panel = mountPanel([]);
+    expect(F.computedValueUsdc(panel, { mode: "sell", valueUsdc: 9.99 })).toBe(9.99);
+  });
+
+  test("prices the target from its own rate when selling", () => {
+    const panel = mountPanel([]);
+    const to = panel.querySelector(".id-swap-to");
+    to.dataset.decimals = "6";
+    to.dataset.usdcPrice = "0.087260";
+
+    // 1,000 whole units at $0.08726
+    expect(
+      F.computedValueUsdc(panel, { mode: "sell", amountOut: BigInt(1000000000) }),
+    ).toBeCloseTo(87.26, 2);
+  });
+
+  test("prices the SOURCE when buying, because that is the computed leg", () => {
+    // The reader fixed the target; the input is what was worked out. Pricing
+    // the target here would be wrong by the whole exchange rate.
+    const panel = mountPanel([]);
+    const from = panel.querySelector(".id-swap-from");
+    from.value = "0";
+    from.options[from.selectedIndex].dataset.usdcPrice = "0.087260";
+    from.options[from.selectedIndex].dataset.decimals = "6";
+
+    expect(
+      F.computedValueUsdc(panel, { mode: "buy", amountIn: BigInt(1000000000) }),
+    ).toBeCloseTo(87.26, 2);
+  });
+
+  test("is null when the asset carries no price", () => {
+    const panel = mountPanel([]);
+    panel.querySelector(".id-swap-to").dataset.usdcPrice = "";
+
+    expect(
+      F.computedValueUsdc(panel, { mode: "sell", amountOut: BigInt(1) }),
+    ).toBeNull();
+  });
+
+  test("is null when there is no amount to price", () => {
+    const panel = mountPanel([]);
+    expect(F.computedValueUsdc(panel, { mode: "sell" })).toBeNull();
   });
 });

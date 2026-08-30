@@ -29,6 +29,84 @@
  * `raw` carries the router-specific payload that adapter.buildSwapGroup /
  * adapter.executeSwap need later.
  */
+/**
+ * Return the computed leg's worth in USDC, or null.
+ *
+ * `q.valueUsdc` when the router supplied one -- only ours does, because only
+ * ours quotes in our engine, which holds the price map. For every other router
+ * the figure is the leg's own asset price times the amount, both of which are
+ * on the page: the price rides on the option the reader picked, exactly as
+ * `decimals` does.
+ *
+ * **The leg is the computed one, not the output one.** Selling, that is the
+ * target; buying, it is the source, because the user fixed the target and the
+ * input is what was worked out. Pricing the wrong leg would put the input's
+ * value under the output's amount and be wrong by the whole exchange rate.
+ *
+ * @param {Element} panel the swap panel
+ * @param {Object} q the normalised quote
+ * @returns {number|null}
+ */
+function computedValueUsdc(panel, q) {
+  if (q.valueUsdc != null) return q.valueUsdc;
+
+  var buy = q.mode === "buy";
+  var amount = buy ? q.amountIn : q.amountOut;
+  if (amount == null) return null;
+
+  var source = buy
+    ? (function () {
+        var sel = panel.querySelector(".id-swap-from");
+        return sel && sel.options[sel.selectedIndex];
+      })()
+    : panel.querySelector(".id-swap-to");
+  if (!source) return null;
+
+  var price = Number(source.dataset.usdcPrice);
+  var decimals = Number(source.dataset.decimals || 0);
+  if (!price || !isFinite(price)) return null;
+
+  return Number(baseUnitsToDecimal(amount, decimals)) * price;
+}
+
+/**
+ * Write `text` into the value slot of the leg holding the computed amount.
+ *
+ * There is one slot per leg because `positionAmountField` moves
+ * `.id-swap-out` between them with the mode, so the figure has to be able to
+ * follow it. The other leg is cleared rather than left alone: its amount is
+ * the one the reader typed, and a currency figure beside it would read as a
+ * second opinion about a number they already chose.
+ *
+ * @param {Element} panel the swap panel
+ * @param {string} text the figure, or "" to clear both
+ */
+function setComputedValue(panel, text) {
+  var out = panel.querySelector(".id-swap-out");
+  var leg = out && out.closest(".swap-leg");
+  panel.querySelectorAll(".id-swap-out-value").forEach(function (slot) {
+    var mine = leg && leg.contains(slot);
+    slot.textContent = mine ? text : "";
+  });
+}
+
+/**
+ * Return a USDC amount as the helper text under the computed leg, or "".
+ *
+ * Two decimals and a leading `$`, which is what a reader is already holding in
+ * their head when they look at a swap. Empty for null, so the element collapses
+ * rather than claiming "$0.00" about a trade nobody could price -- `valueUsdc`
+ * is null exactly when the router had no price for the output asset.
+ *
+ * @param {number|null} value whole USDC
+ * @returns {string}
+ */
+function usdcHelper(value) {
+  if (value == null || !isFinite(value)) return "";
+
+  return "$" + Number(value).toFixed(2);
+}
+
 function makeQuote(q) {
   return {
     // "sell" = fixed-input (user fixes the source amount, output is computed);
@@ -46,6 +124,12 @@ function makeQuote(q) {
     // compute price impact, and rendering their silence as a confident "0%" is
     // a claim we would be making on their behalf.
     priceImpactPct: q.priceImpactPct == null ? null : q.priceImpactPct,
+    // What the output is worth in USDC, or null when nothing could price it.
+    // Null rather than 0, for the same reason `priceImpactPct` is: "$0.00"
+    // beside a real amount reads as a worthless trade rather than as a missing
+    // number, and this is a helper text -- it should disappear when it has
+    // nothing to say.
+    valueUsdc: q.valueUsdc == null ? null : q.valueUsdc,
     routeLabel: q.routeLabel,
     // [{name, pct}] per venue, when the router breaks the route down. `pct` is
     // null for routers that name their venues without weighting them.
@@ -360,6 +444,7 @@ var AsastatsAdapter = {
         // can make the group spend more than it was built to spend
         maximumSent: BigInt(quoted.maximum_sent),
         priceImpactPct: quoted.price_impact_pct,
+        valueUsdc: quoted.value_usdc,
         routeLabel: quoted.route_label,
         feesTotal: quoted.fees_total,
         raw: raw,
@@ -371,6 +456,7 @@ var AsastatsAdapter = {
       amountIn: BigInt(quoted.amount_in),
       minimumReceived: BigInt(quoted.minimum_received),
       priceImpactPct: quoted.price_impact_pct,
+      valueUsdc: quoted.value_usdc,
       routeLabel: quoted.route_label,
       feesTotal: quoted.fees_total,
       raw: raw,
@@ -649,6 +735,9 @@ function selectTarget(panel, optionEl, ctx) {
   toHidden.dataset.decimals = optionEl.dataset.decimals || "0";
   toHidden.dataset.unit = optionEl.dataset.unit || "";
   toHidden.dataset.icon = optionEl.dataset.icon || "";
+  // Travels with decimals for the same reason: the helper text needs both, and
+  // the picker row is the only place the price is ever seen.
+  toHidden.dataset.usdcPrice = optionEl.dataset.usdcPrice || "";
   var opted = isOptedIn(readPanelHoldings(panel), optionEl.dataset.id);
   toHidden.dataset.optedIn = opted ? "1" : "0";
   panel.querySelector(".id-swap-optin-notice").style.display = opted
@@ -974,6 +1063,8 @@ function renderQuote(panel, q) {
   var outField = panel.querySelector(".id-swap-out");
   if (outField) outField.value = computed;
 
+  setComputedValue(panel, usdcHelper(computedValueUsdc(panel, q)));
+
   out.textContent = "";
 
   // --- summary: the rate, a freshness ring, and the disclosure control -------
@@ -1118,6 +1209,9 @@ function clearQuote(panel) {
   // the new one is in flight is worse than showing nothing.
   var outField = panel.querySelector(".id-swap-out");
   if (outField) outField.value = "";
+  // Clear the helper with the amount it describes; a stale "$5.42" beside an
+  // empty field is worse than no figure at all.
+  setComputedValue(panel, "");
   renderVenueCount(panel, null);
 }
 
@@ -1398,6 +1492,8 @@ function retargetForMode(panel, mode) {
     toHidden.value = anchorId;
     toHidden.dataset.decimals = (anchorOpt && anchorOpt.dataset.decimals) || "0";
     toHidden.dataset.unit = (anchorOpt && anchorOpt.dataset.unit) || "";
+    toHidden.dataset.usdcPrice =
+      (anchorOpt && anchorOpt.dataset.usdcPrice) || "";
     toHidden.dataset.icon = (anchorOpt && anchorOpt.dataset.icon) || "";
     toHidden.dataset.optedIn = "1"; // the anchor is held, so already opted in
     panel.querySelector(".id-swap-optin-notice").style.display = "none";
@@ -2185,6 +2281,9 @@ if (typeof module !== "undefined" && module.exports) {
     HogswapAdapter: HogswapAdapter,
     ROUTERS: ROUTERS,
     makeQuote: makeQuote,
+    computedValueUsdc: computedValueUsdc,
+    setComputedValue: setComputedValue,
+    usdcHelper: usdcHelper,
     routeLabelFrom: routeLabelFrom,
     routePartsFrom: routePartsFrom,
     routePartsFromNames: routePartsFromNames,
