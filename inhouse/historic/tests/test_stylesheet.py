@@ -105,6 +105,27 @@ TAG = re.compile(r"\{%.*?%\}|\{\{.*?\}\}", re.DOTALL)
 CLASS_ATTR = re.compile(r"""class=["']([^"']*)["']""")
 NAME = re.compile(r"[A-Za-z][-\w]*\Z")
 
+#: The widget's script, which builds markup of its own. Scanning only the
+#: templates left a hole exactly the size of the loading state: `historic.js`
+#: injected a Materialize preloader -- `.preloader-wrapper` > `.spinner-layer` >
+#: `.circle-clipper` > `.circle` -- and not one of those names had a rule after
+#: the conversion. It rendered three empty divs of no size, so the instant
+#: feedback the click handler documents was never drawn, and the suite's own
+#: assertion that a spinner existed passed against an element nothing painted.
+SCRIPT = WIDGET / "static" / "historic" / "historic.js"
+
+#: Class names the script writes: markup it builds as strings, and the names it
+#: adds, removes or toggles through the DOM API.
+SCRIPT_CLASSES = (
+    re.compile(r"""class=\\?["']([^"'\\]*)"""),
+    re.compile(r"""classList\.(?:add|remove|toggle)\(\s*["']([^"']+)["']"""),
+    re.compile(r"""className\s*=\s*["']([^"']*)["']"""),
+)
+
+#: Rules allowed to exist with no markup naming them, and why. Empty, and meant
+#: to stay that way: see `test_no_rule_outlives_its_markup`.
+RULES_WITHOUT_MARKUP = {}
+
 
 #: A CSS comment. Stripped before anything is matched: this stylesheet explains
 #: itself at length and names the very classes under test in its prose, so a
@@ -363,17 +384,96 @@ def test_every_class_in_the_templates_is_styled_or_declared(stylesheet):
     )
 
 
+def _classes_in_script():
+    """Return every class name ``historic.js`` writes into the page.
+
+    :return: dict of str class name -> set of str filenames
+    """
+    found = {}
+    text = SCRIPT.read_text()
+    for pattern in SCRIPT_CLASSES:
+        for attr in pattern.findall(text):
+            for token in attr.split():
+                if NAME.match(token):
+                    found.setdefault(token, set()).add(SCRIPT.name)
+    return found
+
+
+def _classes_used():
+    """Return every class the widget puts on the page, from either source.
+
+    :return: dict of str class name -> set of str filenames
+    """
+    found = {name: set(files) for name, files in _classes_in_templates().items()}
+    for name, files in _classes_in_script().items():
+        found.setdefault(name, set()).update(files)
+
+    return found
+
+
+def test_every_class_in_the_script_is_styled_or_declared(stylesheet):
+    """The templates are not the only thing that writes markup here.
+
+    ``showAssetsLoading`` builds its element in JavaScript, so the sweep over
+    the templates never saw it, and the framework classes it was still naming
+    went unnoticed through the whole conversion.
+    """
+    styled = set(re.findall(r"\.([a-zA-Z][-\w]*)", stylesheet))
+
+    orphans = {
+        name: sorted(files)
+        for name, files in _classes_in_script().items()
+        if name not in styled and name not in DELIBERATELY_UNSTYLED
+    }
+
+    assert not orphans, (
+        "these classes are written by the script and styled nowhere:\n  "
+        + "\n  ".join(f"{name}: {', '.join(files)}" for name, files in sorted(orphans.items()))
+        + "\n\nEither give each a rule in style.css, or add it to "
+        "DELIBERATELY_UNSTYLED with the reason its absence is intended."
+    )
+
+
+def test_no_rule_outlives_its_markup(stylesheet):
+    """The other direction: a rule nothing can match is dead weight.
+
+    Both faults are the same conversion leaving one half behind, and only the
+    forward direction was checked. What this caught when it was written:
+    ``.col.asal`` and ``.col.asar``, compound selectors needing a Materialize
+    grid class the markup had dropped, so they had been neutralising a padding
+    that was no longer applied; and ``.collcenter``, which nothing had named in
+    a long time.
+
+    Dead CSS is not merely untidy. It is what a reader greps to decide whether a
+    class is still in use, and it answers yes.
+    """
+    styled = set(re.findall(r"\.([a-zA-Z][-\w]*)", stylesheet))
+    used = set(_classes_used())
+
+    orphans = sorted(
+        name
+        for name in styled
+        if name not in used and name not in RULES_WITHOUT_MARKUP
+    )
+
+    assert not orphans, (
+        f"style.css has rules for classes nothing renders: {orphans}. Delete "
+        "them, or add each to RULES_WITHOUT_MARKUP with the reason it has to "
+        "stay."
+    )
+
+
 def test_the_allowlist_does_not_outlive_the_markup():
-    """An entry whose class has left the templates is a stale excuse.
+    """An entry whose class has left the markup is a stale excuse.
 
     Without this the allowlist only ever grows, and a name kept in it long after
     its markup is gone would quietly excuse a *new* class that happened to
     reuse it.
     """
-    used = set(_classes_in_templates())
+    used = set(_classes_used())
 
     stale = sorted(name for name in DELIBERATELY_UNSTYLED if name not in used)
 
     assert not stale, (
-        f"DELIBERATELY_UNSTYLED names classes no template uses any more: {stale}"
+        f"DELIBERATELY_UNSTYLED names classes no markup uses any more: {stale}"
     )

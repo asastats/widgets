@@ -202,13 +202,8 @@ function showAssetsLoading(whenText) {
   $("#id-assets")
     .attr("aria-busy", "true")
     .html(
-      '<div class="col s12 center-align assets-loading">' +
-        '<div class="preloader-wrapper active">' +
-        '<div class="spinner-layer">' +
-        '<div class="circle-clipper left"><div class="circle"></div></div>' +
-        '<div class="gap-patch"><div class="circle"></div></div>' +
-        '<div class="circle-clipper right"><div class="circle"></div></div>' +
-        "</div></div>" +
+      '<div class="assets-loading">' +
+        '<div class="assets-spinner" aria-hidden="true"></div>' +
         '<p class="assets-loading-text">' +
         message +
         "</p>" +
@@ -226,7 +221,7 @@ function showAssetsError() {
   $("#id-assets")
     .removeAttr("aria-busy")
     .html(
-      '<div class="col s12 center-align assets-loading">' +
+      '<div class="assets-loading">' +
         '<p class="assets-loading-text">Couldn\'t load this timestamp. Please try again.</p>' +
         "</div>",
     );

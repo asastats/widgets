@@ -9,14 +9,6 @@
   height: 32px;
 }
 
-.col.asal {
-  padding-left: 0;
-}
-
-.col.asar {
-  padding-right: 0;
-}
-
 .balance {
   border: 1px solid #ababab;
 }
@@ -587,13 +579,6 @@
   }
 }
 
-.collcenter {
-  position: absolute;
-  left: 50%;
-  margin-top: -28px;
-  margin-left: -16px;
-}
-
 .asaicon,
 .nfticon {
   width: 32px;
@@ -634,8 +619,42 @@
   padding: 1rem;
 }
 
+/* The click acknowledgement. `historic.js` built a Materialize preloader here
+   -- `.preloader-wrapper` > `.spinner-layer` > `.circle-clipper` -- and not one
+   of those names has had a rule since the framework went. It rendered three
+   empty divs of no size, so the "instant feedback" the click handler documents
+   was the text alone, uncentred because `.center-align` went the same way.
+   Worse, the innermost divs were `.circle`, which still matches the asset
+   icon's pill rule below and is nothing to do with a spinner.
+
+   One element, one rule, and both names are ours. */
 .assets-loading {
   padding: 3rem 0;
+  text-align: center;
+}
+
+.assets-spinner {
+  width: 28px;
+  height: 28px;
+  margin: 0 auto;
+  border: 3px solid var(--color-base-300, #d4d4d4);
+  border-top-color: var(--color-primary, #00c896);
+  border-radius: 50%;
+  animation: historic-spin 0.7s linear infinite;
+}
+
+@keyframes historic-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Matching `.historic-progress > .indeterminate` above: a spinner that cannot
+   move still has to say "working", so it holds its shape at reduced contrast
+   rather than disappearing. */
+@media (prefers-reduced-motion: reduce) {
+  .assets-spinner {
+    animation: none;
+    opacity: 0.5;
+  }
 }
 
 .assets-loading .assets-loading-text {

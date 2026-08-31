@@ -236,7 +236,11 @@ describe("SECTION: Assets loading state", () => {
     historic.submitShow(3, "ALGO", "12 Mar 2024");
     const assets = document.getElementById("id-assets");
     expect(assets.getAttribute("aria-busy")).toBe("true");
-    expect(assets.querySelector(".preloader-wrapper")).not.toBeNull();
+    // `.assets-spinner`, not the old `.preloader-wrapper`: this assertion was
+    // green while the element it found had no rule in the widget's stylesheet
+    // and rendered nothing. A spinner assertion is only worth making against a
+    // class the stylesheet actually draws.
+    expect(assets.querySelector(".assets-spinner")).not.toBeNull();
     expect(assets.textContent).toContain("12 Mar 2024");
     expect(window.htmx.trigger).toHaveBeenCalledWith("#id-show", "submit");
   });
