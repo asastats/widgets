@@ -95,7 +95,11 @@ describe("SECTION: Initialization", function () {
     // Nothing is constructed any more -- the disclosures are native
     // <details> and the tabs are anchors. What mainHistoric still owns is the
     // event wiring, so that is what is asserted.
-    expect($._data($("[role=tablist]")[0], "events").click).toBeDefined();
+    // Named by class, not by role: the login dialog on this page is a tablist
+    // too, and this handler is deliberately not on it -- see the isolation
+    // tests below.
+    expect($._data($(".historic-tabs")[0], "events").click).toBeDefined();
+    expect($._data($(".historic-tabs")[0], "events").click).toHaveLength(1);
   });
   it("resetHistoric rebinds events and runs view setup", function () {
     document.body.innerHTML += '<div id="id-assets" data-label="ALGO"></div>';
@@ -1124,16 +1128,34 @@ describe("SECTION: Helper functions", () => {
     expect(historic.tabShow("nosuchpanel")).toBe(false);
   });
 
+  it("tabShow refuses a panel that is not one of this widget's", () => {
+    // `#modal-tab-wallet` exists -- it is a panel in base.html's login dialog --
+    // so an existence check alone accepts it, and accepting it means hiding
+    // every `.historic-tab-panel` to reveal something this function does not
+    // own. The id has to name one of these four.
+    expect(document.getElementById("modal-tab-wallet")).not.toBeNull();
+    expect(historic.tabShow("modal-tab-wallet")).toBe(false);
+    expect(document.getElementById("tbars").hidden).toBe(false);
+  });
+
   it("a tab with no href is ignored rather than clearing every panel", () => {
     // `.replace("#", "")` on a missing href would otherwise ask tabShow for
     // the empty string, which matches no panel.
+    //
+    // The stray anchor is clicked by its own id. This used to click
+    // `$('[role="tab"]').last()`, which is not it: the page carries the login
+    // dialog's tablist further down the document, so `last()` was the dialog's
+    // Wallet tab and the anchor this test appends was never touched. The test
+    // passed on markup it had not exercised and the fallback below stayed
+    // uncovered.
     historic.mainHistoric();
-    document.querySelector('[role="tablist"]').insertAdjacentHTML(
-      "beforeend", '<a role="tab">Stray</a>'
+    document.querySelector('.historic-tabs[role="tablist"]').insertAdjacentHTML(
+      "beforeend", '<a role="tab" id="stray-tab">Stray</a>'
     );
-    var before = document.getElementById("tupdate").hidden;
-    $('[role="tab"]').last().trigger("click");
-    expect(document.getElementById("tupdate").hidden).toBe(before);
+    var before = document.getElementById("tbars").hidden;
+    $("#stray-tab").trigger("click");
+    expect(document.getElementById("stray-tab")).not.toBeNull();
+    expect(document.getElementById("tbars").hidden).toBe(before);
   });
 
   it("a tab click reveals the panel its href points at", () => {
@@ -1146,6 +1168,55 @@ describe("SECTION: Helper functions", () => {
       $('[role="tab"][href="#tcandles"]').attr("aria-selected")
     ).toBe("true");
     expect($('[role="tab"][href="#tbars"]').attr("aria-selected")).toBe("false");
+  });
+
+  it("a tab click prevents the anchor's default navigation", () => {
+    // These are `<a href="#tcandles">`. Left to itself the browser would jump
+    // to the panel's fragment and write it into the address bar, so a reload
+    // or a shared link would land on a tab the page then re-hides on load.
+    historic.mainHistoric();
+    var event = $.Event("click");
+    $('[role="tab"][href="#tcandles"]').trigger(event);
+    expect(event.isDefaultPrevented()).toBe(true);
+  });
+
+  it("the login dialog's tabs do not drive this widget's tabs", () => {
+    // base.html puts a login dialog on this page whose tabs are built to the
+    // same shape -- `<a role="tab" href="#modal-tab-...">` inside a
+    // `[role=tablist]`, over panels toggled with `hidden`. `mainHistoric` used
+    // to delegate from every tablist in the document, so clicking Wallet in
+    // that dialog ran tabShow for a panel that is not one of these four, and
+    // `child !== panel` was true for all of them: every chart panel hidden,
+    // every historic tab deselected. Closing the dialog left an empty page.
+    historic.mainHistoric();
+    expect(document.getElementById("tbars").hidden).toBe(false);
+
+    var event = $.Event("click");
+    $('[role="tab"][href="#modal-tab-wallet"]').trigger(event);
+
+    expect(document.getElementById("tbars").hidden).toBe(false);
+    expect($('[role="tab"][href="#tbars"]').attr("aria-selected")).toBe("true");
+    // The handler must not have run at all, which the two assertions above
+    // cannot show on their own: `tabShow` refuses a foreign panel id, so it
+    // would leave the page looking exactly like this even if the click had
+    // reached it. `preventDefault` is the part that has no second lock -- it
+    // happens before the id is examined, and stopping the login dialog's own
+    // anchors from navigating is not this widget's business. Only `historic.js`
+    // is loaded here, so nothing else could have prevented it.
+    expect(event.isDefaultPrevented()).toBe(false);
+  });
+
+  it("this widget's tabs do not deselect the login dialog's", () => {
+    // The other direction of the same fault, and the one that ran unprompted:
+    // `showBars()` fires on load and on every unlock, and while the
+    // `aria-selected` sweep was unscoped it cleared the flag on the dialog's
+    // Log in tab too -- leaving a dialog whose tabs were all marked
+    // unselected, styled by `aria-selected:bg-base-100`.
+    historic.mainHistoric();
+    historic.showBars();
+    expect(
+      $('[role="tab"][href="#modal-tab-login"]').attr("aria-selected")
+    ).toBe("true");
   });
   it("toggleTotalNoNft sets state and calls generic function", () => {
     document.body.innerHTML =
