@@ -195,6 +195,14 @@ describe("SECTION: Websocket communication", () => {
     candlesChart.update = originalUpdateCandles;
   });
   it("ignores messages with an unrecognized type", () => {
+    // Which panel is open at the start is the template's business, so record
+    // it rather than naming one. The previous version asserted that `tupdate`
+    // was the open panel, which was true only because the old fixture had been
+    // captured with that tab selected -- an accident of whoever saved the page,
+    // baked into the test as if it were the page's initial state.
+    const panels = ["tbars", "tcandles", "tupdate", "tsettings"];
+    const before = panels.map((id) => document.getElementById(id).hidden);
+
     // None of the four recognized `message.type` values match, so the
     // if/else-if chain falls through without calling anything.
     expect(() =>
@@ -202,10 +210,11 @@ describe("SECTION: Websocket communication", () => {
         detail: { message: JSON.stringify({ type: "something_else" }) },
       }),
     ).not.toThrow();
-    // No tab switch happened: the fixture opens on `tupdate`, so it is still
-    // the revealed panel and `tbars` is still hidden.
-    expect(document.getElementById("tupdate").hidden).toBe(false);
-    expect(document.getElementById("tbars").hidden).toBe(true);
+
+    // No tab switch happened.
+    expect(panels.map((id) => document.getElementById(id).hidden)).toEqual(
+      before,
+    );
   });
   it("falls back to resetHistoric on raw HTML (JSON parse error)", () => {
     window.mainConsolidated.mockClear();
@@ -227,7 +236,11 @@ describe("SECTION: Assets loading state", () => {
     historic.submitShow(3, "ALGO", "12 Mar 2024");
     const assets = document.getElementById("id-assets");
     expect(assets.getAttribute("aria-busy")).toBe("true");
-    expect(assets.querySelector(".preloader-wrapper")).not.toBeNull();
+    // `.assets-spinner`, not the old `.preloader-wrapper`: this assertion was
+    // green while the element it found had no rule in the widget's stylesheet
+    // and rendered nothing. A spinner assertion is only worth making against a
+    // class the stylesheet actually draws.
+    expect(assets.querySelector(".assets-spinner")).not.toBeNull();
     expect(assets.textContent).toContain("12 Mar 2024");
     expect(window.htmx.trigger).toHaveBeenCalledWith("#id-show", "submit");
   });

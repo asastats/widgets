@@ -317,6 +317,17 @@ function closeOutProblems(encoded, address, described) {
       return;
     }
 
+    // A decode that *succeeds* and yields something that is not a transaction
+    // is the case the catch above cannot see. "wA" is valid base64 for the
+    // single msgpack byte 0xc0 -- nil -- so `decodeMsgpack` returns null and
+    // every field read below throws instead of being reported. Anything that
+    // is not an object gets the same answer as a failed decode, because from
+    // here they are the same thing: no transaction to check.
+    if (!txn || typeof txn !== "object") {
+      problems.push(where + "could not be decoded");
+      return;
+    }
+
     if (txn.type !== "axfer") {
       problems.push(where + "is a " + txn.type + ", not an asset transfer");
       return;
