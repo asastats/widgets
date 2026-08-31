@@ -64,7 +64,17 @@ function mainHistoric() {
   // `.collapsible()`, `.modal()` and `.tabs()`, all Materialize, none of it
   // loaded on this page any more; the first threw and abandoned jQuery's
   // ready queue, taking every binding below it. The widget was inert.
-  $("[role=tablist]").on("click", "[role=tab]", tabClick);
+  //
+  // `.historic-tabs` and not `[role=tablist]`: this page is not the only thing
+  // on it. base.html's login dialog is built to the same shape and carries a
+  // tablist of its own, so the broader selector bound this handler to the
+  // dialog's tabs as well -- and clicking Social or Wallet in the login dialog
+  // ran `tabShow("modal-tab-social")`, which found that panel, decided none of
+  // the four `.historic-tab-panel`s was it, and hid all of them. The charts
+  // were gone when the reader closed the dialog. The stylesheet has always
+  // scoped this way (`.historic-tabs [role="tab"]` in style.css); the script
+  // was the part that did not.
+  $(".historic-tabs").on("click", "[role=tab]", tabClick);
   // Delegated from the document, not bound to the thumbnails: rows arrive in
   // htmx websocket batches long after this runs, and anything bound directly
   // would cover only the rows that happened to exist at the time.
@@ -1253,7 +1263,12 @@ function scrollToUnit(label) {
  */
 function tabShow(panelId) {
   var panel = document.getElementById(panelId);
-  if (!panel) return false;
+  // Not merely "an element with this id exists". The login dialog's panels are
+  // in the same document and share this shape, and revealing one of those means
+  // hiding all four of these -- so the id has to name a panel this function
+  // owns. The delegation in `mainHistoric` is scoped so nothing else calls here
+  // with a foreign id; this is the second of the two locks.
+  if (!panel || !panel.classList.contains("historic-tab-panel")) return false;
 
   Array.prototype.forEach.call(
     document.querySelectorAll(".historic-tab-panel"),
@@ -1261,8 +1276,11 @@ function tabShow(panelId) {
       child.hidden = child !== panel;
     }
   );
+  // Scoped for the same reason: unscoped, every `showBars()` -- which runs on
+  // load and on every unlock -- reached into the login dialog and cleared
+  // `aria-selected` on its Log in tab, leaving that dialog with no tab marked.
   Array.prototype.forEach.call(
-    document.querySelectorAll('[role="tab"]'),
+    document.querySelectorAll('.historic-tabs [role="tab"]'),
     function (link) {
       link.setAttribute(
         "aria-selected",
