@@ -232,6 +232,56 @@ var MAX_CLOSE_OUT_FEE = HOLDING_MINIMUM_BALANCE / 10;
 var MAX_GROUP_FEE = 1000000;
 
 /**
+ * The router application a conversion must actually call, on mainnet.
+ *
+ * **A default, not the only source.** The page supplies `data-router-app` and
+ * that wins; this is what the check falls back to, so a missing attribute
+ * cannot silently disable the rule. What matters either way is where it does
+ * *not* come from: the plan response. An app id the engine supplied would make
+ * this check agree with whatever the engine wanted, which is `S2` again.
+ *
+ * The contract has been redeployed once already - `3688554446` is retired -
+ * so this number has a lifetime. When it changes, a conversion refuses until
+ * this is updated, which is the safe direction but a real outage; the
+ * `data-router-app` override exists so a deployment can move first.
+ */
+var ROUTER_APP_ID = 3689591968;
+
+/**
+ * ARC-4 selectors for the two router methods that do **not** assert hygiene.
+ *
+ * `_assert_group_is_clean` runs from 13 of the contract's 15 entry points.
+ * `verify_discount` and `pool_budget` are the exceptions - permissionless, no
+ * state, no inner transactions - and the contract's own reasoning for exempting
+ * them is that they ride alongside a `route` call which sweeps the group.
+ *
+ * That reasoning is why they cannot count here. A group of `pool_budget` plus
+ * one hostile transfer calls the router, so a rule that asked only "does this
+ * group call the router?" would pass it, and the guard the call was supposed
+ * to bring would never run. So the check looks for a router call that is
+ * *not* one of these.
+ *
+ * Computed from the method signatures rather than read off a group:
+ * `verify_discount(byte[])void` and `pool_budget()void`, SHA-512/256, first
+ * four bytes. `verify-sweep.sh` pins both against the contract.
+ */
+var BUDGET_ONLY_SELECTORS = [
+  [0x93, 0xa1, 0xb8, 0x19], // verify_discount(byte[])void
+  [0x9e, 0x57, 0xd6, 0x2c], // pool_budget()void
+];
+
+/** Return whether this transaction is one of the two exempt router calls. */
+function isBudgetOnlyCall(txn) {
+  var args = txn.apaa;
+  if (!args || !args.length) return false;
+
+  for (var i = 0; i < BUDGET_ONLY_SELECTORS.length; i++) {
+    if (sameBytes(args[0], BUDGET_ONLY_SELECTORS[i])) return true;
+  }
+  return false;
+}
+
+/**
  * Return the plan lines that are shaped like plan lines, and nothing else.
  *
  * **Both checks below take `described` from an HTTP response, so its shape is
@@ -587,14 +637,17 @@ async function forfeitTargetProblems(encoded, described, bridge) {
  * that does turn up costs a conversion instead of passing one through.
  *
  * @param {Array<string>} encoded base64 msgpack transactions, in group order
+ * @param {number|string} [routerApp] the router application id to require
  * @returns {Array<string>} problems, empty when the group is clean
  */
-function routedGroupProblems(encoded) {
+function routedGroupProblems(encoded, routerApp) {
   if (!Array.isArray(encoded) || encoded.length === 0) {
     return ["the group carries no transactions"];
   }
 
+  var router = Number(routerApp) || ROUTER_APP_ID;
   var problems = [];
+  var guarded = false;
   var paid = 0;
   encoded.forEach(function (raw, index) {
     var where = "transaction " + (index + 1) + " ";
@@ -615,7 +668,30 @@ function routedGroupProblems(encoded) {
     if (txn.rekey) problems.push(where + "rekeys the account");
     if (txn.close) problems.push(where + "closes the account");
     if (txn.aclose) problems.push(where + "closes a holding");
+
+    if (
+      txn.type === "appl" &&
+      Number(txn.apid) === router &&
+      !isBudgetOnlyCall(txn)
+    ) {
+      guarded = true;
+    }
   });
+
+  // **The rule that puts the contract back in the group.** Everything above is
+  // the hygiene half of `_assert_group_is_clean`, and hygiene is not what a
+  // conversion needs checking for: a plain transfer of the whole balance to a
+  // stranger carries no close, no rekey and an ordinary fee. What refuses that
+  // is the router's own logic - the input proven spent, the co-signed floor,
+  // the pairwise-distinct assets - and none of it runs unless the router is
+  // called. This is the audit's `S7`: mirroring the guard duplicated the half
+  // that was already cheap and left the half that was load-bearing.
+  if (!guarded) {
+    problems.push(
+      "the group calls no router method that would check it, so nothing on " +
+        "chain will refuse what it does"
+    );
+  }
 
   // Totalled rather than checked per transaction, for the reason the contract
   // gives: the total is what a signer loses, and it is the bound that survives
@@ -699,6 +775,48 @@ function assetLabels(holding) {
     unit: (holding && holding.unit) || "Unnamed",
     id: "#" + ((holding && holding.asset) != null ? holding.asset : "?"),
   };
+}
+
+/**
+ * Return where this holding's tokens go, for the reader to see before signing.
+ *
+ * **The audit's `S2` recommendation 2.** The row showed unit, id, badge, value
+ * and reason, and never the address the tokens went to - so on the one
+ * disposition that gives something away, the destination was the single fact
+ * the reader was not shown. `forfeitTargetProblems` now confirms that address
+ * against the chain, which is the control; this is the disclosure, and the
+ * audit is explicit that it is a complement rather than a substitute. A reader
+ * who can see the creator can compare it with the wallet prompt; one who
+ * cannot is trusting two systems instead of checking one.
+ *
+ * **Shortened, with the whole address kept for the title.** A 58-character
+ * address on every line is why this was not done the first time. The short
+ * form is enough to compare against a wallet prompt at a glance, and the full
+ * one is a hover or a copy away.
+ *
+ * Only a forfeit names somebody else. A close returns the holding to the
+ * account it is already in, which is worth saying plainly rather than leaving
+ * blank - "nothing leaves this account" is the reassurance a reader wants -
+ * and a conversion has no close target at all, so it gets nothing.
+ *
+ * @param {Object} holding a plan line
+ * @returns {{text: string, title: string}} empty text when there is nothing to say
+ */
+function destinationLabel(holding) {
+  if (!holding) return { text: "", title: "" };
+
+  if (holding.disposition === "forfeit") {
+    var creator = holding.creator;
+    if (!creator) return { text: "to an unnamed address", title: "" };
+
+    return { text: "to " + shortAddress(creator), title: creator };
+  }
+
+  if (holding.disposition === "close") {
+    return { text: "stays in this account", title: "" };
+  }
+
+  return { text: "", title: "" };
 }
 
 /** Return whether this holding is swept unless the reader says otherwise. */
@@ -863,15 +981,16 @@ function partialGroup(action) {
  * @param {Object} action the plan's `next`
  * @param {string} address the account being swept
  * @param {Object} bridge window.asastatsSwap
+ * @param {number|string} [routerApp] router app id, from `data-router-app`
  * @returns {Promise<string>} the submitted transaction id
  */
-async function signAction(action, address, bridge) {
+async function signAction(action, address, bridge, routerApp) {
   if (action.kind === "convert") {
     if (typeof bridge.signAndSendPartial !== "function") {
       throw new Error("The connected wallet does not support quote-signed groups");
     }
 
-    var routed = routedGroupProblems(action.transactions);
+    var routed = routedGroupProblems(action.transactions, routerApp);
     if (routed.length) {
       throw new Error("This group was refused: " + routed.join("; "));
     }
@@ -1139,6 +1258,9 @@ function start() {
 
   var planUrl = root.dataset.planUrl;
   var current = state();
+  // Page context, not plan response: `routedGroupProblems` falls back to the
+  // built-in id, so a missing attribute cannot turn the rule off.
+  current.routerApp = root.dataset.routerApp;
 
   offerToConnectedAccount(root);
 
@@ -1356,6 +1478,17 @@ function renderLine(holding, current) {
 
   row.append(named, badge, value, reason);
 
+  // `S2` recommendation 2: on a forfeit this is the address the tokens leave
+  // for, and it used to be the one fact the row did not carry.
+  var going = destinationLabel(holding);
+  if (going.text) {
+    var destination = document.createElement("span");
+    destination.className = "dustsweep-line-destination";
+    destination.textContent = going.text;
+    if (going.title) destination.title = going.title;
+    row.append(destination);
+  }
+
   if (meta) {
     var toggle = document.createElement("label");
     toggle.className = "dustsweep-line-toggle";
@@ -1403,7 +1536,8 @@ async function sign(modal, planUrl, current) {
     var txid = await signAction(
       current.plan.next,
       current.address,
-      window.asastatsSwap
+      window.asastatsSwap,
+      current.routerApp
     );
     current.signed += 1;
     setNotice(modal, "Signed. Submitted as " + txid + ".");
@@ -1445,6 +1579,7 @@ if (typeof module !== "undefined" && module.exports) {
     CREATOR_LOOKUP_TIMEOUT: CREATOR_LOOKUP_TIMEOUT,
     MAX_CLOSE_OUT_FEE: MAX_CLOSE_OUT_FEE,
     MAX_GROUP_FEE: MAX_GROUP_FEE,
+    ROUTER_APP_ID: ROUTER_APP_ID,
     addressToBytes: addressToBytes,
     algo: algo,
     assetLabels: assetLabels,
@@ -1455,11 +1590,13 @@ if (typeof module !== "undefined" && module.exports) {
     csrfToken: csrfToken,
     ctaLabel: ctaLabel,
     decodeMsgpack: decodeMsgpack,
+    destinationLabel: destinationLabel,
     degradedNotice: degradedNotice,
     fetchPlan: fetchPlan,
     forfeitTargetProblems: forfeitTargetProblems,
     includedByDefault: includedByDefault,
     isActionable: isActionable,
+    isBudgetOnlyCall: isBudgetOnlyCall,
     isForfeit: isForfeit,
     routedGroupProblems: routedGroupProblems,
     withTimeout: withTimeout,

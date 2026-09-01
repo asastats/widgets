@@ -611,6 +611,10 @@ describe("the forfeit predicate binds both halves of the check", () => {
   });
 });
 
+const NO_ROUTER =
+  "the group calls no router method that would check it, so nothing on chain " +
+  "will refuse what it does";
+
 describe("routedGroupProblems", () => {
   /**
    * `S6`: the conversion path was inspected by nothing the engine did not
@@ -651,12 +655,63 @@ describe("routedGroupProblems", () => {
     // The finding itself: no application call, so no contract assertion runs.
     expect(sweep.routedGroupProblems([FORFEIT_TO_CREATOR])).toEqual([
       "transaction 1 closes a holding",
+      NO_ROUTER,
     ]);
+  });
+
+  test("a plain transfer to a stranger is refused - `S7`", () => {
+    // Hygiene alone never caught this: no close, no rekey, an ordinary fee.
+    // What refuses it on chain is the router's own logic, and that runs only
+    // when the router is called. TO_STRANGER pays somebody else and closes to
+    // self, so every hygiene rule here is satisfied.
+    expect(sweep.routedGroupProblems([TO_STRANGER])).toEqual([
+      "transaction 1 closes a holding",
+      NO_ROUTER,
+    ]);
+    // And with nothing to object to at all, the router rule is the only one
+    // standing between the reader and a signed transfer.
+    expect(sweep.routedGroupProblems([WITH_AMOUNT])).toEqual([
+      "transaction 1 closes a holding",
+      NO_ROUTER,
+    ]);
+  });
+
+  test("a budget call is not the router call that counts", () => {
+    // `pool_budget` and `verify_discount` skip the contract's hygiene guard,
+    // on the reasoning that they ride alongside a route which sweeps the
+    // group. So a group of budget-call-plus-transfer calls the router and is
+    // still checked by nothing.
+    const budgetOnly = MAINNET.sweep_3_convert.slice(0, 2);
+    budgetOnly.forEach((raw) => {
+      const txn = sweep.decodeMsgpack(sweep.b64ToBytes(raw));
+      expect(sweep.isBudgetOnlyCall(txn)).toBe(true);
+    });
+    expect(sweep.routedGroupProblems(budgetOnly)).toEqual([NO_ROUTER]);
+  });
+
+  test("a router call with no arguments is not a budget call", () => {
+    // `isBudgetOnlyCall` reads the ARC-4 selector out of the first argument.
+    // A bare application call has none, and must not be mistaken for one of
+    // the two exempt methods - that would be the wrong way to be wrong.
+    expect(sweep.isBudgetOnlyCall({ type: "appl", apid: 3689591968 })).toBe(false);
+    expect(sweep.isBudgetOnlyCall({ type: "appl", apaa: [] })).toBe(false);
+  });
+
+  test("the router must be the one this page names, not any application", () => {
+    // A group calling somebody else's contract is not checked by ours.
+    expect(sweep.routedGroupProblems(MAINNET.sweep_3_convert, 1)).toEqual([
+      NO_ROUTER,
+    ]);
+    // A missing attribute falls back to the built-in id rather than the rule
+    // quietly switching itself off.
+    expect(sweep.routedGroupProblems(MAINNET.sweep_3_convert, "")).toEqual([]);
+    expect(sweep.ROUTER_APP_ID).toBe(3689591968);
   });
 
   test("a payment that drains the account is refused", () => {
     expect(sweep.routedGroupProblems([PAYMENT_DRAIN])).toEqual([
       "transaction 1 closes the account",
+      NO_ROUTER,
     ]);
   });
 
@@ -671,6 +726,13 @@ describe("routedGroupProblems", () => {
     // conversion, and the whitelist has to find the one transaction that is not.
     const tampered = MAINNET.sweep_3_convert.concat([FORFEIT_TO_CREATOR]);
     expect(sweep.routedGroupProblems(tampered)).toEqual([
+      "transaction 15 closes a holding",
+    ]);
+    // A transfer hidden the same way is caught by nothing but the chain, which
+    // is why the router rule is not enough on its own either - both halves are
+    // needed, and both are here.
+    const drained = MAINNET.sweep_3_convert.concat([WITH_AMOUNT]);
+    expect(sweep.routedGroupProblems(drained)).toEqual([
       "transaction 15 closes a holding",
     ]);
   });
@@ -707,6 +769,7 @@ describe("routedGroupProblems", () => {
     ]);
     expect(sweep.routedGroupProblems(["!!!"])).toEqual([
       "transaction 1 could not be decoded",
+      NO_ROUTER,
     ]);
     // Decodes cleanly to the integer 5. A transaction that is not a map has
     // no field to inspect, so it gets the same answer as a failed decode
@@ -714,6 +777,7 @@ describe("routedGroupProblems", () => {
     expect(sweep.decodeMsgpack(sweep.b64ToBytes("BQ=="))).toBe(5);
     expect(sweep.routedGroupProblems(["BQ=="])).toEqual([
       "transaction 1 could not be decoded",
+      NO_ROUTER,
     ]);
   });
 });
@@ -1100,6 +1164,54 @@ describe("badgeFor", () => {
       label: "Keep",
       tone: "keep",
     });
+  });
+});
+
+describe("destinationLabel", () => {
+  /**
+   * `S2` recommendation 2. The row showed unit, id, badge, value and reason
+   * and never the address the tokens went to - so on the one disposition that
+   * gives something away, the destination was the single fact the reader was
+   * not shown. The chain lookup is the control; this is the disclosure.
+   */
+  test("a forfeit names the creator, shortened, with the full address kept", () => {
+    const going = sweep.destinationLabel({
+      disposition: "forfeit",
+      creator: CREATOR,
+    });
+    expect(going.text).toBe("to " + sweep.shortAddress(CREATOR));
+    // The whole address survives for the title, because a shortened one
+    // cannot be compared against a wallet prompt with any confidence.
+    expect(going.title).toBe(CREATOR);
+    expect(going.text).toContain("2EVGZ4");
+  });
+
+  test("a close says plainly that nothing leaves", () => {
+    // Worth saying rather than leaving blank: "nothing leaves this account"
+    // is the reassurance, and a blank cell reads as a missing fact.
+    expect(sweep.destinationLabel({ disposition: "close" })).toEqual({
+      text: "stays in this account",
+      title: "",
+    });
+  });
+
+  test("a conversion has no close target, so it claims none", () => {
+    expect(sweep.destinationLabel({ disposition: "convert" }).text).toBe("");
+    expect(sweep.destinationLabel({ disposition: "unpriced" }).text).toBe("");
+    expect(sweep.destinationLabel({ disposition: "keep" }).text).toBe("");
+  });
+
+  test("a forfeit with no creator says so rather than rendering nothing", () => {
+    // `_asset_facts` returns no creator for an asset whose parameters could
+    // not be read. A blank cell there would look like a close-to-self.
+    expect(sweep.destinationLabel({ disposition: "forfeit" })).toEqual({
+      text: "to an unnamed address",
+      title: "",
+    });
+  });
+
+  test("no holding at all is not an exception", () => {
+    expect(sweep.destinationLabel(undefined)).toEqual({ text: "", title: "" });
   });
 });
 

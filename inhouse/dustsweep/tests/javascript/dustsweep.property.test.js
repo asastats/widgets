@@ -24,6 +24,7 @@ const fc = require("fast-check");
 
 const sweep = require("../../static/dustsweep/dustsweep.js");
 const corpus = require("./corpus.json");
+const mainnet = require("./mainnet-groups.json");
 
 const NAMES = Object.keys(corpus.transactions);
 const bytesFor = (name) => corpus.transactions[name];
@@ -376,14 +377,50 @@ describe("routedGroupProblems refuses rather than raises", () => {
   });
 
   it("accepting implies no transaction closes or rekeys", () => {
+    // **Prefixed with a real guarded router call, or this proves nothing.**
+    // `S7` made "calls no router method" a refusal, and no corpus transaction
+    // is an application call - so without the prefix every generated group is
+    // refused for that alone, the implication is vacuously true, and a group
+    // that closed would never be examined. The prefix is transaction 2 of an
+    // executed mainnet conversion, which is a `route` rather than one of the
+    // two budget calls.
+    const routerCall = mainnet.sweep_3_convert[2];
+    expect(
+      sweep.isBudgetOnlyCall(sweep.decodeMsgpack(sweep.b64ToBytes(routerCall)))
+    ).toBe(false);
+
+    let accepted = 0;
+    fc.assert(
+      fc.property(groupNames, (names) => {
+        const group = [routerCall].concat(names.map(bytesFor));
+        if (sweep.routedGroupProblems(group).length) return true;
+
+        accepted += 1;
+        return group.every((raw) => {
+          const txn = sweep.decodeMsgpack(sweep.b64ToBytes(raw));
+          return !txn.aclose && !txn.close && !txn.rekey;
+        });
+      }),
+      { numRuns: 500 }
+    );
+    // Non-vacuity: some generated group really was accepted, so the
+    // implication above was tested rather than merely satisfied.
+    expect(accepted).toBeGreaterThan(0);
+  });
+
+  it("accepting implies the group calls a guarded router method", () => {
     fc.assert(
       fc.property(groupNames, (names) => {
         const group = names.map(bytesFor);
         if (sweep.routedGroupProblems(group).length) return true;
 
-        return group.every((raw) => {
+        return group.some((raw) => {
           const txn = sweep.decodeMsgpack(sweep.b64ToBytes(raw));
-          return !txn.aclose && !txn.close && !txn.rekey;
+          return (
+            txn.type === "appl" &&
+            Number(txn.apid) === sweep.ROUTER_APP_ID &&
+            !sweep.isBudgetOnlyCall(txn)
+          );
         });
       }),
       { numRuns: 500 }

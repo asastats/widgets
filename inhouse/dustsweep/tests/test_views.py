@@ -4,6 +4,7 @@ import json
 
 from api.client import BackendError
 from widgets.inhouse.dustsweep.views import (
+    ROUTER_APP_ID,
     SWEEP_PATH,
     DustSweepPlanView,
     DustSweepView,
@@ -44,6 +45,27 @@ class TestInhouseDustsweepViewsDustSweepView:
         assert context["addresses"] == "ADDR_ONE ADDR_TWO"
         assert context["linked_addresses"] == ["ADDR_ONE"]
         assert context["widget_id"] == DustSweepView.manifest.id
+        assert context["router_app_id"] == ROUTER_APP_ID
+
+    def test_inhouse_dustsweep_views_sweep_view_router_app_id_is_ours(self, mocker):
+        """The browser's `S7` rule must not take the app id from the engine.
+
+        The controller refuses a conversion group that calls no guarded router
+        method. An application id supplied by the plan response would make that
+        check agree with whatever the response wanted, so it is handed down
+        from here - and a deployment can override it without a widget release.
+        """
+        view = DustSweepView()
+        view.request = mocker.MagicMock()
+        view.bundle = "BUNDLEHASH"
+        view.addresses = "ADDR_ONE"
+        mocker.patch(
+            "widgets.inhouse.dustsweep.views.linked_addresses_for_user",
+            return_value=set(),
+        )
+        settings = mocker.patch("widgets.inhouse.dustsweep.views.settings")
+        settings.ROUTER_APP_ID = 12345
+        assert view.get_context_data()["router_app_id"] == 12345
 
     def test_inhouse_dustsweep_views_sweep_view_renders_only_linked_addresses(
         self, mocker

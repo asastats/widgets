@@ -20,6 +20,7 @@ are shared and live in :mod:`widgets.inhouse.swapcore.views`.
 import json
 
 from api.client import BackendError, engine_request
+from django.conf import settings
 from api.widgets import bundle_and_addresses_from_path
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
@@ -34,6 +35,21 @@ from .manifest import MANIFEST
 #: concatenates it onto the host, and a relative path silently produced
 #: `http://host:8001router/sweep/`, which reaches nothing.
 SWEEP_PATH = "/api/v2/internal/router/sweep/"
+
+#: Router application the browser requires a conversion group to actually call.
+#:
+#: The controller refuses a group labelled ``convert`` that calls no guarded
+#: router method, because the contract's own checks - the hygiene guard, the
+#: input proven spent, the co-signed floor - run only when the router is in the
+#: group. That is the audit's ``S7``.
+#:
+#: **It is handed down from here rather than read from the plan.** The plan
+#: response is the thing the check exists to doubt; an application id taken from
+#: it would make the rule agree with whatever the engine wanted. ``dustsweep.js``
+#: carries the same number as a fallback, so a missing setting cannot disable
+#: the rule - this exists so a redeployment can be followed without a widget
+#: release.
+ROUTER_APP_ID = 3689591968
 
 
 class DustSweepView(WidgetAccessMixin, TemplateView):
@@ -68,6 +84,7 @@ class DustSweepView(WidgetAccessMixin, TemplateView):
         linked = linked_addresses_for_user(self.request.user, self.addresses.split(" "))
         context["linked_addresses"] = sorted(linked)
         context["widget_id"] = self.manifest.id
+        context["router_app_id"] = getattr(settings, "ROUTER_APP_ID", ROUTER_APP_ID)
         return context
 
     def test_func(self):
