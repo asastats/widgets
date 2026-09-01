@@ -347,7 +347,7 @@ describe("closeOutProblems bounds the fee", () => {
       [FORFEITED_HOLDING]
     );
     expect(problems).toContain(
-      "transaction 1 pays a fee of 5.00 ALGO, over the limit of 0.01"
+      "transaction 1 pays a fee of 5.00 ALGO, over the limit of 0.01 ALGO"
     );
   });
 
@@ -372,9 +372,12 @@ describe("closeOutProblems bounds the fee", () => {
     // its own. This test is what fails if someone raises the constant past the
     // point where that stops being true.
     expect(sweep.MAX_CLOSE_OUT_FEE).toBeLessThan(sweep.HOLDING_MINIMUM_BALANCE);
-    expect(sweep.MAX_CLOSE_OUT_FEE * sweep.CLOSE_OUTS_PER_GROUP).toBeLessThan(
-      sweep.HOLDING_MINIMUM_BALANCE * sweep.CLOSE_OUTS_PER_GROUP
-    );
+    // Stated as the figure a full group can cost rather than as the same
+    // inequality multiplied through: `a < b` implies `16a < 16b` for free, so
+    // asserting the second proves nothing the first did not. A hardcoded
+    // worst case does - it is what someone raising either constant has to
+    // come back and change on purpose.
+    expect(sweep.MAX_CLOSE_OUT_FEE * sweep.CLOSE_OUTS_PER_GROUP).toBe(160000);
   });
 
   test("a transaction with no fee field at all is allowed", () => {
@@ -395,7 +398,7 @@ describe("closeOutProblems bounds the fee", () => {
       [EMPTY_HOLDING]
     );
     expect(problems).toEqual([
-      "transaction 1 pays a fee of 0.05 ALGO, over the limit of 0.01",
+      "transaction 1 pays a fee of 0.05 ALGO, over the limit of 0.01 ALGO",
     ]);
   });
 
@@ -511,6 +514,93 @@ describe("forfeitTargetProblems", () => {
     await expect(
       sweep.forfeitTargetProblems(["!!!"], [FORFEITED_HOLDING], bridgeSaying(CREATOR))
     ).resolves.toEqual([]);
+  });
+
+  test("a group that is not a list is refused, not iterated", async () => {
+    // The `described` side has `planLines` for exactly this reason. The group
+    // side needed it too once the compare loop became a `.map`: in production
+    // `closeOutProblems` has already refused a non-array, but this function is
+    // exported and tested on its own, and it should not be the one that throws.
+    const bridge = { assetCreator: jest.fn() };
+    await expect(
+      sweep.forfeitTargetProblems("not a group", [FORFEITED_HOLDING], bridge)
+    ).resolves.toEqual([]);
+    expect(bridge.assetCreator).not.toHaveBeenCalled();
+  });
+
+  test("lookups for distinct assets are issued together, not in series", async () => {
+    // A group of sixteen forfeits used to wait sixteen times the node's
+    // latency before the wallet prompt opened, because the await sat in the
+    // compare loop. Asserted on both calls being in flight at once rather
+    // than on elapsed time, which would be a flaky way to say the same thing.
+    let started = 0;
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const bridge = {
+      assetCreator: jest.fn(async () => {
+        started += 1;
+        await gate;
+        return CREATOR;
+      }),
+    };
+    const pending = sweep.forfeitTargetProblems(
+      [FORFEIT_TO_CREATOR, WRONG_ASSET],
+      [FORFEITED_HOLDING, { asset: 999, amount: "1000", creator: CREATOR }],
+      bridge
+    );
+
+    // Serial lookups would leave this at 1 until the first one resolved.
+    expect(started).toBe(2);
+    release();
+    await expect(pending).resolves.toEqual([
+      "transaction 2 forfeits asset 999 to an address that is not its creator on chain",
+    ]);
+  });
+});
+
+describe("the forfeit predicate binds both halves of the check", () => {
+  /**
+   * The invariant the `S2` fix rests on, and the only one that spans both
+   * functions: a transaction may close somewhere other than the sweeper's own
+   * account **only** when `isForfeit` is true, and `isForfeit` being true is
+   * **also** what sends that destination to the chain to be confirmed.
+   *
+   * Both halves used to spell the predicate out separately. Nothing failed if
+   * one of them changed - `closeOutProblems` would keep accepting a forfeit
+   * that `forfeitTargetProblems` had quietly stopped looking up, which is
+   * `S2` reopening with a green suite. `planLines` decides which lines are
+   * readable; this decides what a readable line means, and these are the
+   * amount shapes an engine can actually put in a JSON response.
+   */
+  const shapes = [
+    ["a zero string", "0"],
+    ["a zero number", 0],
+    ["a balance string", "1000"],
+    ["a balance number", 1000],
+    ["an empty string", ""],
+    ["a missing field", undefined],
+    ["a null", null],
+    ["an empty array", []],
+    ["a non-numeric string", "abc"],
+    ["a negative balance", -1],
+  ];
+
+  test.each(shapes)("%s routes the same way through both", async (_label, amount) => {
+    const described = [{ asset: 9, amount: amount, creator: CREATOR }];
+    const forfeit = sweep.isForfeit(described[0]);
+
+    // FORFEIT_TO_CREATOR closes asset 9 to CREATOR rather than to ADDRESS, so
+    // it survives `closeOutProblems` exactly when the plan called it a forfeit.
+    const accepted =
+      sweep.closeOutProblems([FORFEIT_TO_CREATOR], ADDRESS, described).length === 0;
+    expect(accepted).toBe(forfeit);
+
+    // And exactly then, the destination is confirmed against the chain.
+    const bridge = { assetCreator: jest.fn().mockResolvedValue(CREATOR) };
+    await sweep.forfeitTargetProblems([FORFEIT_TO_CREATOR], described, bridge);
+    expect(bridge.assetCreator.mock.calls.length > 0).toBe(forfeit);
   });
 });
 

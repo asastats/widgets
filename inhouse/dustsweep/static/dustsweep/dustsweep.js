@@ -243,6 +243,31 @@ function planLines(described) {
 }
 
 /**
+ * Return whether the plan says this holding is forfeited rather than empty.
+ *
+ * **One function because two callers must never disagree.** The safety of the
+ * whole forfeit check rests on an invariant that spans both of them: a
+ * transaction may close to an address other than the sweeper's *only* when
+ * this returns true, and this returning true is *also* what sends the
+ * destination to the chain to be confirmed. `closeOutProblems` picks the
+ * expected target with it; `forfeitTargetProblems` picks what to look up with
+ * it. Written out twice, the two could drift - a later `> 0`, or a
+ * `disposition` field consulted in one place - and a forfeit would quietly
+ * stop being confirmed against anything. That is `S2` reopening silently,
+ * with every test still passing, which is why the predicate has a name.
+ *
+ * It pairs with `planLines` rather than repeating its work: that one decides
+ * which lines are readable at all, this one decides what a readable line
+ * means.
+ *
+ * @param {Object} holding one of the lines `planLines` kept
+ * @returns {boolean} true when closing it gives tokens away
+ */
+function isForfeit(holding) {
+  return Number(holding.amount) !== 0;
+}
+
+/**
  * Return every reason this group is not the close-out group it was described as.
  *
  * Structural, not advisory: each rule refuses a transaction shape rather than
@@ -265,11 +290,13 @@ function planLines(described) {
  *   asset id - self for an empty holding, the asset's creator for a forfeit.
  *   A group that closes a *different* asset, or the right asset to a different
  *   address, fails here even though it is a perfectly well-formed close-out.
- * - **the fee is bounded**, per transaction and across the group. Nothing else
- *   bounds it: the engine sets it from the node's suggested parameters and the
- *   bridge preserves whatever arrives. Mainnet will take a fee up to the
- *   account's entire spendable balance, so a sweep that emptied an account
- *   without moving a single token was a valid group. See `MAX_CLOSE_OUT_FEE`.
+ * - **the fee is bounded**, per transaction. Nothing else bounds it: the engine
+ *   sets it from the node's suggested parameters and the bridge preserves
+ *   whatever arrives. Mainnet will take a fee up to the account's entire
+ *   spendable balance, so a sweep that emptied an account without moving a
+ *   single token was a valid group. There is deliberately no whole-group rule
+ *   to go with this one; `MAX_CLOSE_OUT_FEE` explains why it would be dead
+ *   code rather than a second line of defence.
  *
  * **What this function cannot do, and `forfeitTargetProblems` does.** For an
  * *empty* holding the expected close target is the connected account, which is
@@ -304,7 +331,7 @@ function closeOutProblems(encoded, address, described) {
   var expected = {};
   planLines(described).forEach(function (one) {
     // an empty holding closes to itself; a forfeit closes to the creator
-    expected[one.asset] = Number(one.amount) === 0 ? address : one.creator;
+    expected[one.asset] = isForfeit(one) ? one.creator : address;
   });
 
   encoded.forEach(function (raw, index) {
@@ -336,7 +363,7 @@ function closeOutProblems(encoded, address, described) {
     if ((Number(txn.fee) || 0) > MAX_CLOSE_OUT_FEE) {
       problems.push(
         where + "pays a fee of " + algo(txn.fee) + " ALGO, over the limit of " +
-          algo(MAX_CLOSE_OUT_FEE)
+          algo(MAX_CLOSE_OUT_FEE) + " ALGO"
       );
     }
 
@@ -377,9 +404,11 @@ function closeOutProblems(encoded, address, described) {
  *
  * So the creator is resolved from the chain instead, through the wallet
  * bridge's own algod connection, and the transaction is compared against
- * *that*. One lookup per distinct asset, memoised, and only for holdings the
- * plan says still carry a balance - an empty holding closes to the connected
- * account, which was never in doubt.
+ * *that*. One lookup per distinct asset, all issued together, and only for
+ * holdings `isForfeit` says still carry a balance - an empty holding closes to
+ * the connected account, which was never in doubt. That predicate is shared
+ * with `closeOutProblems` rather than repeated, because a forfeit that stops
+ * matching it here stops being confirmed against anything.
  *
  * **It fails closed.** A bridge too old to expose `assetCreator`, an
  * unreachable node, or an asset whose parameters cannot be read all produce a
@@ -395,7 +424,7 @@ function closeOutProblems(encoded, address, described) {
 async function forfeitTargetProblems(encoded, described, bridge) {
   var forfeited = {};
   planLines(described).forEach(function (one) {
-    if (Number(one.amount) !== 0) forfeited[one.asset] = true;
+    if (isForfeit(one)) forfeited[one.asset] = true;
   });
   if (!Object.keys(forfeited).length) return [];
 
@@ -406,25 +435,43 @@ async function forfeitTargetProblems(encoded, described, bridge) {
     ];
   }
 
-  var problems = [];
-  var resolved = {};
-  for (var index = 0; index < encoded.length; index++) {
-    var txn;
+  // Decoded once, up front, so the lookups can be issued together below. A
+  // transaction that will not decode is left as null: `closeOutProblems` has
+  // already refused this group over it.
+  var decoded = (Array.isArray(encoded) ? encoded : []).map(function (raw) {
     try {
-      txn = decodeMsgpack(b64ToBytes(encoded[index]));
+      return decodeMsgpack(b64ToBytes(raw));
     } catch (error) {
-      continue; // closeOutProblems has already refused this group
+      return null;
     }
+  });
 
-    if (!forfeited[txn.xaid]) continue;
-
-    if (!(txn.xaid in resolved)) {
+  // **One round trip, not one per asset.** The lookups are independent and
+  // already at most one per distinct asset; awaiting them in the compare loop
+  // made a group of sixteen forfeits wait sixteen times the node's latency
+  // before the wallet prompt opened. A rejection folds to null here so the
+  // "could not be confirmed" branch below stays the single refusal path.
+  var wanted = [];
+  decoded.forEach(function (txn) {
+    if (txn && forfeited[txn.xaid] && wanted.indexOf(txn.xaid) < 0) {
+      wanted.push(txn.xaid);
+    }
+  });
+  var resolved = {};
+  await Promise.all(
+    wanted.map(async function (xaid) {
       try {
-        resolved[txn.xaid] = await bridge.assetCreator(txn.xaid);
+        resolved[xaid] = await bridge.assetCreator(xaid);
       } catch (error) {
-        resolved[txn.xaid] = null;
+        resolved[xaid] = null;
       }
-    }
+    })
+  );
+
+  var problems = [];
+  for (var index = 0; index < decoded.length; index++) {
+    var txn = decoded[index];
+    if (!txn || !forfeited[txn.xaid]) continue;
 
     var where = "transaction " + (index + 1) + " ";
     if (!resolved[txn.xaid]) {
@@ -760,20 +807,29 @@ function algo(microalgo) {
 }
 
 /**
- * Return the three figures the summary strip shows.
+ * Return the four figures the summary strip shows.
  *
  * `recoverable` is the minimum balance alone, net of fees - the certain half.
- * A close returns exactly 0.1 ALGO whatever the token is worth, while
- * conversion proceeds depend on quotes not taken yet, and promising the
- * uncertain half up front is how a sweep ends up having under-delivered.
+ * The planner subtracts them there (`sweep.py`: `(closes + conversions) *
+ * HOLDING_MINIMUM_BALANCE - fees`). A close returns exactly 0.1 ALGO whatever
+ * the token is worth, while conversion proceeds depend on quotes not taken
+ * yet, and promising the uncertain half up front is how a sweep ends up having
+ * under-delivered.
  *
  * **Fees are shown, not folded away.** `summary.fees` was computed by the
  * planner and sent here from the beginning, and nothing rendered it: there was
  * no number on this screen that would have moved if every fee in the group had
  * been a thousand times larger, which is the reporting half of the audit's
  * `S3`. It sits beside what the sweep returns because the two are the same
- * arithmetic, and a reader comparing them can see a sweep that is not worth
- * signing.
+ * arithmetic.
+ *
+ * **It reports; it does not verify.** Both figures are the planner's, and a
+ * sweep spans several groups while this widget only ever holds the bytes of
+ * the next one - so there is nothing here to check the total against, and a
+ * planner that reported zero fees would render "0.00 ALGO" unchallenged. The
+ * row is honest reporting, not a control: what bounds what a reader can lose
+ * is `MAX_CLOSE_OUT_FEE`, applied to the bytes about to be signed. Read it as
+ * telling a reader when an honest sweep is not worth signing.
  *
  * @param {Object} plan the engine's answer
  * @returns {Array<{label: string, value: string}>}
@@ -1249,6 +1305,7 @@ if (typeof module !== "undefined" && module.exports) {
     forfeitTargetProblems: forfeitTargetProblems,
     includedByDefault: includedByDefault,
     isActionable: isActionable,
+    isForfeit: isForfeit,
     isIncluded: isIncluded,
     partialGroup: partialGroup,
     planLines: planLines,
