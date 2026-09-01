@@ -350,3 +350,43 @@ describe("the two checks together are what signAction runs", () => {
     );
   });
 });
+
+describe("routedGroupProblems refuses rather than raises", () => {
+  /**
+   * `S6`'s guard runs over router groups, which carry application calls the
+   * close-out rules never see. It is the one check with no `described` to
+   * disagree with, so the invariants are about the bytes alone: it must never
+   * throw, and it must never accept a group carrying a close or a rekey.
+   */
+  it("never raises, whatever the group is", () => {
+    fc.assert(
+      fc.property(
+        fc.oneof(
+          groupNames.map((names) => names.map(bytesFor)),
+          fc.anything(),
+          fc.array(fc.anything(), { maxLength: 8 })
+        ),
+        (group) => {
+          sweep.routedGroupProblems(group);
+          return true;
+        }
+      ),
+      { numRuns: 500 }
+    );
+  });
+
+  it("accepting implies no transaction closes or rekeys", () => {
+    fc.assert(
+      fc.property(groupNames, (names) => {
+        const group = names.map(bytesFor);
+        if (sweep.routedGroupProblems(group).length) return true;
+
+        return group.every((raw) => {
+          const txn = sweep.decodeMsgpack(sweep.b64ToBytes(raw));
+          return !txn.aclose && !txn.close && !txn.rekey;
+        });
+      }),
+      { numRuns: 500 }
+    );
+  });
+});

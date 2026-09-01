@@ -54,6 +54,13 @@ const ZERO_FEE =
 const HALF_MBR_FEE =
   "iaZhY2xvc2XEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDpGFyY3bEIHGjRt3yY7+fkM4zmg+GpEN/hCc5Dv+jZMlAHh37YvKDo2ZlZc3DUKJmdgGiZ2jEIMBhxNj8Hb3e0tdgS+RWjj9tBBmHrDe95LYgtas5JIrfomx2zQPpo3NuZMQgcaNG3fJjv5+QzjOaD4akQ3+EJzkO/6NkyUAeHfti8oOkdHlwZaVheGZlcqR4YWlkBQ==";
 
+/**
+ * The seven groups from the audit's `evidence/`, re-encoded from what the
+ * indexer returned: 97 transactions that executed on mainnet on 2026-08-31.
+ * Used wherever a test needs a router group that is real rather than plausible.
+ */
+const MAINNET = require("./mainnet-groups.json");
+
 /** The plan lines matching the two well-formed fixtures above. */
 const EMPTY_HOLDING = { asset: 5, amount: "0", creator: CREATOR };
 const FORFEITED_HOLDING = { asset: 9, amount: "1000", creator: CREATOR };
@@ -604,6 +611,148 @@ describe("the forfeit predicate binds both halves of the check", () => {
   });
 });
 
+describe("routedGroupProblems", () => {
+  /**
+   * `S6`: the conversion path was inspected by nothing the engine did not
+   * choose. `signAction` decided whether to check a group by reading
+   * `action.kind` out of the same response that carried the bytes, and the
+   * contract's `_assert_group_is_clean` cannot refuse a group that never
+   * calls the contract. This mirrors that guard where it always runs.
+   *
+   * **The accepting cases are real.** `mainnet-groups.json` is the seven
+   * groups from the audit's `evidence/`, re-encoded from what the indexer
+   * returned - 97 transactions that executed on mainnet on 2026-08-31. A
+   * browser control that refuses honest router traffic is worse than none,
+   * so the honest side is tested against traffic rather than against fixtures
+   * written to pass.
+   */
+  test.each([
+    ["sweep_3_convert", 14],
+    ["sweep_4_convert", 11],
+    ["sweep_6_convert", 12],
+    ["swap", 13],
+  ])("the real %s group is accepted", (name, size) => {
+    expect(MAINNET[name]).toHaveLength(size);
+    expect(sweep.routedGroupProblems(MAINNET[name])).toEqual([]);
+  });
+
+  test("every transaction in every executed group decodes", () => {
+    // The decoder reads the subset a close-out uses, and a routed group
+    // carries application calls with argument and foreign-asset arrays. This
+    // is the evidence behind that claim rather than an assumption about it.
+    const all = Object.values(MAINNET).flat();
+    expect(all).toHaveLength(97);
+    all.forEach((raw) => {
+      expect(() => sweep.decodeMsgpack(sweep.b64ToBytes(raw))).not.toThrow();
+    });
+  });
+
+  test("a close-out smuggled in as a conversion is refused", () => {
+    // The finding itself: no application call, so no contract assertion runs.
+    expect(sweep.routedGroupProblems([FORFEIT_TO_CREATOR])).toEqual([
+      "transaction 1 closes a holding",
+    ]);
+  });
+
+  test("a payment that drains the account is refused", () => {
+    expect(sweep.routedGroupProblems([PAYMENT_DRAIN])).toEqual([
+      "transaction 1 closes the account",
+    ]);
+  });
+
+  test("a rekey is refused", () => {
+    expect(sweep.routedGroupProblems([WITH_REKEY])).toContain(
+      "transaction 1 rekeys the account"
+    );
+  });
+
+  test("a close hidden among real router transactions is still found", () => {
+    // The group that matters: everything else about it is a genuine, executed
+    // conversion, and the whitelist has to find the one transaction that is not.
+    const tampered = MAINNET.sweep_3_convert.concat([FORFEIT_TO_CREATOR]);
+    expect(sweep.routedGroupProblems(tampered)).toEqual([
+      "transaction 15 closes a holding",
+    ]);
+  });
+
+  test("the fee bound is the contract's, and real groups clear it", () => {
+    expect(sweep.MAX_GROUP_FEE).toBe(1000000);
+    // The dearest thing that has actually executed pays 71,000.
+    const paid = (group) =>
+      group.reduce(
+        (total, raw) =>
+          total + (Number(sweep.decodeMsgpack(sweep.b64ToBytes(raw)).fee) || 0),
+        0
+      );
+    Object.values(MAINNET).forEach((group) => {
+      expect(paid(group)).toBeLessThan(sweep.MAX_GROUP_FEE);
+    });
+    expect(paid(MAINNET.swap)).toBe(71000);
+  });
+
+  test("a group over the contract's ceiling is refused", () => {
+    // 101 copies of a 10,000 fee close-out is 1,010,000 - just over.
+    const fat = new Array(101).fill(AT_FEE_LIMIT);
+    expect(sweep.routedGroupProblems(fat)).toContain(
+      "the group pays 1.01 ALGO in fees, over the limit of 1.00 ALGO"
+    );
+  });
+
+  test("an empty or unreadable group is refused, not waved through", () => {
+    expect(sweep.routedGroupProblems([])).toEqual([
+      "the group carries no transactions",
+    ]);
+    expect(sweep.routedGroupProblems("not a group")).toEqual([
+      "the group carries no transactions",
+    ]);
+    expect(sweep.routedGroupProblems(["!!!"])).toEqual([
+      "transaction 1 could not be decoded",
+    ]);
+    // Decodes cleanly to the integer 5. A transaction that is not a map has
+    // no field to inspect, so it gets the same answer as a failed decode
+    // rather than being read for fields it does not have.
+    expect(sweep.decodeMsgpack(sweep.b64ToBytes("BQ=="))).toBe(5);
+    expect(sweep.routedGroupProblems(["BQ=="])).toEqual([
+      "transaction 1 could not be decoded",
+    ]);
+  });
+});
+
+describe("withTimeout", () => {
+  test("a lookup that never answers becomes a refusal, not a spinner", async () => {
+    // algosdk v3's client sets no timeout of its own, so this was the one
+    // failure that neither refused nor accepted.
+    jest.useFakeTimers();
+    try {
+      const hangs = sweep.forfeitTargetProblems(
+        [FORFEIT_TO_CREATOR],
+        [FORFEITED_HOLDING],
+        { assetCreator: () => new Promise(() => {}) }
+      );
+      await jest.advanceTimersByTimeAsync(sweep.CREATOR_LOOKUP_TIMEOUT);
+      await expect(hangs).resolves.toEqual([
+        "transaction 1 forfeits asset 9, whose creator could not be confirmed on chain",
+      ]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("an answer inside the window is used, and the timer is cleared", async () => {
+    await expect(withTimeoutOf(Promise.resolve("VALUE"))).resolves.toBe("VALUE");
+  });
+
+  test("a rejection still rejects rather than becoming a timeout", async () => {
+    await expect(
+      withTimeoutOf(Promise.reject(new Error("network down")))
+    ).rejects.toThrow("network down");
+  });
+
+  function withTimeoutOf(promise) {
+    return sweep.withTimeout(promise, sweep.CREATOR_LOOKUP_TIMEOUT);
+  }
+});
+
 describe("signAction", () => {
   test("a close-out group is inspected before it reaches the wallet", async () => {
     const bridge = { signAndSend: jest.fn(), signAndSendPartial: jest.fn() };
@@ -669,19 +818,43 @@ describe("signAction", () => {
   test("a conversion goes through the quote-signed path", async () => {
     // It carries the engine's quote authorisation, which `signAndSend` would
     // destroy by re-assigning group ids.
+    //
+    // **The group is a real one.** This used to pass `[CLOSE_TO_SELF]` as a
+    // stand-in, chosen because the path did not look at it. `S6`'s guard does
+    // look, and refused it - correctly, since a close-out is exactly what a
+    // conversion must not carry. A test whose fixture the production rule
+    // rejects was proving less than it appeared to.
+    const group = MAINNET.sweep_3_convert;
+    const quoteIndex = group.length - 1;
     const bridge = { signAndSendPartial: jest.fn().mockResolvedValue("TXID") };
     const action = {
       kind: "convert",
-      transactions: [CLOSE_TO_SELF],
-      signed_transactions: { 0: FORFEIT_TO_CREATOR },
-      quote_signer_index: 0,
+      transactions: group,
+      signed_transactions: { [quoteIndex]: group[quoteIndex] },
+      quote_signer_index: quoteIndex,
     };
     await expect(signActionOf(action, bridge)).resolves.toBe("TXID");
     expect(bridge.signAndSendPartial).toHaveBeenCalledWith({
-      transactions: [sweep.b64ToBytes(CLOSE_TO_SELF)],
-      signedTransactions: { 0: sweep.b64ToBytes(FORFEIT_TO_CREATOR) },
-      quoteSignerIndex: 0,
+      transactions: group.map(sweep.b64ToBytes),
+      signedTransactions: { [quoteIndex]: sweep.b64ToBytes(group[quoteIndex]) },
+      quoteSignerIndex: quoteIndex,
     });
+  });
+
+  test("a conversion carrying a close never reaches the wallet", async () => {
+    // `S6`. The engine chose the branch by naming the kind; now the bytes
+    // decide, and a group with no application call is refused by this rule
+    // because the contract is not in it to refuse the group itself.
+    const bridge = { signAndSendPartial: jest.fn() };
+    const action = {
+      kind: "convert",
+      transactions: [FORFEIT_TO_CREATOR],
+      quote_signer_index: 0,
+    };
+    await expect(signActionOf(action, bridge)).rejects.toThrow(
+      /This group was refused: transaction 1 closes a holding/
+    );
+    expect(bridge.signAndSendPartial).not.toHaveBeenCalled();
   });
 
   test("a wallet without the quote-signed path is told so", async () => {

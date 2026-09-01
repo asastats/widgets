@@ -214,6 +214,24 @@ var HOLDING_MINIMUM_BALANCE = 100000;
 var MAX_CLOSE_OUT_FEE = HOLDING_MINIMUM_BALANCE / 10;
 
 /**
+ * The most a routed group may pay the network, in microALGO.
+ *
+ * **The contract's number, mirrored rather than chosen.** `MAX_GROUP_FEE` in
+ * `router_app.py` is 1,000,000 and `_assert_group_is_clean` totals the group
+ * against it. Picking a different one here would mean refusing groups the
+ * chain accepts, or accepting groups it will reject - both worse than being a
+ * copy. Raise it there and this must follow, which is what the check named
+ * after it in `verify-sweep.sh` is for.
+ *
+ * The seven groups in the audit's `evidence/` measure the headroom: the
+ * dearest thing that has actually executed is a 13-transaction swap paying
+ * 71,000, and the three convert groups pay 43,000 to 60,000. The ceiling is
+ * fourteen times the worst of those, so it bounds a runaway without coming
+ * near honest traffic.
+ */
+var MAX_GROUP_FEE = 1000000;
+
+/**
  * Return the plan lines that are shaped like plan lines, and nothing else.
  *
  * **Both checks below take `described` from an HTTP response, so its shape is
@@ -240,6 +258,48 @@ function planLines(described) {
   return described.filter(function (one) {
     return one && typeof one === "object";
   });
+}
+
+/**
+ * How long a creator lookup may take before it counts as unanswered, in ms.
+ *
+ * **A hang was the one failure that neither refused nor accepted.** Every other
+ * way `assetCreator` can fail already produces a refusal, but algosdk v3's
+ * client sets no timeout of its own, so an unresponsive node left the reader on
+ * a spinner with no signature prompt and no error - the sweep neither happening
+ * nor visibly failing. Ten seconds is far past a healthy round trip and short
+ * enough that the refusal arrives while the reader is still watching.
+ */
+var CREATOR_LOOKUP_TIMEOUT = 10000;
+
+/**
+ * Resolve `promise`, or `null` if it takes longer than `ms`.
+ *
+ * Null rather than a rejection deliberately: the caller already treats "no
+ * creator" as a refusal, so a timeout joins the unreachable node and the
+ * unreadable asset instead of opening a fourth path.
+ *
+ * @param {Promise} promise the lookup in flight
+ * @param {number} ms how long to wait
+ * @returns {Promise<*>} what it resolved to, or null on timeout
+ */
+function withTimeout(promise, ms) {
+  var timer;
+  var settled = function (value) {
+    clearTimeout(timer);
+    return value;
+  };
+  return Promise.race([
+    Promise.resolve(promise).then(settled, function (error) {
+      clearTimeout(timer);
+      throw error;
+    }),
+    new Promise(function (resolve) {
+      timer = setTimeout(function () {
+        resolve(null);
+      }, ms);
+    }),
+  ]);
 }
 
 /**
@@ -411,8 +471,9 @@ function closeOutProblems(encoded, address, described) {
  * matching it here stops being confirmed against anything.
  *
  * **It fails closed.** A bridge too old to expose `assetCreator`, an
- * unreachable node, or an asset whose parameters cannot be read all produce a
- * problem rather than a pass. Refusing to sign costs a reader one sweep;
+ * unreachable node, an asset whose parameters cannot be read, and a node that
+ * never answers at all - see `CREATOR_LOOKUP_TIMEOUT` - all produce a problem
+ * rather than a pass. Refusing to sign costs a reader one sweep;
  * signing an unverifiable forfeit costs them the holding. Empty holdings are
  * unaffected either way, and they are where most of what a sweep recovers is.
  *
@@ -461,7 +522,10 @@ async function forfeitTargetProblems(encoded, described, bridge) {
   await Promise.all(
     wanted.map(async function (xaid) {
       try {
-        resolved[xaid] = await bridge.assetCreator(xaid);
+        resolved[xaid] = await withTimeout(
+          bridge.assetCreator(xaid),
+          CREATOR_LOOKUP_TIMEOUT
+        );
       } catch (error) {
         resolved[xaid] = null;
       }
@@ -485,6 +549,82 @@ async function forfeitTargetProblems(encoded, described, bridge) {
           "its creator on chain"
       );
     }
+  }
+
+  return problems;
+}
+
+/**
+ * Return every reason this routed group is not one a router would build.
+ *
+ * **`_assert_group_is_clean`, mirrored in the browser.** The contract already
+ * refuses a rekey, a `close_remainder_to`, an `asset_close_to` and a group fee
+ * over `MAX_GROUP_FEE`, over the whole group, from 13 of its 15 entry points.
+ * That guard is real, deployed and immutable, and this is a copy of it rather
+ * than a second opinion about it: mirroring cannot refuse a group the contract
+ * would accept.
+ *
+ * **What the copy buys is that it runs.** An assertion inside an application
+ * only executes if the application is called, and nothing off-chain required a
+ * conversion group to call the router. `signAction` chose whether to inspect a
+ * group by reading `action.kind` from the same response that carried the
+ * bytes, so a group labelled `convert` reached the wallet unexamined - by the
+ * widget, which skipped it, and by the contract, which was never in the group
+ * to object. That was the audit's `S6`, and it is the same shape as `S2` moved
+ * up a level: `S2` was a reference value the engine supplied, this was the
+ * switch deciding whether any checking happened at all.
+ *
+ * So the rule is applied to the bytes, whatever the response calls them, and
+ * `action.kind` stops being a security decision.
+ *
+ * **Why the decoder is up to it.** It reads the msgpack subset a *close-out*
+ * uses, and a routed group carries application calls - larger, and carrying
+ * argument and foreign-asset arrays a close-out never has. Run over the 97
+ * transactions in the audit's `evidence/`, every one of which executed on
+ * mainnet, it decodes all 97: the tags they use are `fixmap`, `fixarray`,
+ * `fixstr`, `bin8` and `uint16/32/64`, all of them already supported. A
+ * transaction that will not decode is refused rather than skipped, so a tag
+ * that does turn up costs a conversion instead of passing one through.
+ *
+ * @param {Array<string>} encoded base64 msgpack transactions, in group order
+ * @returns {Array<string>} problems, empty when the group is clean
+ */
+function routedGroupProblems(encoded) {
+  if (!Array.isArray(encoded) || encoded.length === 0) {
+    return ["the group carries no transactions"];
+  }
+
+  var problems = [];
+  var paid = 0;
+  encoded.forEach(function (raw, index) {
+    var where = "transaction " + (index + 1) + " ";
+    var txn;
+    try {
+      txn = decodeMsgpack(b64ToBytes(raw));
+    } catch (error) {
+      problems.push(where + "could not be decoded");
+      return;
+    }
+
+    if (!txn || typeof txn !== "object") {
+      problems.push(where + "could not be decoded");
+      return;
+    }
+
+    paid += Number(txn.fee) || 0;
+    if (txn.rekey) problems.push(where + "rekeys the account");
+    if (txn.close) problems.push(where + "closes the account");
+    if (txn.aclose) problems.push(where + "closes a holding");
+  });
+
+  // Totalled rather than checked per transaction, for the reason the contract
+  // gives: the total is what a signer loses, and it is the bound that survives
+  // the builder redistributing fees across the group, which it already does.
+  if (paid > MAX_GROUP_FEE) {
+    problems.push(
+      "the group pays " + algo(paid) + " ALGO in fees, over the limit of " +
+        algo(MAX_GROUP_FEE) + " ALGO"
+    );
   }
 
   return problems;
@@ -694,9 +834,17 @@ function partialGroup(action) {
  *
  * A conversion goes through `signAndSendPartial`, which preserves the engine's
  * quote-authorisation signature; a close-out group is all-user-signed and goes
- * through `signAndSend`. Only the close-out path is inspected here - a
- * conversion carries a router call the contract itself checks, including its
- * refusal of any group containing a close.
+ * through `signAndSend`.
+ *
+ * **Both paths are inspected, and that is the fix for `S6`.** This used to
+ * inspect only the close-out one, on the reasoning that a conversion carries a
+ * router call the contract itself checks. Every honest conversion does. But
+ * `action.kind` is a field of the same response as the bytes, so the engine
+ * chose which branch ran - and a group labelled `convert` that contained no
+ * application call was refused by nobody: not by this function, which returned
+ * early, and not by `_assert_group_is_clean`, which cannot refuse a group that
+ * never calls the contract. `routedGroupProblems` mirrors that guard here so
+ * the answer no longer depends on what the response calls the group.
  *
  * **Both bridge methods take decoded bytes, and this used to hand them the
  * base64.** `signAndSend(group: Uint8Array[])` passes each entry straight to
@@ -721,6 +869,11 @@ async function signAction(action, address, bridge) {
   if (action.kind === "convert") {
     if (typeof bridge.signAndSendPartial !== "function") {
       throw new Error("The connected wallet does not support quote-signed groups");
+    }
+
+    var routed = routedGroupProblems(action.transactions);
+    if (routed.length) {
+      throw new Error("This group was refused: " + routed.join("; "));
     }
     return await bridge.signAndSendPartial(partialGroup(action));
   }
@@ -1289,7 +1442,9 @@ if (typeof module !== "undefined" && module.exports) {
     DISPOSITIONS: DISPOSITIONS,
     HOLDING_MINIMUM_BALANCE: HOLDING_MINIMUM_BALANCE,
     INERT: INERT,
+    CREATOR_LOOKUP_TIMEOUT: CREATOR_LOOKUP_TIMEOUT,
     MAX_CLOSE_OUT_FEE: MAX_CLOSE_OUT_FEE,
+    MAX_GROUP_FEE: MAX_GROUP_FEE,
     addressToBytes: addressToBytes,
     algo: algo,
     assetLabels: assetLabels,
@@ -1306,6 +1461,8 @@ if (typeof module !== "undefined" && module.exports) {
     includedByDefault: includedByDefault,
     isActionable: isActionable,
     isForfeit: isForfeit,
+    routedGroupProblems: routedGroupProblems,
+    withTimeout: withTimeout,
     isIncluded: isIncluded,
     partialGroup: partialGroup,
     planLines: planLines,
