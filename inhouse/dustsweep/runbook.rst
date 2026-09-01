@@ -241,6 +241,89 @@ small job, so ``decodeMsgpack`` reads the subset a transaction uses. Addresses
 are compared as raw bytes, which needs base32 only - encoding one back to text
 would need SHA-512/256, which WebCrypto does not offer.
 
+The forfeit destination comes from the chain
+--------------------------------------------
+
+Every rule above compares the bytes against the plan, and for a *forfeit* that
+is not enough: the expected destination is ``holdings[].creator``, which arrives
+in the same response as the bytes being checked. An engine that set both
+consistently would choose where a reader's tokens went and the check would pass.
+That was the audit's ``S2``.
+
+So ``forfeitTargetProblems`` resolves the creator through the wallet bridge's own
+algod connection and compares the transaction against **that**. It runs only
+after ``closeOutProblems`` is satisfied, and only for holdings that still carry a
+balance - an empty holding closes to the connected account, which was never in
+doubt.
+
+**It fails closed, in four ways.** A bridge too old to expose ``assetCreator``,
+an unreachable node, an asset whose parameters cannot be read, and a node that
+never answers at all - ``CREATOR_LOOKUP_TIMEOUT``, ten seconds - all produce a
+refusal. The last of those was the only failure that previously did neither:
+algosdk v3 sets no timeout of its own, so a hanging lookup left the reader on a
+spinner with no prompt and no error.
+
+The predicate deciding what counts as a forfeit is ``isForfeit``, and it is one
+function on purpose. ``closeOutProblems`` uses it to pick the expected target and
+``forfeitTargetProblems`` uses it to pick what to look up; written out twice they
+could drift, and a forfeit would quietly stop being confirmed against anything
+with every test still passing.
+
+A conversion is checked too, and used not to be
+-----------------------------------------------
+
+``signAction`` used to inspect only the close-out path, on the reasoning that a
+conversion carries a router call the contract itself checks. Every honest
+conversion does. But ``action.kind`` is a field of the same response as the
+bytes, so the engine chose which branch ran - and a group labelled ``convert``
+carrying no application call was refused by nobody: not by the widget, which
+returned early, and not by ``_assert_group_is_clean``, which cannot refuse a
+group that never calls the contract. That was ``S6``.
+
+``routedGroupProblems`` now mirrors the contract's guard in the browser, applied
+to the bytes whatever the response calls them:
+
+* no ``rekey``, no ``close``, no ``aclose`` - the same three fields
+* the group's **total** fee is at or under ``MAX_GROUP_FEE`` (1,000,000
+  microALGO), which is the contract's own constant copied rather than chosen
+* the group calls a **guarded** router method
+
+That last rule is ``S7``, and it is the load-bearing one. Hygiene is not what a
+conversion needs checking for - a plain transfer of the whole balance to a
+stranger carries no close, no rekey and an ordinary fee. What refuses that is the
+router's own logic, and none of it runs unless the router is in the group.
+``verify_discount`` and ``pool_budget`` do not count: they are the two entry
+points that skip the hygiene guard, so a group of ``pool_budget`` plus one
+hostile transfer would satisfy a naive "does this call the router?" test.
+
+.. warning::
+
+   **The router application id is a deployment coupling.** The widget carries
+   ``ROUTER_APP_ID = 3689591968`` and the view hands down
+   ``settings.ROUTER_APP_ID`` through ``data-router-app``, which wins. The
+   contract has been redeployed once already. Redeploy it again without updating
+   one of those and **every conversion refuses** - the safe direction, and a real
+   outage. The Django setting exists so a deployment can move first, without a
+   widget release.
+
+What is still open: ``S8``
+--------------------------
+
+``S7`` proves the router is in the group. Nothing proves the group does nothing
+else. Add one ``axfer`` sending some balance to an attacker's address to an
+otherwise genuine conversion and it survives every check here and on chain: it
+carries none of the four refused fields, the guarded call is present because the
+rest of the group is real, and the route validates only the transaction
+immediately preceding it.
+
+The obvious rule - every transfer the account sends must go to the router - is
+not available: ``sweep-6-convert``, a conversion that executed on mainnet, pays a
+Tinyman pool escrow directly. Enumerating legitimate destinations means
+recomputing the route, which is the engine's job.
+
+This is published as an **open** finding rather than fixed. See
+``asastats-router-audit/findings/S8-transfer-alongside-a-route.md``.
+
 The wire format is not the bridge's format
 ------------------------------------------
 
