@@ -26,6 +26,9 @@ const sweep = require("../../static/dustsweep/dustsweep.js");
 const corpus = require("./corpus.json");
 const mainnet = require("./mainnet-groups.json");
 
+/** The application those groups called; see dustsweep.test.js. */
+const EXECUTED_APP = 3689591968;
+
 const NAMES = Object.keys(corpus.transactions);
 const bytesFor = (name) => corpus.transactions[name];
 
@@ -381,10 +384,22 @@ describe("routedGroupProblems refuses rather than raises", () => {
     // `S7` made "calls no router method" a refusal, and no corpus transaction
     // is an application call - so without the prefix every generated group is
     // refused for that alone, the implication is vacuously true, and a group
-    // that closed would never be examined. The prefix is transaction 2 of an
-    // executed mainnet conversion, which is a `route` rather than one of the
-    // two budget calls.
-    const routerCall = mainnet.sweep_3_convert[2];
+    // that closed would never be examined.
+    //
+    // **Chosen by what it is, not by where it sits.** This read
+    // `sweep_3_convert[2]`, which happened to be a `route` only because the
+    // fixture was stored in reverse group order; reordering it to match the
+    // chain moved that index onto a different transaction. A positional pick
+    // into real traffic is a fixture detail masquerading as a fact.
+    const routerCall = mainnet.sweep_3_convert.find((raw) => {
+      const txn = sweep.decodeMsgpack(sweep.b64ToBytes(raw));
+      return (
+        txn.type === "appl" &&
+        Number(txn.apid) === EXECUTED_APP &&
+        !sweep.isBudgetOnlyCall(txn)
+      );
+    });
+    expect(routerCall).toBeDefined();
     expect(
       sweep.isBudgetOnlyCall(sweep.decodeMsgpack(sweep.b64ToBytes(routerCall)))
     ).toBe(false);
@@ -393,7 +408,12 @@ describe("routedGroupProblems refuses rather than raises", () => {
     fc.assert(
       fc.property(groupNames, (names) => {
         const group = [routerCall].concat(names.map(bytesFor));
-        if (sweep.routedGroupProblems(group).length) return true;
+        // EXECUTED_APP, not the built-in id: the prefix comes from a group
+        // that ran against 3689591968, and the built-in id is now its
+        // replacement. Falling back would refuse every generated group and
+        // make the implication below vacuous - which is exactly what the
+        // non-vacuity assertion at the end of this test is for.
+        if (sweep.routedGroupProblems(group, EXECUTED_APP).length) return true;
 
         accepted += 1;
         return group.every((raw) => {
@@ -412,13 +432,13 @@ describe("routedGroupProblems refuses rather than raises", () => {
     fc.assert(
       fc.property(groupNames, (names) => {
         const group = names.map(bytesFor);
-        if (sweep.routedGroupProblems(group).length) return true;
+        if (sweep.routedGroupProblems(group, EXECUTED_APP).length) return true;
 
         return group.some((raw) => {
           const txn = sweep.decodeMsgpack(sweep.b64ToBytes(raw));
           return (
             txn.type === "appl" &&
-            Number(txn.apid) === sweep.ROUTER_APP_ID &&
+            Number(txn.apid) === EXECUTED_APP &&
             !sweep.isBudgetOnlyCall(txn)
           );
         });

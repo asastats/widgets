@@ -61,6 +61,16 @@ const HALF_MBR_FEE =
  */
 const MAINNET = require("./mainnet-groups.json");
 
+/**
+ * The application those groups actually called, which is NOT the live one.
+ *
+ * `ROUTER_APP_ID` follows the deployment; this pins the evidence. They were
+ * the same number until 3692588382 replaced 3689591968 on 2026-09-02, and
+ * writing the live constant here would make every fixture assertion fail the
+ * next time the router moves - or, worse, quietly stop testing anything.
+ */
+const EXECUTED_APP = 3689591968;
+
 /** The plan lines matching the two well-formed fixtures above. */
 const EMPTY_HOLDING = { asset: 5, amount: "0", creator: CREATOR };
 const FORFEITED_HOLDING = { asset: 9, amount: "1000", creator: CREATOR };
@@ -307,6 +317,21 @@ describe("closeOutProblems refuses what it was not described as", () => {
   test("a transaction that will not decode", () => {
     const problems = sweep.closeOutProblems(["!!!!"], ADDRESS, [EMPTY_HOLDING]);
     expect(problems).toEqual(["transaction 1 could not be decoded"]);
+  });
+
+  test("a transaction that decodes to something that is not one", () => {
+    // The case the catch above cannot see: `"BQ=="` is valid base64 for the
+    // single msgpack byte 0x05, so the decode *succeeds* and yields the
+    // integer 5. Every field read after that would throw instead of being
+    // reported, which is why a non-object gets the same answer as a failed
+    // decode. `routedGroupProblems` has been tested on this shape since `S7`;
+    // `closeOutProblems` has the same guard and only the property suite was
+    // reaching it, so this branch went uncovered whenever fast-check was not
+    // installed.
+    expect(sweep.decodeMsgpack(sweep.b64ToBytes("BQ=="))).toBe(5);
+    expect(sweep.closeOutProblems(["BQ=="], ADDRESS, [EMPTY_HOLDING])).toEqual([
+      "transaction 1 could not be decoded",
+    ]);
   });
 
   test("an empty or absent group", () => {
@@ -637,7 +662,35 @@ describe("routedGroupProblems", () => {
     ["swap", 13],
   ])("the real %s group is accepted", (name, size) => {
     expect(MAINNET[name]).toHaveLength(size);
-    expect(sweep.routedGroupProblems(MAINNET[name])).toEqual([]);
+    expect(sweep.routedGroupProblems(MAINNET[name], EXECUTED_APP)).toEqual([]);
+  });
+
+  test("the fixture is in group order, with the authorisation last", () => {
+    /**
+     * The contract reads the quote authorisation at `Global.group_size - 1`
+     * (`Router._signed_floor`), so in a real routed group it is the *last*
+     * transaction. This fixture was imported from what the indexer returned,
+     * which was descending intra-round order -- so every routed group was
+     * stored backwards, with the authorisation first.
+     *
+     * Nothing that reads it today is order-dependent, which is why it went
+     * unnoticed: `routedGroupProblems` and `convertedInputProblems` both scan
+     * the whole group. But `dustsweep.property.test.js` was picking a router
+     * call by index, and the conversion test below was treating the last entry
+     * as the pre-signed quote transaction when it was a route call.
+     *
+     * This pins the order so a re-import cannot quietly reverse it again.
+     */
+    const routed = ["swap", "sweep_3_convert", "sweep_4_convert", "sweep_6_convert"];
+    routed.forEach((name) => {
+      const last = sweep.decodeMsgpack(
+        sweep.b64ToBytes(MAINNET[name][MAINNET[name].length - 1])
+      );
+      expect(last.type).toBe("appl");
+      expect(Number(last.apid)).toBe(EXECUTED_APP);
+      expect(sweep.isBudgetOnlyCall(last)).toBe(true);
+      expect(last.note).toHaveLength(192);
+    });
   });
 
   test("every transaction in every executed group decodes", () => {
@@ -681,11 +734,15 @@ describe("routedGroupProblems", () => {
     // on the reasoning that they ride alongside a route which sweeps the
     // group. So a group of budget-call-plus-transfer calls the router and is
     // still checked by nothing.
-    const budgetOnly = MAINNET.sweep_3_convert.slice(0, 2);
-    budgetOnly.forEach((raw) => {
-      const txn = sweep.decodeMsgpack(sweep.b64ToBytes(raw));
-      expect(sweep.isBudgetOnlyCall(txn)).toBe(true);
-    });
+    //
+    // Selected by what they are rather than by where they sit. This was
+    // `slice(0, 2)`, which caught the two budget calls only because the
+    // fixture was stored in reverse group order -- in the chain's order they
+    // are the last two, next to the authorisation they fund.
+    const budgetOnly = MAINNET.sweep_3_convert.filter((raw) =>
+      sweep.isBudgetOnlyCall(sweep.decodeMsgpack(sweep.b64ToBytes(raw)))
+    );
+    expect(budgetOnly).toHaveLength(2);
     expect(sweep.routedGroupProblems(budgetOnly)).toEqual([NO_ROUTER]);
   });
 
@@ -702,10 +759,11 @@ describe("routedGroupProblems", () => {
     expect(sweep.routedGroupProblems(MAINNET.sweep_3_convert, 1)).toEqual([
       NO_ROUTER,
     ]);
-    // A missing attribute falls back to the built-in id rather than the rule
-    // quietly switching itself off.
-    expect(sweep.routedGroupProblems(MAINNET.sweep_3_convert, "")).toEqual([]);
-    expect(sweep.ROUTER_APP_ID).toBe(3689591968);
+    // Naming the application these groups did call accepts them.
+    expect(
+      sweep.routedGroupProblems(MAINNET.sweep_3_convert, EXECUTED_APP)
+    ).toEqual([]);
+    expect(sweep.ROUTER_APP_ID).toBe(3692588382);
   });
 
   test("a payment that drains the account is refused", () => {
@@ -725,14 +783,14 @@ describe("routedGroupProblems", () => {
     // The group that matters: everything else about it is a genuine, executed
     // conversion, and the whitelist has to find the one transaction that is not.
     const tampered = MAINNET.sweep_3_convert.concat([FORFEIT_TO_CREATOR]);
-    expect(sweep.routedGroupProblems(tampered)).toEqual([
+    expect(sweep.routedGroupProblems(tampered, EXECUTED_APP)).toEqual([
       "transaction 15 closes a holding",
     ]);
     // A transfer hidden the same way is caught by nothing but the chain, which
     // is why the router rule is not enough on its own either - both halves are
     // needed, and both are here.
     const drained = MAINNET.sweep_3_convert.concat([WITH_AMOUNT]);
-    expect(sweep.routedGroupProblems(drained)).toEqual([
+    expect(sweep.routedGroupProblems(drained, EXECUTED_APP)).toEqual([
       "transaction 15 closes a holding",
     ]);
   });
@@ -894,10 +952,15 @@ describe("signAction", () => {
     const action = {
       kind: "convert",
       transactions: group,
+      // The holder this group was actually signed by, and the holding it
+      // actually spends. Passing `ADDRESS` here judged nothing: none of these
+      // transactions is sent by that account, so Mitigation 1's rule had
+      // nothing to look at and the honest case was passing vacuously.
+      holdings: [{ asset: 796425061, amount: "15233969" }],
       signed_transactions: { [quoteIndex]: group[quoteIndex] },
       quote_signer_index: quoteIndex,
     };
-    await expect(signActionOf(action, bridge)).resolves.toBe("TXID");
+    await expect(signActionOf(action, bridge, SWEEPER)).resolves.toBe("TXID");
     expect(bridge.signAndSendPartial).toHaveBeenCalledWith({
       transactions: group.map(sweep.b64ToBytes),
       signedTransactions: { [quoteIndex]: sweep.b64ToBytes(group[quoteIndex]) },
@@ -929,8 +992,40 @@ describe("signAction", () => {
     );
   });
 
-  function signActionOf(action, bridge) {
-    return sweep.signAction(action, ADDRESS, bridge);
+  /** The holder of the executed mainnet groups in `MAINNET`. */
+  const SWEEPER = "VW55KZ3NF4GDOWI7IPWLGZDFWNXWKSRD5PETRLDABZVU5XPKRJJRK3CBSU";
+
+  test("a conversion spending something the plan did not name is refused", async () => {
+    // `S8` Mitigation 1, end to end. The reader is shown a 0.0016 ALGO dust
+    // line; the group sells the whole of a different holding.
+    const group = MAINNET.sweep_3_convert;
+    const quoteIndex = group.length - 1;
+    const bridge = { signAndSendPartial: jest.fn() };
+    const action = {
+      kind: "convert",
+      transactions: group,
+      holdings: [{ asset: 2611535339, amount: "420690000" }],
+      signed_transactions: { [quoteIndex]: group[quoteIndex] },
+      quote_signer_index: quoteIndex,
+    };
+    await expect(signActionOf(action, bridge, SWEEPER)).rejects.toThrow(
+      /did not name/
+    );
+    expect(bridge.signAndSendPartial).not.toHaveBeenCalled();
+  });
+
+  function signActionOf(action, bridge, address, routerApp) {
+    // The executed groups called 3689591968; the built-in id is now its
+    // replacement. Conversion tests therefore have to name the application
+    // their fixture actually called, exactly as the page would through
+    // `data-router-app`. Close-out tests are unaffected - that path has no
+    // router call in it.
+    return sweep.signAction(
+      action,
+      address || ADDRESS,
+      bridge,
+      routerApp === undefined ? EXECUTED_APP : routerApp
+    );
   }
 });
 
@@ -1578,5 +1673,205 @@ describe("shortAddress", () => {
   test("has nothing to say about nothing", () => {
     expect(sweep.shortAddress("")).toBe("");
     expect(sweep.shortAddress(null)).toBe("");
+  });
+});
+
+describe("state carries the page's router app id", () => {
+  /**
+   * The override existed and did nothing. `start` set `current.routerApp`
+   * once, and the open handler then replaced the whole object with a fresh
+   * `state()` before the modal was ever shown -- so every conversion any
+   * reader signed was checked with `undefined`, fell back to the built-in
+   * `ROUTER_APP_ID`, and `data-router-app` was inert.
+   *
+   * It matters on the day the router is redeployed, which has happened once
+   * already: the built-in id goes stale, and the attribute that exists to let
+   * the deployment move first cannot do it. Every conversion is then refused
+   * until this file is updated -- safe, but exactly the outage the escape
+   * hatch was there to prevent.
+   */
+  test("it is a parameter, so a caller cannot silently omit it", () => {
+    expect(sweep.state("12345")).toHaveProperty("routerApp", "12345");
+    expect(Object.keys(sweep.state("12345"))).toContain("routerApp");
+  });
+
+  test("a fresh state built without one carries undefined, not a stale value", () => {
+    expect(sweep.state().routerApp).toBeUndefined();
+  });
+
+  test("the override is honoured, so a moved deployment can be named", () => {
+    // The real group calls the built-in id, so naming a different application
+    // must refuse it. If this passes with any override, the override is inert.
+    expect(sweep.routedGroupProblems(MAINNET.sweep_3_convert, "4000000001")).toEqual([
+      "the group calls no router method that would check it, so nothing on " +
+        "chain will refuse what it does",
+    ]);
+    expect(
+      sweep.routedGroupProblems(MAINNET.sweep_3_convert, String(EXECUTED_APP))
+    ).toEqual([]);
+  });
+
+  test("and a missing attribute falls back to the built-in id", () => {
+    // Not "accepts": the fixture groups called 3689591968 and the built-in id
+    // is now its replacement, so falling back *refuses* them. That is the
+    // right answer and the reason the override exists - see the id's own
+    // comment. What matters is that the absent attribute is not read as "no
+    // application required".
+    const refused = [
+      "the group calls no router method that would check it, so nothing on " +
+        "chain will refuse what it does",
+    ];
+    expect(sweep.routedGroupProblems(MAINNET.sweep_3_convert, undefined)).toEqual(refused);
+    expect(sweep.routedGroupProblems(MAINNET.sweep_3_convert, "")).toEqual(refused);
+    // and naming the application they did call accepts them
+    expect(
+      sweep.routedGroupProblems(MAINNET.sweep_3_convert, String(EXECUTED_APP))
+    ).toEqual([]);
+  });
+});
+
+describe("convertedInputProblems", () => {
+  /**
+   * `S8`'s Mitigation 1: bind the moved assets to what the plan described.
+   *
+   * `routedGroupProblems` asks whether a group is hygienic and whether the
+   * router is in it to check it, and is never given the plan -- so a
+   * conversion described as "convert BUSK, worth 0.0016 ALGO" could sell five
+   * thousand USDC and be accepted, while the close-out path refuses exactly
+   * that substitution. This is the same rule for the other half.
+   *
+   * **The accepting cases are the executed groups**, for the same reason
+   * `routedGroupProblems`' are: a browser control that refuses honest router
+   * traffic is worse than none. Each real group's described holding is the
+   * asset its transfers move and the sum of what they move -- for
+   * `sweep_3_convert`, 15,233,969 of asset 796425061, which is that address's
+   * whole COOP balance.
+   */
+  const SWEEPER = "VW55KZ3NF4GDOWI7IPWLGZDFWNXWKSRD5PETRLDABZVU5XPKRJJRK3CBSU";
+  const REAL = {
+    sweep_3_convert: { asset: 796425061, amount: "15233969" },
+    sweep_4_convert: { asset: 2567478649, amount: "42987320297807" },
+    sweep_6_convert: { asset: 2537013734, amount: "999878" },
+  };
+
+  test.each(Object.keys(REAL))("the real %s group is accepted", (name) => {
+    expect(
+      sweep.convertedInputProblems(MAINNET[name], SWEEPER, [REAL[name]])
+    ).toEqual([]);
+  });
+
+  test("a group selling an asset the plan never named is refused", () => {
+    // described as the dust it is; the group moves COOP instead
+    const described = [{ asset: 2611535339, amount: "420690000" }];
+    const problems = sweep.convertedInputProblems(
+      MAINNET.sweep_3_convert,
+      SWEEPER,
+      described
+    );
+    expect(problems.length).toBeGreaterThan(0);
+    problems.forEach((one) => expect(one).toMatch(/did not name/));
+  });
+
+  test("a group spending more of the named asset than described is refused", () => {
+    const described = [{ asset: 796425061, amount: "1000000" }];
+    expect(
+      sweep.convertedInputProblems(MAINNET.sweep_3_convert, SWEEPER, described)
+    ).toEqual([
+      "the group spends 15233969 of asset 796425061, more than the 1000000 " +
+        "this conversion described",
+    ]);
+  });
+
+  test("an unreadable plan refuses rather than waving the group through", () => {
+    // `planLines` keeps nothing, so nothing is allowed - the safe direction,
+    // and the one the rest of this file takes
+    expect(
+      sweep.convertedInputProblems(MAINNET.sweep_3_convert, SWEEPER, undefined)
+        .length
+    ).toBeGreaterThan(0);
+  });
+
+  test("what the sweeper does not send is not the sweeper's to answer for", () => {
+    // Every real group opens with the quote signer's own application call and
+    // is paid out by pools. Judging those would refuse every honest group.
+    const other = "OGRUNXPSMO7Z7EGOGONA7BVEIN7YIJZZB372GZGJIAPB363C6KB42CEN2M";
+    expect(
+      sweep.convertedInputProblems(MAINNET.sweep_3_convert, other, [])
+    ).toEqual([]);
+  });
+
+  test("an unreadable address refuses", () => {
+    expect(sweep.convertedInputProblems([], "nonsense", [])).toEqual([
+      "the address being swept is unreadable",
+    ]);
+  });
+
+  test("an ALGO payment counts as a movement too", () => {
+    // The input asset can be ALGO, and a `pay` carries `amt` where an `axfer`
+    // carries `aamt`. Reading only the second would let a payment through as
+    // if it moved nothing.
+    const problems = sweep.convertedInputProblems([PAYMENT_DRAIN], ADDRESS, [
+      { asset: 5, amount: "100" },
+    ]);
+    // this fixture omits `amt`, so it moves nothing and is not judged - the
+    // point is that the `pay` arm is read at all rather than skipped
+    expect(problems).toEqual([]);
+  });
+
+  test("a group that is not a list is refused rather than iterated", () => {
+    expect(
+      sweep.convertedInputProblems("not a group", ADDRESS, [
+        { asset: 5, amount: "100" },
+      ])
+    ).toEqual([]);
+  });
+
+  test("a described amount that is not a number allows nothing", () => {
+    // `Number(undefined)` is NaN and `Number("")` is 0; neither is an amount,
+    // and treating either as one would let the holding be spent without a
+    // bound. They allow zero, so any movement of that asset is over it.
+    const spend = MAINNET.sweep_3_convert.find((raw) => {
+      const txn = sweep.decodeMsgpack(sweep.b64ToBytes(raw));
+      return txn.type === "axfer" && txn.aamt > 0;
+    });
+    const decoded = sweep.decodeMsgpack(sweep.b64ToBytes(spend));
+    const problems = sweep.convertedInputProblems([spend], SWEEPER, [
+      { asset: decoded.xaid, amount: "not a number" },
+    ]);
+    expect(problems).toEqual([
+      "the group spends " + decoded.aamt + " of asset " + decoded.xaid +
+        ", more than the 0 this conversion described",
+    ]);
+  });
+
+  test("a transaction that will not decode is stepped over, not thrown on", () => {
+    // `routedGroupProblems` runs first and has already refused the group over
+    // this, so the only question here is that the rule does not itself throw
+    // while walking past it -- which would turn a refusal into a stack trace.
+    //
+    // 0xc1 is msgpack's one permanently unassigned tag, so `decodeMsgpack`
+    // raises rather than returning something falsy: this reaches the catch,
+    // where a bad-but-decodable value would reach the `!txn` guard instead.
+    const UNDECODABLE = "wQ==";
+    expect(() =>
+      sweep.decodeMsgpack(sweep.b64ToBytes(UNDECODABLE))
+    ).toThrow(/unsupported msgpack tag/);
+
+    // The rest of the group is still judged, which is how we know the
+    // undecodable entry was stepped over rather than aborting the walk. The
+    // second entry is a real transfer the sweeper sent, described as a
+    // holding it is not.
+    const spend = MAINNET.sweep_3_convert.find((raw) => {
+      const txn = sweep.decodeMsgpack(sweep.b64ToBytes(raw));
+      return txn.type === "axfer" && txn.aamt > 0;
+    });
+    const asset = sweep.decodeMsgpack(sweep.b64ToBytes(spend)).xaid;
+    expect(
+      sweep.convertedInputProblems([UNDECODABLE, spend], SWEEPER, [
+        { asset: 2611535339, amount: "1" },
+      ])
+    ).toEqual([
+      "transaction 2 spends asset " + asset + ", which this conversion did not name",
+    ]);
   });
 });

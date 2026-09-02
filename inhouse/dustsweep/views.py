@@ -49,7 +49,7 @@ SWEEP_PATH = "/api/v2/internal/router/sweep/"
 #: carries the same number as a fallback, so a missing setting cannot disable
 #: the rule - this exists so a redeployment can be followed without a widget
 #: release.
-ROUTER_APP_ID = 3689591968
+ROUTER_APP_ID = 3692588382
 
 
 class DustSweepView(WidgetAccessMixin, TemplateView):

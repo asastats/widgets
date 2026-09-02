@@ -10,15 +10,20 @@ State
 
 .. warning::
 
-   **The close-out half works; the conversion half is blocked on a redeploy.**
+   **The close-out half works. The conversion half works on chain, and waits
+   on a widget release.**
 
    Closing holdings needs no router at all - those groups contain no
    application call - so that path is complete and usable today.
 
-   Conversions route through the ASA Stats router, and the mainnet deployment
-   is compiled with ``RESTRICT_TO_ADMIN``. ``engine/core/router.py:_deployment``
-   raises ``RouterUnavailable`` for every caller, so no conversion group can be
-   built until an unrestricted application is deployed.
+   Conversions route through the ASA Stats router, and until 2026-08-30 the
+   mainnet deployment was compiled with ``RESTRICT_TO_ADMIN``:
+   ``engine/core/router.py:_deployment`` raised ``RouterUnavailable`` for every
+   caller, so no conversion group could be built at all. **That is no longer
+   the blocker.** Mainnet is ``3692588382``, deployed 2026-09-02 and
+   unrestricted - ``route`` accepts any caller. What remains is the deployment
+   coupling warned about further down: a conversion refuses until the widget,
+   or ``settings.ROUTER_APP_ID``, names that application.
 
    A plan still returns **200**, still offers the close-outs, and names the
    outage in ``conversions_unavailable`` so a caller can tell a swept account
@@ -88,7 +93,7 @@ beats all three positives: an NFT worth nothing today is not dust, and
 forfeiting one to its creator destroys something that cannot be re-minted.
 
 Any program but ``Balance`` disqualifies the asset
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The evaluation itemises each holding by program - ``Balance`` for what sits
 plainly in the wallet, and ``Staked``, ``Locked``, ``Deposited``,
@@ -299,30 +304,61 @@ hostile transfer would satisfy a naive "does this call the router?" test.
 .. warning::
 
    **The router application id is a deployment coupling.** The widget carries
-   ``ROUTER_APP_ID = 3689591968`` and the view hands down
+   ``ROUTER_APP_ID = 3692588382`` and the view hands down
    ``settings.ROUTER_APP_ID`` through ``data-router-app``, which wins. The
-   contract has been redeployed once already. Redeploy it again without updating
-   one of those and **every conversion refuses** - the safe direction, and a real
+   contract has been redeployed several times - ``3689591968`` on 2026-08-30,
+   then ``3692588382`` on 2026-09-02. Redeploy it again without updating one of
+   those and **every conversion refuses** - the safe direction, and a real
    outage. The Django setting exists so a deployment can move first, without a
    widget release.
 
-What is still open: ``S8``
---------------------------
+   This paragraph named ``3689591968`` until 2026-09-04, a redeploy after the
+   widget itself had moved on. A constant repeated in prose is a constant that
+   goes stale silently: ``dustsweep.js:248``, ``views.py:52`` and
+   ``dustsweep.test.js:766`` are checked by the suite, and this sentence is
+   not.
 
-``S7`` proves the router is in the group. Nothing proves the group does nothing
-else. Add one ``axfer`` sending some balance to an attacker's address to an
-otherwise genuine conversion and it survives every check here and on chain: it
-carries none of the four refused fields, the guarded call is present because the
-rest of the group is real, and the route validates only the transaction
-immediately preceding it.
+What the browser cannot close: ``S8``
+-------------------------------------
+
+``S7`` proves the router is in the group. Nothing here proves the group does
+nothing else. Add one ``axfer`` sending some balance to an attacker's address to
+an otherwise genuine conversion and it survives every check on this page and on
+chain: it carries none of the four refused fields, the guarded call is present
+because the rest of the group is real, and the route validates only the
+transaction immediately preceding it.
 
 The obvious rule - every transfer the account sends must go to the router - is
 not available: ``sweep-6-convert``, a conversion that executed on mainnet, pays a
-Tinyman pool escrow directly. Enumerating legitimate destinations means
-recomputing the route, which is the engine's job.
+Tinyman pool escrow directly.
 
-This is published as an **open** finding rather than fixed. See
-``asastats-router-audit/findings/S8-transfer-alongside-a-route.md``.
+**Fixed 2026-09-03, and not in the browser.** This page long said that
+enumerating legitimate destinations meant recomputing the route, so only the
+engine could do it. That was wrong, and the fix rests on it being wrong: the
+group's *own application calls* say which venues it pays, so the destinations
+can be derived from the bytes without a plan, a route or a reserve read.
+``router.signer.venues.allowed_destinations`` does that, and the quote signer -
+now its own service rather than a key inside the engine - refuses to sign any
+caller movement paying an address the group does not make legitimate. Verified
+against the executed mainnet corpus: 197 groups, 174 caller movements, **zero
+refusals**.
+
+Three iterations were needed to reach zero, and each was an honest trade the
+first rules refused: Pact's MWPT vault (read from the pool's own ``vault``
+state), Tinyman v1's priming payment, and a v1 pair that does not contain the
+asset being moved.
+
+The widget's checks are unchanged and still needed - they are what stands
+between a reader and a hostile *close-out*, which never reaches the signer at
+all. See ``asastats-router-audit/findings/S8-transfer-alongside-a-route.md``,
+which also records the two places its own proposed design was wrong.
+
+.. note::
+
+   **Fixed is not deployed.** The engine host still holds the signing key, so a
+   compromised engine can still sign what it likes until the signer runs under
+   its own account. The finding's status line says so rather than claiming the
+   fix is live.
 
 The wire format is not the bridge's format
 ------------------------------------------
@@ -350,10 +386,33 @@ never reaches the router application at all.
 The fee waiver
 ==============
 
-A sweep conversion pays no platform fee. That waiver is granted by
-``core.sweep.sweep_discount`` on properties of the **trade** - the output is
-ASASTATS, the input is positively valued and at or below the sweep's ceiling -
-and never on properties of the caller.
+A sweep conversion **earns** a complete waiver of the platform fee, and at the
+time of writing does not receive one. Both halves matter, so both are here.
+
+The waiver is granted by ``core.sweep.sweep_discount`` on properties of the
+**trade** - the output is ASASTATS, the input is positively valued and at or
+below the sweep's ceiling - and never on properties of the caller. It returns
+``DUST_SWEEP_DISCOUNT``, which is 100.
+
+What it does not do is reach the chain. The contract waives a fee only against
+a **voucher** it can verify, and a voucher costs three of a group's sixteen
+transactions - 3,000 microALGO. At the 5 basis points mainnet charges, that is
+worth carrying only above a **6 ALGO** leg, and ``router.voucher.worth_carrying``
+correctly declines below it. The sweep's ceiling is ``MAX_THRESHOLD_ALGO``,
+10 ALGO, and its default ``DEFAULT_THRESHOLD_ALGO`` is **1** - so on the
+default threshold a sweep conversion can never clear the bar, and a voucher
+would cost more than it saves.
+
+Separately, ``voucher_signer`` is ``NO_VOUCHER_SIGNER`` on both live
+deployments, so no voucher verifies at all. Until 2026-09-03 that gap was
+quoted anyway: the rate was priced with the discount and the fee charged
+without it. ``core.router.honoured_discount`` now reads the chain and declines
+to price a discount nothing will honour, so the quote is honest about the full
+fee rather than promising a waiver the group cannot deliver.
+
+The consequence for a reader: a sweep conversion today pays the ordinary
+platform fee, and the screen says so. Setting a voucher signer would change
+that only for legs above 6 ALGO - which is not where dust lives.
 
 It used to be keyed on ``request.widget_scope == "router:sweep"``. That was dead
 (nothing ever assigned ``widget_scope``) and would have been a hole had it

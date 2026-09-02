@@ -240,12 +240,12 @@ var MAX_GROUP_FEE = 1000000;
  * *not* come from: the plan response. An app id the engine supplied would make
  * this check agree with whatever the engine wanted, which is `S2` again.
  *
- * The contract has been redeployed once already - `3688554446` is retired -
- * so this number has a lifetime. When it changes, a conversion refuses until
+ * The contract has been redeployed twice already - `3688554446` is retired
+ * and `3689591968` superseded - so this number has a lifetime. When it changes, a conversion refuses until
  * this is updated, which is the safe direction but a real outage; the
  * `data-router-app` override exists so a deployment can move first.
  */
-var ROUTER_APP_ID = 3689591968;
+var ROUTER_APP_ID = 3692588382;
 
 /**
  * ARC-4 selectors for the two router methods that do **not** assert hygiene.
@@ -706,6 +706,103 @@ function routedGroupProblems(encoded, routerApp) {
   return problems;
 }
 
+/**
+ * Return every reason this routed group spends something the plan did not name.
+ *
+ * **`S8`'s Mitigation 1: bind the moved assets to what the plan described.**
+ * `routedGroupProblems` asks whether a group is *hygienic* and whether the
+ * router is in it to check it. It never asks whether the group does what the
+ * reader was shown, because it is not given the plan - so a conversion
+ * described as "convert BUSK, worth 0.0016 ALGO" could sell five thousand USDC
+ * and be accepted. The close-out path refuses exactly that substitution
+ * ("closes asset N, which was not listed"); this is the same rule for the
+ * other half.
+ *
+ * **It does not close `S8`.** A compromised engine can still add a transfer
+ * *alongside* a route, because that transfer moves an asset the plan does
+ * name. What this stops is the substitution: the described trade being a
+ * different trade. The audit is explicit that the two are separate and that
+ * this one is worth taking on its own.
+ *
+ * **Only what the connected account sends is judged**, and that is the whole
+ * of the rule. A route's other transactions are the quote signer's
+ * authorisation and the pools' payouts back to the reader; neither is the
+ * reader's to constrain, and refusing them would refuse every honest group.
+ * Checked against the seven executed mainnet groups in the audit's
+ * `evidence/`: in each, every transfer the holder sends moves the *same* asset
+ * - the input, split one transfer per venue - and the parts sum to exactly the
+ * holding the plan described. `sweep_3_convert` sends 1,109,201 + 226,771 +
+ * 7,961,066 + 5,936,931 of asset 796425061, which is 15,233,969, which is that
+ * address's whole COOP balance.
+ *
+ * A zero-amount transfer is left alone: that is an opt-in, which a route needs
+ * and which moves nothing. It cannot hide a close-out, because
+ * `routedGroupProblems` refuses any `aclose` in the group.
+ *
+ * **A separate function rather than another argument to
+ * `routedGroupProblems`.** An optional parameter that silently disables a rule
+ * when a caller forgets it is the exact failure this file has already had once
+ * - see `state`, where `data-router-app` was assembled and then dropped. A
+ * missing call here is visible in `signAction`.
+ *
+ * @param {Array<string>} encoded base64 msgpack transactions, in group order
+ * @param {string} address the account being swept
+ * @param {Array<Object>} described the plan's holdings for this group
+ * @returns {Array<string>} problems, empty when the group spends what it said
+ */
+function convertedInputProblems(encoded, address, described) {
+  var owner = addressToBytes(address);
+  if (!owner) return ["the address being swept is unreadable"];
+
+  var allowed = {};
+  planLines(described).forEach(function (one) {
+    var amount = Number(one.amount);
+    allowed[one.asset] = isFinite(amount) && amount > 0 ? amount : 0;
+  });
+
+  var problems = [];
+  var moved = {};
+  (Array.isArray(encoded) ? encoded : []).forEach(function (raw, index) {
+    var where = "transaction " + (index + 1) + " ";
+    var txn;
+    try {
+      txn = decodeMsgpack(b64ToBytes(raw));
+    } catch (error) {
+      // `routedGroupProblems` has already refused the group over this
+      return;
+    }
+
+    if (!txn || typeof txn !== "object" || !sameBytes(txn.snd, owner)) return;
+
+    var asset = txn.type === "pay" ? ALGO_ASSET : txn.xaid;
+    var amount = Number(txn.type === "pay" ? txn.amt : txn.aamt) || 0;
+    if (!amount) return;
+
+    if (!Object.prototype.hasOwnProperty.call(allowed, asset)) {
+      problems.push(
+        where + "spends asset " + asset + ", which this conversion did not name"
+      );
+      return;
+    }
+
+    moved[asset] = (moved[asset] || 0) + amount;
+  });
+
+  Object.keys(moved).forEach(function (asset) {
+    if (moved[asset] > allowed[asset]) {
+      problems.push(
+        "the group spends " + moved[asset] + " of asset " + asset +
+          ", more than the " + allowed[asset] + " this conversion described"
+      );
+    }
+  });
+
+  return problems;
+}
+
+/** ALGO, which a `pay` moves and which has no asset id of its own. */
+var ALGO_ASSET = 0;
+
 /* ------------------------------------------------------------------ *
  * what each disposition means to a reader
  * ------------------------------------------------------------------ */
@@ -991,6 +1088,16 @@ async function signAction(action, address, bridge, routerApp) {
     }
 
     var routed = routedGroupProblems(action.transactions, routerApp);
+    if (!routed.length) {
+      // Only once the group is hygienic and the router is in it to check it.
+      // This asks the other question - whether the group spends what the
+      // reader was shown - which is `S8`'s Mitigation 1.
+      routed = convertedInputProblems(
+        action.transactions,
+        address,
+        action.holdings
+      );
+    }
     if (routed.length) {
       throw new Error("This group was refused: " + routed.join("; "));
     }
@@ -1177,8 +1284,31 @@ function progressLabel(plan, signed) {
  * DOM
  * ------------------------------------------------------------------ */
 
-/* istanbul ignore next -- DOM wiring; the unit-tested core is above */
-function state() {
+/**
+ * Return a fresh interface state, carrying the page context it must not lose.
+ *
+ * **`routerApp` is a parameter rather than an assignment afterwards.** It used
+ * to be one: `start` built a state, set `current.routerApp` on it, and then the
+ * open handler replaced the whole object with a fresh `state()` before the
+ * modal was ever shown. So `routedGroupProblems` was called with `undefined`
+ * on every conversion any reader ever signed, fell back to the built-in
+ * `ROUTER_APP_ID`, and `data-router-app` did nothing at all.
+ *
+ * That is the escape hatch for a redeployment, and its whole purpose is to let
+ * the deployment move before this file does - so the failure it was there to
+ * prevent is exactly the one that would happen: the router is redeployed, the
+ * built-in id goes stale, and every conversion is refused with "the group
+ * calls no router method that would check it" until the JavaScript is updated.
+ * Safe direction, real outage, and the mechanism to avoid it was disconnected.
+ *
+ * Taking it as an argument is what stops the same omission recurring quietly:
+ * a caller that forgets it now passes `undefined` visibly at the call site
+ * rather than dropping a key from an object literal.
+ *
+ * @param {string} [routerApp] the page's `data-router-app`
+ * @returns {Object} the interface state
+ */
+function state(routerApp) {
   return {
     address: "",
     plan: null,
@@ -1187,6 +1317,7 @@ function state() {
     threshold: 1,
     signed: 0,
     busy: false,
+    routerApp: routerApp,
   };
 }
 
@@ -1257,17 +1388,17 @@ function start() {
   if (!root || !modal) return;
 
   var planUrl = root.dataset.planUrl;
-  var current = state();
   // Page context, not plan response: `routedGroupProblems` falls back to the
   // built-in id, so a missing attribute cannot turn the rule off.
-  current.routerApp = root.dataset.routerApp;
+  var current = state(root.dataset.routerApp);
 
   offerToConnectedAccount(root);
 
   root.querySelectorAll(".id-dustsweep-open").forEach(function (button) {
     button.addEventListener("click", function () {
       if (!button.dataset.address) return;
-      current = state();
+      // the reset that used to drop `routerApp` - see `state`
+      current = state(root.dataset.routerApp);
       current.address = button.dataset.address;
       modal.querySelector(".id-dustsweep-address-tag").textContent =
         shortAddress(current.address);
@@ -1587,6 +1718,7 @@ if (typeof module !== "undefined" && module.exports) {
     badgeFor: badgeFor,
     choicePayload: choicePayload,
     closeOutProblems: closeOutProblems,
+    convertedInputProblems: convertedInputProblems,
     csrfToken: csrfToken,
     ctaLabel: ctaLabel,
     decodeMsgpack: decodeMsgpack,
@@ -1607,6 +1739,7 @@ if (typeof module !== "undefined" && module.exports) {
     sameBytes: sameBytes,
     shortAddress: shortAddress,
     signAction: signAction,
+    state: state,
     sweepableAddress: sweepableAddress,
     summarise: summarise,
     summaryFigures: summaryFigures,
