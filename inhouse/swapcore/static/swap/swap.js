@@ -1614,6 +1614,56 @@ function walletOwns(address) {
   );
 }
 
+/**
+ * Return the address a swap should open on: the connected one, or the guess.
+ *
+ * **The connected account wins whenever it is one of this page's candidates.**
+ * A bundle page shows several addresses, and the server cannot know which of
+ * them the wallet is on - it renders every one the reader owns (`candidates`)
+ * plus its best guess (`fallback`, the profile's primary). Opening on the guess
+ * alone is how a reader connected to a bundle's *other* address was shown that
+ * account's holdings, balances and percentage buttons.
+ *
+ * `fallback` when there is no connection, or when the connected account is not
+ * on this page at all: holdings and quotes need no wallet, so the panel is worth
+ * showing regardless, and the Swap button is gated separately by `walletOwns`.
+ *
+ * @param {string[]} candidates addresses this page shows and the reader owns
+ * @param {string} fallback the server's guess, used when nothing matches
+ * @param {string} active the wallet's connected account, or "" / null
+ * @returns {string} the address to spend from
+ */
+function swapFromAddress(candidates, fallback, active) {
+  if (active && candidates) {
+    for (var i = 0; i < candidates.length; i++) {
+      if (candidates[i] === active) return active;
+    }
+  }
+  return fallback || "";
+}
+
+/**
+ * Resolve the from-address off the per-user marker, live.
+ *
+ * Read at open time rather than at page load: the bridge publishes the
+ * connected account asynchronously, and the reader can connect (or switch
+ * accounts) long after the marker arrived.
+ *
+ * @param {Element} marker the `#id-swap-enabled` marker, or null
+ * @returns {string} the address to spend from, or "" when there is no marker
+ */
+function markerFromAddress(marker) {
+  if (!marker) return "";
+  var bridge = window.asastatsSwap;
+  var active =
+    bridge && typeof bridge.activeAddress === "function" ? bridge.activeAddress() : "";
+  return swapFromAddress(
+    (marker.dataset.addresses || "").split(/\s+/).filter(Boolean),
+    marker.dataset.address || "",
+    active
+  );
+}
+
 /** Reflect ownership in the panel: enable/disable Swap + show the connect hint. */
 function applyOwnership(panel, owns) {
   var btn = panel.querySelector(".id-swap-swap-btn");
@@ -2046,19 +2096,25 @@ function handleInlineSwapClick(ev) {
     show: btn.dataset.labelShow || "Swap",
     hide: btn.dataset.labelHide || "Hide",
   });
-  if (!shown || !panelEl || btn.dataset.swapLoaded) return;
+  if (!shown || !panelEl) return;
 
   var marker = document.getElementById("id-swap-enabled");
-  // Swap from the LINKED address the marker carries (the wallet-authenticated
-  // account). Holdings + quote need no live wallet connection -- only the final
-  // signature does -- so we never ask the user to reconnect just to look.
-  var address = marker ? marker.dataset.address : "";
+  // Swap from one of the LINKED addresses the marker carries: the connected one
+  // when the wallet is on it, otherwise the server's guess. Holdings + quote
+  // need no live wallet connection -- only the final signature does -- so we
+  // never ask the user to reconnect just to look.
+  var address = markerFromAddress(marker);
   if (!marker || !address) {
     panelEl.innerHTML =
       '<div class="id-swap-status id-swap-status-error">Swap is not available for this address.</div>';
     return;
   }
+  // Loaded holdings belong to one account. Re-opening the same row after the
+  // reader connected a different one of the bundle's addresses has to fetch
+  // again, or they read the previous account's balances.
+  if (btn.dataset.swapLoaded && btn.dataset.swapAddress === address) return;
   btn.dataset.swapLoaded = "1";
+  btn.dataset.swapAddress = address;
   var from = btn.dataset.from || panelEl.dataset.from;
   loadPanel(panelEl, {
     fromAddress: address,
@@ -2085,7 +2141,7 @@ function openSwapModal(fromAsset) {
   // Guarded because jsdom only grew <dialog> support recently.
   if (modal.showModal && !modal.open) modal.showModal();
   var cfg = markerCfg(marker);
-  var address = marker ? marker.dataset.address || "" : "";
+  var address = markerFromAddress(marker);
   var panelEl = modal.querySelector(".id-swap-panel");
   if (!panelEl) return;
   // Resolve the adapter + cfg from the marker, NOT from the loaded partial: a
@@ -2095,11 +2151,19 @@ function openSwapModal(fromAsset) {
       '<div class="id-swap-status id-swap-status-error">Swap is not available for this address.</div>';
     return;
   }
-  if (panelEl.dataset.swapFrom === String(fromAsset) && panelEl.dataset.swapLoaded) {
+  // The account is part of what makes a loaded panel current, not just the
+  // asset: connecting the bundle's other address and reopening the same row
+  // must refetch, or the reader is shown the previous account's holdings.
+  if (
+    panelEl.dataset.swapFrom === String(fromAsset) &&
+    panelEl.dataset.swapLoaded &&
+    panelEl.dataset.swapAddress === address
+  ) {
     return;
   }
   panelEl.dataset.swapFrom = String(fromAsset || "");
   panelEl.dataset.swapLoaded = "1";
+  panelEl.dataset.swapAddress = address;
   loadPanel(panelEl, {
     adapter: ROUTERS[cfg.router],
     cfg: cfg,
@@ -2330,6 +2394,8 @@ if (typeof module !== "undefined" && module.exports) {
     setPanelStatus: setPanelStatus,
     clearQuote: clearQuote,
     walletOwns: walletOwns,
+    swapFromAddress: swapFromAddress,
+    markerFromAddress: markerFromAddress,
     applyOwnership: applyOwnership,
     alloTxUrl: txExplorerUrl,
     txExplorerUrl: txExplorerUrl,

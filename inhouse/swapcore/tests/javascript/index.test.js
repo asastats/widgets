@@ -1777,6 +1777,92 @@ describe("walletOwns + applyOwnership", () => {
   });
 });
 
+describe("which account a swap opens on", () => {
+  // The bug: a bundle page shows two addresses, both the reader's. The server
+  // guesses the profile's primary, and a reader connected to the *other* one
+  // was shown the primary's holdings, balances and percentage buttons. Nothing
+  // unsafe -- the Swap button stays disabled unless the wallet owns the
+  // from-address -- but the whole panel described somebody else's account.
+  const PRIMARY = "P".repeat(58);
+  const OTHER = "O".repeat(58);
+
+  afterEach(() => {
+    delete window.asastatsSwap;
+  });
+
+  test("the connected account wins over the server's guess", () => {
+    expect(F.swapFromAddress([PRIMARY, OTHER], PRIMARY, OTHER)).toBe(OTHER);
+  });
+  test("the guess stands when no wallet is connected", () => {
+    expect(F.swapFromAddress([PRIMARY, OTHER], PRIMARY, "")).toBe(PRIMARY);
+  });
+  test("a connected account that is not on this page does not win", () => {
+    // Holdings and quotes need no wallet, so the panel is still worth showing
+    // -- but for one of the page's own addresses, not for an account the reader
+    // happens to be connected to elsewhere.
+    expect(F.swapFromAddress([PRIMARY, OTHER], PRIMARY, "Z".repeat(58))).toBe(
+      PRIMARY,
+    );
+  });
+  test("one candidate: the connected account is that same address", () => {
+    expect(F.swapFromAddress([PRIMARY], PRIMARY, PRIMARY)).toBe(PRIMARY);
+  });
+  test("no candidates at all still yields the guess", () => {
+    expect(F.swapFromAddress([], PRIMARY, OTHER)).toBe(PRIMARY);
+  });
+  test("nothing to work with is \"\", never undefined", () => {
+    expect(F.swapFromAddress([], "", "")).toBe("");
+  });
+
+  function marker(attrs) {
+    document.body.innerHTML = "";
+    const el = document.createElement("span");
+    el.id = "id-swap-enabled";
+    Object.keys(attrs).forEach((key) => {
+      el.dataset[key] = attrs[key];
+    });
+    document.body.appendChild(el);
+    return el;
+  }
+
+  test("markerFromAddress prefers the connected one of the marker's candidates", () => {
+    const el = marker({ address: PRIMARY, addresses: `${OTHER} ${PRIMARY}` });
+    window.asastatsSwap = { activeAddress: () => OTHER };
+
+    expect(F.markerFromAddress(el)).toBe(OTHER);
+  });
+  test("markerFromAddress falls back with no bridge published yet", () => {
+    // The bridge arrives asynchronously; the panel must still open meanwhile.
+    const el = marker({ address: PRIMARY, addresses: `${OTHER} ${PRIMARY}` });
+
+    expect(F.markerFromAddress(el)).toBe(PRIMARY);
+  });
+  test("markerFromAddress survives a marker with no candidate list", () => {
+    // A cached page rendered before `data-addresses` existed.
+    const el = marker({ address: PRIMARY });
+    window.asastatsSwap = { activeAddress: () => OTHER };
+
+    expect(F.markerFromAddress(el)).toBe(PRIMARY);
+  });
+  test("markerFromAddress with nothing usable is \"\", which callers refuse on", () => {
+    // Both open paths render "Swap is not available for this address." rather
+    // than fetching holdings for "".
+    const el = marker({ addresses: `${OTHER} ${PRIMARY}` });
+    window.asastatsSwap = { activeAddress: () => "Z".repeat(58) };
+
+    expect(F.markerFromAddress(el)).toBe("");
+  });
+  test("markerFromAddress on no marker is \"\", not a throw", () => {
+    expect(F.markerFromAddress(null)).toBe("");
+  });
+  test("markerFromAddress tolerates a bridge without activeAddress", () => {
+    const el = marker({ address: PRIMARY, addresses: PRIMARY });
+    window.asastatsSwap = {};
+
+    expect(F.markerFromAddress(el)).toBe(PRIMARY);
+  });
+});
+
 describe("executeSwap ownership gate", () => {
   afterEach(() => {
     delete global.fetch;
