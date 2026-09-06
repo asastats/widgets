@@ -1544,6 +1544,11 @@ function retargetForMode(panel, mode) {
   toHidden.value = "";
   toHidden.dataset.decimals = "";
   toHidden.dataset.unit = "";
+  // Cleared with the rest of the target's data rather than left for
+  // `selectTarget` to overwrite: everything else about the old target goes,
+  // and a price is the one leftover that could be read as a fact about the
+  // new one.
+  toHidden.dataset.usdcPrice = "";
   toHidden.dataset.icon = "";
   toHidden.dataset.optedIn = "";
   toSearch.value = "";
@@ -2240,14 +2245,17 @@ function wireSwapTabs() {
     updateSourceMax(panel);
     var amt = panel.querySelector(".id-swap-amount");
     var pct = panel.querySelector(".id-swap-pct");
-    var quote = panel.querySelector(".id-swap-quote");
     var status = panel.querySelector(".id-swap-status");
     var btn = panel.querySelector(".id-swap-swap-btn");
     if (amt) amt.value = "";
     if (pct) pct.value = "";
-    if (quote) quote.textContent = "";
-    var outField = panel.querySelector(".id-swap-out");
-    if (outField) outField.value = "";
+    // `clearQuote`, not a copy of the two lines it used to take. Everything a
+    // quote puts on screen belongs on one list, and this handler had its own:
+    // it emptied the quote line and the output field and knew nothing about
+    // the legs' USD figures or the venue count, which sit outside
+    // `.id-swap-quote` and so survived the switch -- last mode's money beside
+    // this mode's empty fields.
+    clearQuote(panel);
     syncAssetButtons(panel);
     setCtaLabel(panel, ctaLabelFor(panel));
     if (status) {
