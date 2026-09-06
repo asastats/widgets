@@ -30,31 +30,40 @@
  * adapter.executeSwap need later.
  */
 /**
- * Return the computed leg's worth in USDC, or null.
+ * Return one leg's worth in USDC, or null.
  *
- * `q.valueUsdc` when the router supplied one -- only ours does, because only
- * ours quotes in our engine, which holds the price map. For every other router
- * the figure is the leg's own asset price times the amount, both of which are
- * on the page: the price rides on the option the reader picked, exactly as
- * `decimals` does.
+ * `side` is `"in"` for the pay leg and `"out"` for the receive leg, which is
+ * also which asset prices it: the pay leg holds `.id-swap-from`, the receive
+ * leg `.id-swap-to`, in both modes -- `applySwapMode` moves the amount field
+ * between the legs, never the asset.
  *
- * **The leg is the computed one, not the output one.** Selling, that is the
- * target; buying, it is the source, because the user fixed the target and the
- * input is what was worked out. Pricing the wrong leg would put the input's
- * value under the output's amount and be wrong by the whole exchange rate.
+ * `q.valueUsdc` is the engine's own figure for the leg it *computed*, and only
+ * our router sends one, because only ours quotes in our engine, which holds
+ * the price map. Every other leg is priced here: the asset's price times the
+ * amount, both of which are on the page -- the price rides on the option the
+ * reader picked, exactly as `decimals` does.
+ *
+ * Which is why the engine's figure is claimed for one side only. Selling, it
+ * belongs to the output; buying, to the input, since the reader fixed the
+ * target and the input is what was worked out. Applying it to both sides would
+ * report the same money twice and hide the very difference the reader is
+ * looking for.
  *
  * @param {Element} panel the swap panel
  * @param {Object} q the normalised quote
+ * @param {string} side "in" for the pay leg, "out" for the receive leg
  * @returns {number|null}
  */
-function computedValueUsdc(panel, q) {
-  if (q.valueUsdc != null) return q.valueUsdc;
+function legValueUsdc(panel, q, side) {
+  var pays = side === "in";
+  if (side === (q.mode === "buy" ? "in" : "out") && q.valueUsdc != null) {
+    return q.valueUsdc;
+  }
 
-  var buy = q.mode === "buy";
-  var amount = buy ? q.amountIn : q.amountOut;
+  var amount = pays ? q.amountIn : q.amountOut;
   if (amount == null) return null;
 
-  var source = buy
+  var source = pays
     ? (function () {
         var sel = panel.querySelector(".id-swap-from");
         return sel && sel.options[sel.selectedIndex];
@@ -70,24 +79,30 @@ function computedValueUsdc(panel, q) {
 }
 
 /**
- * Write `text` into the value slot of the leg holding the computed amount.
+ * Write each leg's worth into that leg's own caption.
  *
- * There is one slot per leg because `positionAmountField` moves
- * `.id-swap-out` between them with the mode, so the figure has to be able to
- * follow it. The other leg is cleared rather than left alone: its amount is
- * the one the reader typed, and a currency figure beside it would read as a
- * second opinion about a number they already chose.
+ * **Both legs carry a figure now.** This used to write the computed leg and
+ * clear the other, on the reasoning that a currency figure beside the amount
+ * the reader typed reads as a second opinion about a number they already
+ * chose. In practice the missing half is the one people want: what the trade
+ * costs and what it returns, side by side, is how you see the spread without
+ * doing the arithmetic. So the slot means "this leg's worth" rather than "the
+ * computed leg's worth", and it no longer has to follow the amount field
+ * between legs -- each leg's asset is fixed, whatever the mode.
+ *
+ * Either figure is "" when nothing could price that side, and an empty span
+ * takes no space in the flex row, so a leg nobody could price simply shows a
+ * caption.
  *
  * @param {Element} panel the swap panel
- * @param {string} text the figure, or "" to clear both
+ * @param {string} payText the pay leg's figure, or ""
+ * @param {string} getText the receive leg's figure, or ""
  */
-function setComputedValue(panel, text) {
-  var out = panel.querySelector(".id-swap-out");
-  var leg = out && out.closest(".swap-leg");
-  panel.querySelectorAll(".id-swap-out-value").forEach(function (slot) {
-    var mine = leg && leg.contains(slot);
-    slot.textContent = mine ? text : "";
-  });
+function setLegValues(panel, payText, getText) {
+  var pay = panel.querySelector(".swap-leg-pay .id-swap-leg-value");
+  var get = panel.querySelector(".swap-leg-get .id-swap-leg-value");
+  if (pay) pay.textContent = payText;
+  if (get) get.textContent = getText;
 }
 
 /**
@@ -1063,7 +1078,11 @@ function renderQuote(panel, q) {
   var outField = panel.querySelector(".id-swap-out");
   if (outField) outField.value = computed;
 
-  setComputedValue(panel, usdcHelper(computedValueUsdc(panel, q)));
+  setLegValues(
+    panel,
+    usdcHelper(legValueUsdc(panel, q, "in")),
+    usdcHelper(legValueUsdc(panel, q, "out")),
+  );
 
   out.textContent = "";
 
@@ -1195,11 +1214,11 @@ function updateSourceMax(panel) {
     return;
   }
   var dec = Number(opt.dataset.decimals || "0");
-  var unit = opt.dataset.unit || "";
-  // Sits in the leg header under a "Balance" label, so it states the holding and
-  // nothing else -- the em dash it used to carry belonged to the old sentence.
-  maxEl.textContent =
-    baseUnitsToDecimal(BigInt(opt.dataset.amount), dec) + (unit ? " " + unit : "");
+  // The amount alone. The unit used to be appended, and it was saying what the
+  // asset pill beside the amount field already says -- while taking the room
+  // the leg's USD figure now needs, on the narrowest screen where all three
+  // share one row.
+  maxEl.textContent = baseUnitsToDecimal(BigInt(opt.dataset.amount), dec);
 }
 
 function clearQuote(panel) {
@@ -1209,9 +1228,10 @@ function clearQuote(panel) {
   // the new one is in flight is worse than showing nothing.
   var outField = panel.querySelector(".id-swap-out");
   if (outField) outField.value = "";
-  // Clear the helper with the amount it describes; a stale "$5.42" beside an
-  // empty field is worse than no figure at all.
-  setComputedValue(panel, "");
+  // Clear both helpers with the amount they describe; a stale "$5.42" beside
+  // an empty field is worse than no figure at all. The pay leg's figure goes
+  // too: it is derived from the quote's own amounts, so it is exactly as stale.
+  setLegValues(panel, "", "");
   renderVenueCount(panel, null);
 }
 
@@ -2345,8 +2365,8 @@ if (typeof module !== "undefined" && module.exports) {
     HogswapAdapter: HogswapAdapter,
     ROUTERS: ROUTERS,
     makeQuote: makeQuote,
-    computedValueUsdc: computedValueUsdc,
-    setComputedValue: setComputedValue,
+    legValueUsdc: legValueUsdc,
+    setLegValues: setLegValues,
     usdcHelper: usdcHelper,
     routeLabelFrom: routeLabelFrom,
     routePartsFrom: routePartsFrom,

@@ -31,18 +31,24 @@
         <span class="swap-micro">
           <span class="id-swap-from-label-sell">You pay</span>
           <span class="id-swap-from-label-buy">You pay (estimated)</span>
-          {% comment %} The computed leg's worth in USDC. One per leg because
-             `positionAmountField` moves `.id-swap-out` between them with the
-             mode, so the figure has to be able to follow it; `renderQuote`
-             fills whichever leg holds the output and clears the other. Empty
-             whenever nothing could price that asset. {% endcomment %}
-          <span class="id-swap-out-value swap-value" aria-live="polite"></span>
+          {% comment %} What this leg is worth in USD. `renderQuote` fills
+             both legs -- what the trade costs beside what it returns, so the
+             spread is readable without arithmetic -- and each leg's figure
+             belongs to its own asset, which is why it no longer follows the
+             amount field between legs the way it did when only the computed
+             side carried one. Empty whenever nothing could price that asset,
+             and an empty span takes no room in the row. {% endcomment %}
+          <span class="id-swap-leg-value swap-value" aria-live="polite"></span>
         </span>
         {# "Available", not "Balance": the engine nets the minimum balance out  #}
         {# of the ALGO holding (utils.clients._address_assets stores            #}
         {# `amount - min-balance` at id 0), so this figure is smaller than the  #}
         {# ALGO balance the rest of the page shows, and saying "Balance" made   #}
         {# that look like a discrepancy rather than the point.                  #}
+        {#                                                                     #}
+        {# The amount carries no unit: the asset pill under it already names    #}
+        {# the asset, and on a phone this row also has to hold the leg's USD    #}
+        {# figure. `updateSourceMax` writes it.                                 #}
         <span class="swap-leg-bal">Available <b class="swap-num id-swap-from-max"></b></span>
       </div>
       <div class="swap-leg-main">
@@ -99,12 +105,10 @@
         <span class="swap-micro">
           <span class="id-swap-to-label-sell">You receive (estimated)</span>
           <span class="id-swap-to-label-buy">You receive</span>
-          {% comment %} The computed leg's worth in USDC. One per leg because
-             `positionAmountField` moves `.id-swap-out` between them with the
-             mode, so the figure has to be able to follow it; `renderQuote`
-             fills whichever leg holds the output and clears the other. Empty
-             whenever nothing could price that asset. {% endcomment %}
-          <span class="id-swap-out-value swap-value" aria-live="polite"></span>
+          {% comment %} This leg's worth in USD; see the pay leg above.
+             For our router this is the engine's own `value_usdc` when selling,
+             where the output is the side it computed. {% endcomment %}
+          <span class="id-swap-leg-value swap-value" aria-live="polite"></span>
         </span>
       </div>
       <div class="swap-leg-main">
