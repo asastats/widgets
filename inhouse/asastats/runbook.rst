@@ -21,12 +21,22 @@ routes both, implemented as ``InternalRouterQuoteView`` and
 Both must also appear in the deployment token's ``scopes``; ASA Stats grants those at
 the engine and a fork cannot raise its own.
 
-**Quoting works. Group building answers 503 for every caller**, and will until the
-mainnet deployment is redeployed unrestricted: ``engine/core/router.py:_deployment()``
-raises ``RouterUnavailable`` when ``deployment.restricted``. So a reader can see a
-quote and cannot execute it. ``integration_tests/test_asastats_integration.py`` pins
-that state deliberately — when the unrestricted deployment lands, the test that
-records the 503 is the one that should start failing.
+**Quoting and group building both work.** Mainnet has been ``restricted=False``
+since 2026-08-30, and the frontend's
+``integration_tests/test_asastats_integration.py`` now asserts that a group comes
+back rather than a 503 --- the predecessor test pinned the refusal while predicting
+its own obsolescence, and that prediction came true.
+
+.. note::
+
+   Until then, ``engine/core/router.py:_deployment()`` raised
+   ``RouterUnavailable`` for a restricted deployment and the view turned it into a
+   503, so a reader could see a quote and not execute it. Two things are worth
+   keeping from that period. A 503 is **still reachable**, for other reasons ---
+   an unavailable quote signer is one --- so it is not by itself evidence that the
+   deployment has been restricted again. And the mainnet application id changes
+   with each redeployment; ``router/deployments.py`` is the one place that knows
+   which one is live, and every setter and verifier reads it from there.
 
 .. warning::
 

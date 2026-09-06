@@ -142,10 +142,23 @@ audit must actually verify.
 In-process lifecycle (host registry)
 -------------------------------------
 
-#. **Register** — a widget's id is listed in ``INHOUSE_WIDGETS`` or
-   ``THIRDPARTY_WIDGETS`` (by ``origin``) in **both** ``widgets/constants.py`` and the
-   frontend's ``config/settings/base.py``; the registry reads each listed widget's
-   ``widget.toml``. The two lists must agree (see :doc:`development`, *Deployment*).
+#. **Discover** — ``widgethost.registry`` scans the widgets package for
+   ``widget.toml``. **The presence of a manifest is what registers a widget**;
+   discovery consults no list, and ``swap_routers()`` will offer any widget declaring
+   ``category = "swap"`` whether or not anybody added its id anywhere.
+
+   The ``INHOUSE_WIDGETS`` / ``THIRDPARTY_WIDGETS`` lists in ``widgets/constants.py``
+   and the frontend's ``config/settings/base.py`` are a separate mechanism, and both
+   are still load-bearing: the first mounts the widget's URLs and websocket routes,
+   the second puts its static and template directories on the search paths. The two
+   must agree with each other (see :doc:`development`, *Deployment*).
+
+   **Discovery and mounting are not the same switch, and treating them as one caused
+   a live bug.** Leaving a widget off the lists stopped its URLs being mounted while
+   doing nothing to stop it being *offered* --- and since ``swap_routers()`` sorts by
+   id, the unmounted widget became the default router for every profile that had
+   never chosen one, whose entry URL then resolved to empty. A widget is hidden only
+   when its manifest says so. See ``inhouse/asastats/runbook.rst``.
 #. **Validate** — manifest schema; ``engine_endpoints <=`` token ``scopes``; ``public``
    declares no ``engine_endpoints``.
 #. **Wire (unchanged host includes)** — the widget's own ``urls.py``/``routing.py`` are

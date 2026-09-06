@@ -87,9 +87,20 @@ the SDK next moves.
 Troubleshooting
 ^^^^^^^^^^^^^^^
 
-- **Every quote fails with a network error** — check the manifest ``hosts``
-  entry still matches the SDK's default base URL. The widget declares one host
-  and nothing else; a vendor change of hostname breaks quoting entirely.
+- **Every quote fails with a network error** — two causes, and the manifest is
+  only the first. Check the manifest ``hosts`` entry still matches the SDK's
+  default base URL: the widget declares one host and nothing else, so a vendor
+  change of hostname breaks quoting entirely.
+
+  Then check the browser console. ``Refused to connect because it violates the
+  document's Content Security Policy`` means the manifest is right and the host
+  is missing from ``connect-src`` in the frontend's
+  ``deploy/roles/nginx/templates/ssl.conf`` — a second, hand-maintained copy of
+  the same list. That is not an error the page can catch and explain: the fetch
+  never happens, so the router simply does nothing. It shipped that way, and the
+  frontend's ``widgethost/tests/test_csp_hosts.py`` now sweeps every manifest
+  against that template so the two cannot drift again. Note the header travels
+  with nginx, not with the code.
 - **Quotes work, signing fails** — HOGSWAP returns an *unsigned* group, so the
   shared controller's ``signAndSend`` path applies and only the wallet bridge's
   plain ``signer`` is used. Unlike Haystack there is no router-specific signer;

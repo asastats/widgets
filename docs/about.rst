@@ -25,12 +25,24 @@ This repository contains the base code that is common to all the user widgets, a
     widgets/
     ├── docs/
     ├── inhouse/
-    │   └── historic/...
+    │   ├── asastats/     # swap widget for our own router
+    │   ├── dustsweep/    # empties an account of unwanted holdings
+    │   ├── folks/        # swap widget for the Folks router
+    │   ├── haystack/     # swap widget for the Haystack router
+    │   ├── historic/     # historic portfolio data
+    │   ├── hogswap/      # swap widget for the HOGSWAP router
+    │   └── swapcore/     # the shared swap panel the four routers inherit
     ├── migrations/
     ├── static/
     ├── templates/
     ├── tests/
     └── thirdparty/
+
+The first published widget was the historic data widget, and it remains the
+worked example for an engine-backed widget: a consumer, a wire format, and a
+golden-fixture test of the engine's JSON. The four swap widgets are a different
+shape --- one shared panel in ``swapcore`` and a thin adapter each --- and
+``dustsweep`` is neither, being a tool that uses a router rather than being one.
 
 
 The ASA Stats community has been collecting and filtering user requests for widgets since day one.

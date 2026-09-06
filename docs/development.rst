@@ -90,40 +90,53 @@ repository's CI/CD workflow, where this code is included as a submodule.
 Javascript
 ^^^^^^^^^^
 
-System wide `nodejs` and `npm` should be installed:
+System-wide ``nodejs`` and ``npm``:
 
 .. code-block:: bash
 
   apt-get install nodejs npm
 
-
-Install project's Node dependencies with:
+**There is no package.json at the root of this repository, and jest is not run
+from here.** A widget that has JavaScript keeps its own ``package.json`` with
+its own jest configuration --- ``dustsweep``, ``historic`` and ``swapcore`` do
+--- and can be run on its own:
 
 .. code-block:: bash
 
-  cd /home/ipaleka/dev/widgets/
+  cd inhouse/swapcore
   npm install
+  npm test
 
+The other three swap widgets (``folks``, ``haystack``, ``hogswap``) have a
+``package.json`` for a different reason: ``npm run build:sdk`` bundles the
+vendor router SDK they load in the browser. They ship no suite of their own.
 
-Install jest globally:
+.. important::
 
-.. code-block:: bash
+   **What CI actually runs is the frontend's jest, not these.** ``website``'s
+   config names no ``roots``, so its rootDir is ``website`` and it collects
+   *every* ``*.test.js`` beneath it --- its own suites plus the ones in
+   ``widgets/inhouse/*/tests/javascript/``. One invocation, one coverage
+   report.
 
-  npm install -g jest
+   Two consequences worth knowing before they cost an afternoon:
 
-
-Run project's Javascript tests with:
-
-.. code-block:: bash
-
-  cd /home/ipaleka/dev/widgets/
-  jest
+   * **A package a widget suite requires must also be declared in
+     ``website/package.json``.** Node resolves against ``website/node_modules``,
+     and that is the file the workflow installs --- a dependency declared only
+     in the widget's own manifest resolves on a machine where somebody once ran
+     ``npm install`` inside the widget, and nowhere else. The frontend's
+     ``core/tests/test_jest_dependencies.py`` fails if the two drift.
+   * **A widget's own ``coverageThreshold`` does not apply there.** Running
+     from ``website`` uses ``website``'s jest config, so a threshold in
+     ``inhouse/<widget>/package.json`` is only enforced when that widget's
+     suite is run on its own.
 
 
 Creating a widget
 -----------------
 
-Before writing any code, read :file:`WIDGET_CONTRACT.md` in this directory. It is the
+Before writing any code, read :doc:`widget_contract`. It is the
 authoritative description of the widget model and the rules the publication audit
 enforces; building out of step with it (assuming a widget may read the ORM directly, or
 naming an engine endpoint after the widget) means rework. The essentials:
@@ -191,8 +204,19 @@ developer, expect these steps and supply what they need:
    .. code-block:: python
 
      # widgets/constants.py  AND  frontend/website/config/settings/base.py
-     INHOUSE_WIDGETS = ["historic", "folks", "haystack", "hogswap", "swapcore"]
+     INHOUSE_WIDGETS = [
+         "historic", "folks", "haystack", "hogswap",
+         "asastats", "swapcore", "dustsweep",
+     ]
      THIRDPARTY_WIDGETS = []
+
+   The two copies are not redundant, which is why neither can be dropped: the
+   one here drives URL and websocket mounting (``widgets/urls.py`` and
+   ``widgets/routing.py`` iterate it), and the one in the frontend drives the
+   static and template search paths. Nor do they replace the manifest: the
+   frontend's ``widgethost.registry`` discovers a widget by the presence of its
+   ``widget.toml``, and that is what registers it as a widget. These lists say
+   where its files are and where its routes hang.
 
 #. **Grant the engine token (engine-backed widgets).** The widget's ``engine_endpoints``
    must be present in the deployment token's ``scopes``, and every per-widget limit the

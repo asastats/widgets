@@ -4,4 +4,4 @@
 
 This repository contains code for the ASA Stats user widgets system.
 
-Python tests for the widgets module are handled by the parent [frontend](https://github.com/user/repo/blob/branch/other_file.md) repo's CI/CD via submodule integration.
+Python tests for the widgets module are handled by the parent [frontend](https://github.com/asastats/frontend) repo's CI/CD via submodule integration.

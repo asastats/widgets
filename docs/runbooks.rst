@@ -20,6 +20,7 @@ generic belongs in :doc:`development` or :doc:`widget_contract` instead.
    :maxdepth: 1
 
    runbooks/asastats
+   runbooks/dustsweep
    runbooks/folks
    runbooks/haystack
    runbooks/hogswap

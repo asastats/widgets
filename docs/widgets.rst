@@ -52,6 +52,51 @@
   :show-inheritance:
 
 
+:mod:`widgets.inhouse.dustsweep` -- Dust Sweep widget package
+--------------------------------------------------------------
+
+.. automodule:: inhouse.dustsweep
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.dustsweep.manifest` -- Dust Sweep widget's manifest module
+--------------------------------------------------------------------------------
+
+.. automodule:: inhouse.dustsweep.manifest
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.dustsweep.urls` -- Dust Sweep widget's URL configurations module
+---------------------------------------------------------------------------------------
+
+.. automodule:: inhouse.dustsweep.urls
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.dustsweep.views` -- Dust Sweep widget's views module
+---------------------------------------------------------------------------
+
+.. automodule:: inhouse.dustsweep.views
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.dustsweep.tests` -- Dust Sweep widget's unit-tests package
+---------------------------------------------------------------------------------
+
+.. automodule:: inhouse.dustsweep.tests
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
 :mod:`widgets.inhouse.folks` -- Folks swap widget package (inherits swapcore)
 -----------------------------------------------------------------------------
 

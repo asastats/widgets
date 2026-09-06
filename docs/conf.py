@@ -32,7 +32,18 @@ def get_version():
     raise RuntimeError(f"Unable to find __version__ in {init_path}")
 
 
+# Two levels, and both are needed.
+#
+# The widgets package imports flat -- `urls.py` does `from constants import ...`
+# and the API sections below are `automodule:: inhouse.<widget>` -- so the
+# repository root itself has to be importable. That is `..`, and it was the one
+# missing: every `automodule` in widgets.rst raised
+# `ModuleNotFoundError: No module named 'inhouse'` and rendered an empty page.
+#
+# `../..` reaches the frontend's `website/`, which the widgets import from
+# (`widgethost`, `core`) and which stays on the path for that reason.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
 if not settings.configured:
