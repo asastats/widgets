@@ -15,7 +15,11 @@
 
     <div class="swap-head">
       <h2 class="swap-title">Swap</h2>
-      <span class="swap-routertag">{{ swap_router_name|default:"smart router" }}</span>
+      {# The router's name lives in the footer, beside the link that changes  #}
+      {# it. It was here, and hidden under 600px because the header is one    #}
+      {# row -- title, tag, slippage, close -- and a phone has no room for a  #}
+      {# fourth thing. Which hid it exactly where the reader is least likely  #}
+      {# to know which router they are on.                                    #}
       <span class="swap-head-spacer"></span>
 
       <button type="button" class="swap-iconbtn id-swap-slip-toggle"
@@ -59,6 +63,10 @@
     <div class="id-swap-panel swap-panel" data-from=""></div>
 
     <div class="swap-foot">
+      {# Which router quoted this, next to the link that changes it. Both the #}
+      {# name and the venue line truncate before the link does: the link is   #}
+      {# the one thing here that stops being usable when it is clipped.       #}
+      <span class="swap-routertag">{{ swap_router_name|default:"smart router" }}</span>
       <span class="id-swap-venues swap-num"></span>
       <a href="{% url 'profile_settings' %}">Change default router</a>
     </div>
