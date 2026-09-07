@@ -26,7 +26,11 @@ from django.http import JsonResponse
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 from django.views.generic.base import TemplateView, View
-from walletauth.gating import is_linked_to_user, linked_addresses_for_user
+from walletauth.gating import (
+    algorand_addresses_for_user,
+    is_linked_to_user,
+    linked_addresses_for_user,
+)
 from widgethost.enforcement import WidgetAccessMixin
 
 from .manifest import MANIFEST
@@ -130,6 +134,16 @@ class _RouterEndpoint(WidgetAccessMixin, View):
         # the address is the gated one rather than whatever the body claims,
         # so a tampered body cannot quote or build for somebody else
         payload["address"] = self.address
+        # The fee tier is judged on ASASTATS summed across every address this
+        # user has linked, and this is the only layer that knows which those
+        # are - the engine authenticates a *deployment*, not a reader. Set here
+        # rather than sent by the page for the same reason as `address`: the
+        # browser's value is discarded, so nobody can claim a whale's tier by
+        # editing a request. The engine still decides the discount itself, from
+        # holdings it reads against these addresses.
+        payload["linked_addresses"] = sorted(
+            algorand_addresses_for_user(request.user)
+        )
         # `.json()` because `engine_request` hands back the `requests.Response`
         # rather than a decoded body - passing the response object itself made
         # every call 500 with "In order to allow non-dict objects to be

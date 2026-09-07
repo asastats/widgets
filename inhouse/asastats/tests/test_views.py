@@ -3,6 +3,7 @@
 import json
 
 from api.client import BackendError
+from django.contrib.auth.models import AnonymousUser
 from widgets.inhouse.asastats.views import (
     AsastatsGroupView,
     AsastatsQuoteView,
@@ -74,6 +75,12 @@ class TestInhouseAsastatsViewsRouterEndpoint:
         view.request = mocker.MagicMock()
         view.request.body = body
         view.address = "ADDR_ONE"
+        # A real user, not the MagicMock: `post` now resolves this reader's
+        # linked addresses for the fee tier, and a mock answers
+        # `is_authenticated` truthily and then reaches the ORM with itself as
+        # the filter value. Anonymous keeps the forwarding tests off the
+        # database; the tests that are *about* the tier patch the resolver.
+        view.request.user = AnonymousUser()
         return view
 
     def _answers(self, mocker, payload):
@@ -116,6 +123,76 @@ class TestInhouseAsastatsViewsRouterEndpoint:
         call = self._answers(mocker, {})
         view.post(view.request)
         assert call.call_args.kwargs["json"]["address"] == "ADDR_ONE"
+
+    def test_inhouse_asastats_views_endpoint_sends_the_users_linked_addresses(
+        self, mocker
+    ):
+        """The fee tier's only input, and this is the only layer that knows it.
+
+        The engine authenticates a *deployment*, not a reader, so unless this
+        names them nothing can judge a tier. It did not until 2026-09-07, and
+        the engine's own reader was an attribute nothing assigned, so the
+        published discount table was never granted to anyone.
+        """
+        view = self._view(mocker)
+        call = self._answers(mocker, {})
+        mocker.patch(
+            "widgets.inhouse.asastats.views.algorand_addresses_for_user",
+            return_value={"ADDR_TWO", "ADDR_ONE"},
+        )
+        view.post(view.request)
+        # sorted, so the engine sees a stable list rather than set ordering
+        assert call.call_args.kwargs["json"]["linked_addresses"] == [
+            "ADDR_ONE",
+            "ADDR_TWO",
+        ]
+
+    def test_inhouse_asastats_views_endpoint_overrides_body_linked_addresses(
+        self, mocker
+    ):
+        """A page cannot claim a whale's tier by editing the request.
+
+        Same rule as ``address`` and for the same reason: what the browser sent
+        is discarded, and the value comes from this user's own rows.
+        """
+        view = self._view(mocker, body=b'{"linked_addresses": ["A_WHALE"]}')
+        call = self._answers(mocker, {})
+        mocker.patch(
+            "widgets.inhouse.asastats.views.algorand_addresses_for_user",
+            return_value={"ADDR_ONE"},
+        )
+        view.post(view.request)
+        assert call.call_args.kwargs["json"]["linked_addresses"] == ["ADDR_ONE"]
+
+    def test_inhouse_asastats_views_endpoint_sends_none_for_an_unlinked_reader(
+        self, mocker
+    ):
+        """An empty list earns zero, which is the full rate - never an error."""
+        view = self._view(mocker)
+        call = self._answers(mocker, {})
+        mocker.patch(
+            "widgets.inhouse.asastats.views.algorand_addresses_for_user",
+            return_value=set(),
+        )
+        view.post(view.request)
+        assert call.call_args.kwargs["json"]["linked_addresses"] == []
+
+    def test_inhouse_asastats_views_group_endpoint_sends_them_too(self, mocker):
+        """Both halves, or the group is built at a rate the quote did not show.
+
+        `quote` prices with the discount and `group` mints the voucher that
+        makes the chain honour it. Sending the addresses to one and not the
+        other is the quoted-versus-delivered gap `honoured_discount` exists to
+        close, reintroduced one layer up.
+        """
+        view = self._view(mocker, cls=AsastatsGroupView)
+        call = self._answers(mocker, {})
+        mocker.patch(
+            "widgets.inhouse.asastats.views.algorand_addresses_for_user",
+            return_value={"ADDR_ONE"},
+        )
+        view.post(view.request)
+        assert call.call_args.kwargs["json"]["linked_addresses"] == ["ADDR_ONE"]
 
     def test_inhouse_asastats_views_endpoint_refuses_malformed_json(self, mocker):
         view = self._view(mocker, body=b"not json")

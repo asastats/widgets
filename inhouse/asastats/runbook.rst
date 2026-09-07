@@ -92,8 +92,9 @@ Endpoint contract
 -----------------
 
 ``router:quote`` takes ``{address, from_asset_id, to_asset_id, amount, mode,
-slippage_pct}`` — ``amount`` a decimal **string** in base units, ``mode`` either
-``sell`` or ``buy`` — and returns the quote with its amounts likewise as strings:
+slippage_pct, linked_addresses}`` — ``amount`` a decimal **string** in base units,
+``mode`` either ``sell`` or ``buy`` — and returns the quote with its amounts
+likewise as strings:
 ``amount_in``, ``amount_out``, ``minimum_received``, ``maximum_sent``,
 ``price_impact_pct``, ``route_label``, ``fees_total``, plus whatever the group endpoint
 needs to rebuild the same allocation.
@@ -102,6 +103,45 @@ Strings because the controller works in ``BigInt`` base units and JSON numbers a
 doubles: an ALGO amount above about nine quadrillion microALGO would lose precision
 silently, and a router that is occasionally wrong about large trades is worse than one
 that refuses them.
+
+The fee discount
+^^^^^^^^^^^^^^^^
+
+``linked_addresses`` is how the fee tier is judged, and both endpoints take it:
+``quote`` prices with the discount and ``group`` mints the voucher that makes the
+chain honour it, so sending it to one and not the other reopens the
+quoted-versus-delivered gap ``core.router.honoured_discount`` exists to close.
+
+**The view sets it, never the browser.** ``_RouterEndpoint.post`` overwrites
+whatever the page sent with :func:`walletauth.gating.algorand_addresses_for_user`
+for the signed-in reader, exactly as it does for ``address``. The engine then
+reads each address' ASASTATS *for itself* and bands the sum: the body names
+addresses, it never names a discount. The published scale counts every linked
+address, which is why this is the whole profile rather than the address being
+swapped from, and why an EVM connection contributes its lsig counterpart — the
+account that actually holds anything on Algorand.
+
+.. warning::
+
+   **This was broken from the day the widget shipped until 2026-09-07, and the
+   discount table was published in the meantime.** Two faults in series, each
+   hiding the other. The engine read ``request.linked_addresses``, an attribute
+   nothing has ever assigned — the same dead-plumbing shape as the
+   ``widget_scope`` bug documented beside it — so every caller earned zero.
+   Behind that, ``_holdings_for`` returned ``fetch_holdings``' mapping of asset
+   id to a *metadata dict* while ``core.discounts.profile_holding`` sums asset
+   id to an *amount*, so the first real call would have raised ``TypeError``
+   inside the view's broad ``except`` and refused the quote outright.
+
+   Neither was caught because the tests mocked the seam between them: the
+   discount tests patched ``_holdings_for`` and returned the shape the policy
+   wanted rather than the shape the engine produced, and a ``MagicMock``
+   request answers any attribute you ask it for. The regression tests now run
+   the two halves against each other instead.
+
+   The Dust Sweep's full waiver was never affected: it comes from
+   ``core.sweep.sweep_discount``, which is keyed on the trade rather than the
+   caller and touches none of this.
 
 ``router:group`` takes ``{address, quote}`` and returns ``{transactions: [...], quote:
 {...}}`` — base64, grouped by ``router.build.assemble``, unsigned, alongside the quote
