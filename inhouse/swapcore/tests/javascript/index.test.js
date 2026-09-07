@@ -349,6 +349,7 @@ describe("executeSwap", () => {
       activeAddress: () => "ADDR",
       signAndSend: jest.fn(),
       signAndSendPartial: jest.fn(async () => "PARTIAL-TXID"),
+      optIn: jest.fn(async () => "OPTIN-TXID"),
     };
     const partial = {
       transactions: [new Uint8Array([1]), new Uint8Array([2])],
@@ -368,9 +369,91 @@ describe("executeSwap", () => {
 
     expect(window.asastatsSwap.signAndSendPartial).toHaveBeenCalledWith(partial);
     expect(window.asastatsSwap.signAndSend).not.toHaveBeenCalled();
+    // holdings carry only ALGO, so the target needs opting into first
+    expect(window.asastatsSwap.optIn).toHaveBeenCalled();
     expect(panel.querySelector(".id-swap-status").textContent).toContain(
       "PARTIAL-TXID",
     );
+  });
+
+  test("a quote-signed group opts the caller in before it is submitted", async () => {
+    // A quote-signed group is signed by the backend over exact indices, so
+    // nothing may be prepended to it - `signAndSendPartial` refuses to. The
+    // opt-in therefore has to be its own transaction, confirmed first. Nothing
+    // did that, and four routed swaps in a row were refused by the chain with
+    // `must optin, asset ... missing from <the caller>`.
+    const panel = mountPanel([]);
+    ready(panel);
+    global.fetch = jest.fn(async () => ({
+      text: async () => panelHTML([{ id: 0, amount: 5000000 }]),
+    }));
+    const order = [];
+    window.asastatsSwap = {
+      activeAddress: () => "ADDR",
+      signAndSend: jest.fn(),
+      optIn: jest.fn(async () => {
+        order.push("optIn");
+        return "OPTIN-TXID";
+      }),
+      signAndSendPartial: jest.fn(async () => {
+        order.push("partial");
+        return "PARTIAL-TXID";
+      }),
+    };
+    const partial = {
+      transactions: [new Uint8Array([1]), new Uint8Array([2])],
+      signedTransactions: { "1": new Uint8Array([3]) },
+      quoteSignerIndex: 1,
+    };
+    const ctx = {
+      fromAddress: "ADDR",
+      owns: true,
+      cfg: {},
+      holdingsUrl: "/u",
+      lastQuote: { raw: {} },
+      adapter: { buildSwapGroup: jest.fn(async () => partial) },
+    };
+
+    await F.executeSwap(panel, ctx);
+
+    expect(order).toEqual(["optIn", "partial"]);
+  });
+
+  test("a quote-signed group does not opt in twice", async () => {
+    // A caller who already holds the asset signs once, as before.
+    const panel = mountPanel([]);
+    ready(panel);
+    global.fetch = jest.fn(async () => ({
+      text: async () =>
+        panelHTML([
+          { id: 0, amount: 5000000 },
+          { id: 31566704, amount: 1 },
+        ]),
+    }));
+    window.asastatsSwap = {
+      activeAddress: () => "ADDR",
+      signAndSend: jest.fn(),
+      optIn: jest.fn(),
+      signAndSendPartial: jest.fn(async () => "PARTIAL-TXID"),
+    };
+    const partial = {
+      transactions: [new Uint8Array([1]), new Uint8Array([2])],
+      signedTransactions: { "1": new Uint8Array([3]) },
+      quoteSignerIndex: 1,
+    };
+    const ctx = {
+      fromAddress: "ADDR",
+      owns: true,
+      cfg: {},
+      holdingsUrl: "/u",
+      lastQuote: { raw: {} },
+      adapter: { buildSwapGroup: jest.fn(async () => partial) },
+    };
+
+    await F.executeSwap(panel, ctx);
+
+    expect(window.asastatsSwap.optIn).not.toHaveBeenCalled();
+    expect(window.asastatsSwap.signAndSendPartial).toHaveBeenCalledWith(partial);
   });
 
   test("backend-signed group fails clearly without partial bridge support", async () => {

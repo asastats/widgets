@@ -945,6 +945,29 @@ async function executeSwap(panel, ctx) {
         if (typeof window.asastatsSwap.signAndSendPartial !== "function") {
           throw new Error("The connected wallet does not support quote-signed groups");
         }
+        // **The opt-in cannot ride inside this group, so it goes before it.**
+        // A quote-signed group is signed by the backend over exact indices and
+        // its floor note records them, so `signAndSendPartial` refuses to
+        // prepend anything - correctly. The array path below has the opposite
+        // problem and the opposite answer: it may prepend, so it does, in one
+        // atomic group and one signature.
+        //
+        // Nothing did either here, so a routed swap into an asset the caller
+        // did not hold was built, signed and refused by the chain with
+        // `must optin, asset ... missing from <the caller>` - from inside the
+        // router's own payout, since it is the inner transfer that lands. Four
+        // assets in a row failed that way while three earlier ones, already
+        // held, went through.
+        //
+        // Two signatures is the cost, and it is not avoidable: the opt-in has
+        // to be confirmed before the group is submitted. `optIn` waits for
+        // confirmation, and the group's own window is 120 rounds, so the few
+        // seconds it takes are well inside it.
+        if (Number(params.toAssetId) !== 0 && !isOptedIn(fresh, params.toAssetId)) {
+          setPanelStatus(panel, "Opting in — this is the first of two signatures…");
+          setCtaLabel(panel, "Check your wallet", true);
+          await window.asastatsSwap.optIn(Number(params.toAssetId));
+        }
         setPanelStatus(panel, "Awaiting signature…");
         setCtaLabel(panel, "Check your wallet", true);
         txid = await window.asastatsSwap.signAndSendPartial(group);
