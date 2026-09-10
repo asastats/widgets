@@ -9,7 +9,7 @@ class TestInhouseAsastatsUrls:
     """Testing class for :py:mod:`widgets.inhouse.asastats.urls` module."""
 
     def test_inhouse_asastats_urls_pattern_count(self):
-        assert len(urls.urlpatterns) == 3
+        assert len(urls.urlpatterns) == 4
 
     def test_inhouse_asastats_urls_quote_pattern(self):
         url = urls.urlpatterns[0]
@@ -25,13 +25,24 @@ class TestInhouseAsastatsUrls:
         assert url.name == "asastats_group"
         assert str(url.pattern) == r"^group$"
 
-    def test_inhouse_asastats_urls_swap_pattern(self):
+    def test_inhouse_asastats_urls_reauthorize_pattern(self):
+        """The second half of building a group, for wallets that rewrite it."""
         url = urls.urlpatterns[2]
+        assert isinstance(url, URLPattern)
+        assert (
+            url.lookup_str
+            == "widgets.inhouse.asastats.views.AsastatsReauthorizeView"
+        )
+        assert url.name == "asastats_reauthorize"
+        assert str(url.pattern) == r"^reauthorize$"
+
+    def test_inhouse_asastats_urls_swap_pattern(self):
+        url = urls.urlpatterns[3]
         assert isinstance(url, URLPattern)
         assert url.lookup_str == "widgets.inhouse.asastats.views.AsastatsSwapView"
         assert url.name == "asastats"
         assert str(url.pattern) == r"^(\w{40}|\w{58})$"
 
     def test_inhouse_asastats_urls_shell_pattern_is_last(self):
-        """Otherwise it swallows `quote` and `group`, which are also \\w+."""
+        """Otherwise it swallows the three named ones, which are also \\w+."""
         assert urls.urlpatterns[-1].name == "asastats"

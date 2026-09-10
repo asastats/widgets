@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
 #: passes ``/api/v2/...`` for the same reason.
 QUOTE_PATH = "/api/v2/internal/router/quote/"
 GROUP_PATH = "/api/v2/internal/router/group/"
+REAUTHORIZE_PATH = "/api/v2/internal/router/reauthorize/"
 
 
 class AsastatsSwapView(WidgetAccessMixin, TemplateView):
@@ -218,3 +219,29 @@ class AsastatsGroupView(_RouterEndpoint):
 
     scope = "router:group"
     path = GROUP_PATH
+
+
+@method_decorator(never_cache, name="dispatch")
+class AsastatsReauthorizeView(_RouterEndpoint):
+    """JSON endpoint: authorize the group the wallet handed back.
+
+    **One wallet does not return what it was given.** Pera's post-quantum path
+    raises the fee on every transaction it signs - a Falcon-1024 signature costs
+    three minimum fees where Ed25519 costs one - and re-groups them, so the
+    backend's authorization is left carrying a group id nothing else has and the
+    chain refuses the group. The engine re-signs that authorization over the
+    group that came out, unchanged but for its group id.
+
+    Gated exactly as the group endpoint is, through the same base class: the
+    address is the linked one rather than whatever the body claims, so a session
+    cannot be used to finish somebody else's swap. The engine checks that again
+    against the note it signed, which is the check that actually matters.
+
+    Shares ``router:group`` rather than earning a scope of its own. A new scope
+    would have to be granted to every existing deployment by hand before any of
+    this worked, and this endpoint signs nothing the group endpoint could not
+    already be asked to sign.
+    """
+
+    scope = "router:group"
+    path = REAUTHORIZE_PATH

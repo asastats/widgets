@@ -497,9 +497,46 @@ var AsastatsAdapter = {
         transactions: transactions,
         signedTransactions: signedTransactions,
         quoteSignerIndex: Number(built.quote_signer_index),
+        // How the bridge asks for a fresh authorization when the wallet
+        // rewrites what it signs. It travels with the group because the
+        // endpoint is this adapter's: the bridge knows the group is stale, and
+        // only the thing that fetched it knows where to ask about it.
+        reauthorize: cfg.reauthorizeUrl
+          ? function (returned, authorization) {
+              return AsastatsAdapter.reauthorize(
+                cfg,
+                fromAddress,
+                returned,
+                authorization,
+              );
+            }
+          : undefined,
       };
     }
     return transactions;
+  },
+
+  /**
+   * Ask the engine to authorize the group the wallet handed back.
+   *
+   * **Only reached when the wallet rewrote the group**, which today means a
+   * post-quantum account: a Falcon signature costs three minimum fees where
+   * Ed25519 costs one, so Pera raises every fee it signs and re-groups, leaving
+   * the backend's authorization carrying a group id nothing else has. The
+   * engine re-signs that authorization over the group that came out, unchanged
+   * but for its group id.
+   *
+   * The bridge checks what this returns before submitting it, so a wrong answer
+   * here fails the swap rather than settling it badly.
+   */
+  reauthorize: async function (cfg, address, returned, authorization) {
+    var answer = await AsastatsAdapter._post(cfg.reauthorizeUrl, address, {
+      transactions: Array.prototype.map.call(returned, bytesToB64),
+      authorization: bytesToB64(authorization),
+    });
+    return b64ToBytes(
+      answer.signed_transactions[String(answer.quote_signer_index)],
+    );
   },
 };
 
@@ -707,6 +744,7 @@ function swapConfig(root) {
     // the browser posts to us instead of to a vendor SDK. Empty for the others.
     quoteUrl: root.dataset.quoteUrl || "",
     groupUrl: root.dataset.groupUrl || "",
+    reauthorizeUrl: root.dataset.reauthorizeUrl || "",
   };
 }
 
@@ -1324,6 +1362,22 @@ function b64ToBytes(b64) {
   return out;
 }
 
+/**
+ * Encode a Uint8Array as base64 (browser, no Buffer).
+ *
+ * Chunked rather than one `String.fromCharCode.apply`: a transaction group is
+ * small, but `apply` on a large array throws `RangeError: Maximum call stack
+ * size exceeded` rather than returning a wrong answer, and the size at which
+ * it starts doing so is the engine's business rather than this function's.
+ */
+function bytesToB64(bytes) {
+  var out = "";
+  for (var i = 0; i < bytes.length; i += 0x8000) {
+    out += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(out);
+}
+
 /* istanbul ignore next -- DOM/htmx wiring; the unit-tested core is the helpers above */
 function impliedSource() {
   /* istanbul ignore next -- thin URL read; behaviour covered via applyImpliedSource */
@@ -1385,6 +1439,7 @@ function markerCfg(marker) {
     baseUrl: marker.dataset.baseUrl || "",
     quoteUrl: marker.dataset.quoteUrl || "",
     groupUrl: marker.dataset.groupUrl || "",
+    reauthorizeUrl: marker.dataset.reauthorizeUrl || "",
   };
 }
 
@@ -2455,6 +2510,7 @@ if (typeof module !== "undefined" && module.exports) {
     decimalToBaseUnits: decimalToBaseUnits,
     baseUnitsToDecimal: baseUnitsToDecimal,
     b64ToBytes: b64ToBytes,
+    bytesToB64: bytesToB64,
     readPanelCfg: readPanelCfg,
     markerCfg: markerCfg,
     applyPercent: applyPercent,

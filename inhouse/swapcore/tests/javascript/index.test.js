@@ -58,6 +58,7 @@ describe("pure helpers", () => {
       // only the ASA Stats router uses these; empty for the vendor SDKs
       quoteUrl: "",
       groupUrl: "",
+      reauthorizeUrl: "",
     });
   });
   test("swapConfig reads the ASA Stats router endpoints", () => {
@@ -72,6 +73,7 @@ describe("pure helpers", () => {
       baseUrl: "",
       quoteUrl: "/api/v2/internal/router/quote/",
       groupUrl: "/api/v2/internal/router/group/",
+      reauthorizeUrl: "",
     });
   });
   test("swapConfig defaults", () => {
@@ -83,6 +85,7 @@ describe("pure helpers", () => {
       baseUrl: "",
       quoteUrl: "",
       groupUrl: "",
+      reauthorizeUrl: "",
     });
   });
   test("readPanelHoldings parses the island", () => {
@@ -112,6 +115,22 @@ describe("pure helpers", () => {
   });
   test("b64ToBytes decodes", () => {
     expect(Array.from(F.b64ToBytes(btoa("ABC")))).toEqual([65, 66, 67]);
+  });
+
+  test("bytesToB64 encodes, and round-trips with b64ToBytes", () => {
+    expect(F.bytesToB64(new Uint8Array([65, 66, 67]))).toBe(btoa("ABC"));
+    const bytes = new Uint8Array([0, 1, 250, 255, 128]);
+    expect(Array.from(F.b64ToBytes(F.bytesToB64(bytes)))).toEqual(
+      Array.from(bytes),
+    );
+  });
+
+  test("bytesToB64 survives an array too long for one fromCharCode call", () => {
+    // `String.fromCharCode.apply` throws RangeError past the argument limit
+    // rather than returning a wrong answer, so the chunking is what stops a
+    // large group failing to encode at all.
+    const long = new Uint8Array(0x8000 * 2 + 5).fill(65);
+    expect(F.b64ToBytes(F.bytesToB64(long)).length).toBe(long.length);
   });
 });
 
@@ -764,6 +783,74 @@ describe("AsastatsAdapter", () => {
     await expect(
       F.AsastatsAdapter.buildSwapGroup({ raw: { quote: SELL } }, "ADDR", CFG),
     ).resolves.toEqual([]);
+  });
+
+  /**
+   * The group the engine returns for a routed swap, with its authorization.
+   *
+   * `signed_transactions` is keyed by group index and `quote_signer_index`
+   * names which - the shape `signAndSendPartial` takes.
+   */
+  const ROUTED = {
+    transactions: [btoa("AAA"), btoa("SIGNED")],
+    signed_transactions: { 1: btoa("BLOB") },
+    quote_signer_index: 1,
+  };
+
+  test("buildSwapGroup carries a way to re-authorize the group", async () => {
+    // Pera rewrites and re-groups every transaction it signs for a
+    // post-quantum account, which leaves the engine's authorization covering a
+    // group that no longer exists. The bridge can ask for a fresh one, but only
+    // this adapter knows where to ask.
+    stubFetch(ROUTED);
+    const group = await F.AsastatsAdapter.buildSwapGroup(
+      { raw: { quote: SELL } },
+      "ADDR",
+      { ...CFG, reauthorizeUrl: "/r/" },
+    );
+
+    expect(typeof group.reauthorize).toBe("function");
+  });
+
+  test("buildSwapGroup omits it when the deployment renders no endpoint", async () => {
+    // Then the bridge reports the divergence instead, which is what every
+    // caller did before the endpoint existed.
+    stubFetch(ROUTED);
+    const group = await F.AsastatsAdapter.buildSwapGroup(
+      { raw: { quote: SELL } },
+      "ADDR",
+      CFG,
+    );
+
+    expect(group.reauthorize).toBeUndefined();
+  });
+
+  test("the group's reauthorize posts the wallet's transactions and decodes the answer", async () => {
+    const fetchMock = stubFetch({
+      quote_signer_index: 1,
+      signed_transactions: { 1: btoa("FRESH") },
+    });
+    const group = await F.AsastatsAdapter.buildSwapGroup(
+      { raw: { quote: SELL } },
+      "ADDR",
+      { ...CFG, reauthorizeUrl: "/r/" },
+    );
+    fetchMock.mockClear();
+
+    const fresh = await group.reauthorize(
+      [new Uint8Array([65, 66])],
+      new Uint8Array([67]),
+    );
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/r/?address=ADDR");
+    // the address rides in the query string, as it does for quote and group -
+    // the view gates on it before the body is read at all
+    expect(JSON.parse(init.body)).toEqual({
+      transactions: [btoa("AB")],
+      authorization: btoa("C"),
+    });
+    expect(Array.from(fresh)).toEqual([70, 82, 69, 83, 72]);
   });
 
   test("_post sends CSRF, same-origin credentials and the address in the query", async () => {
@@ -1472,6 +1559,7 @@ describe("modal swap helpers", () => {
       baseUrl: "",
       quoteUrl: "",
       groupUrl: "",
+      reauthorizeUrl: "",
     });
   });
   test("markerCfg: explicit network/referrer/feeBps", () => {
@@ -1489,6 +1577,7 @@ describe("modal swap helpers", () => {
       baseUrl: "",
       quoteUrl: "",
       groupUrl: "",
+      reauthorizeUrl: "",
     });
   });
   test("markerCfg: carries the ASA Stats router endpoints", () => {
