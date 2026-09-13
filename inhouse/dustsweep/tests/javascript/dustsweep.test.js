@@ -1149,19 +1149,68 @@ describe("summarise", () => {
   });
 });
 
+describe("connectionSource", () => {
+  /**
+   * **A sweep needs a connected wallet, and nothing else from the swap.**
+   *
+   * This used to read `window.asastatsSwap` and only that, which tied the
+   * button's visibility to a feature it does not depend on. Two live failures
+   * came out of it: a swap bridge that threw while being built published
+   * nothing, and a page with no swap entry never built one at all. Either way
+   * the button stayed hidden with nothing in the console to say why.
+   */
+  afterEach(() => {
+    delete window.asastatsSwap;
+    delete window.asastatsWallet;
+  });
+
+  test("prefers the wallet, which is what actually knows", () => {
+    window.asastatsWallet = { activeAddress: () => "WALLET" };
+    window.asastatsSwap = { activeAddress: () => "SWAP" };
+    expect(sweep.connectionSource().activeAddress()).toBe("WALLET");
+  });
+
+  test("falls back to the swap for an older wallet bundle", () => {
+    // The bundle and this widget ship from different repositories, so a
+    // deployment may carry a bundle that predates `asastatsWallet`.
+    window.asastatsSwap = { activeAddress: () => "SWAP" };
+    expect(sweep.connectionSource().activeAddress()).toBe("SWAP");
+  });
+
+  test("is null when neither is published", () => {
+    expect(sweep.connectionSource()).toBeNull();
+  });
+});
+
 describe("whenSweepReady", () => {
   afterEach(() => {
     delete window.asastatsSwap;
+    delete window.asastatsWallet;
   });
 
-  test("runs at once when the bridge is already published", () => {
+  test("runs at once when the wallet is already published", () => {
+    window.asastatsWallet = {};
+    const fn = jest.fn();
+    sweep.whenSweepReady(fn);
+    expect(fn).toHaveBeenCalled();
+  });
+
+  test("runs at once when only the older swap bridge is published", () => {
     window.asastatsSwap = {};
     const fn = jest.fn();
     sweep.whenSweepReady(fn);
     expect(fn).toHaveBeenCalled();
   });
 
-  test("waits for the bridge's ready event otherwise", () => {
+  test("waits for the wallet's ready event otherwise", () => {
+    const fn = jest.fn();
+    sweep.whenSweepReady(fn);
+    expect(fn).not.toHaveBeenCalled();
+    window.dispatchEvent(new CustomEvent("asastats:wallet-ready"));
+    expect(fn).toHaveBeenCalled();
+  });
+
+  test("still waits for the swap's ready event, for an older bundle", () => {
     const fn = jest.fn();
     sweep.whenSweepReady(fn);
     expect(fn).not.toHaveBeenCalled();

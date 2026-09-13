@@ -1125,16 +1125,34 @@ async function signAction(action, address, bridge, routerApp) {
 }
 
 /**
- * Run `fn` once the swap bridge is available.
+ * Return whoever can answer "which account is connected", or null.
  *
- * The bridge publishes `window.asastatsSwap` and dispatches
- * `asastats:swap-ready` only after the wallet manager resumes, so anything
- * reading `activeAddress` has to wait for it.
+ * **`asastatsWallet` first, and `asastatsSwap` only as a fallback.** Connection
+ * state is a wallet fact; the sweep needs it and needs nothing else from the
+ * swap. Reading it off the swap object is what made this button vanish for
+ * readers whose swap bridge failed to start, and for readers whose page had no
+ * swap on it at all.
+ *
+ * The fallback stays because the wallet bundle and this widget ship from
+ * different repositories: a deployment may carry a bundle older than this file,
+ * and on one the sweep should keep working exactly as it used to.
+ */
+function connectionSource() {
+  return window.asastatsWallet || window.asastatsSwap || null;
+}
+
+/**
+ * Run `fn` once connection state is available.
+ *
+ * The wallet is published only after the manager resumes, so anything reading
+ * `activeAddress` has to wait for it. Both events are heard for the same reason
+ * both objects are read above.
  */
 function whenSweepReady(fn) {
-  if (window.asastatsSwap) {
+  if (connectionSource()) {
     fn();
   } else {
+    window.addEventListener("asastats:wallet-ready", fn, { once: true });
     window.addEventListener("asastats:swap-ready", fn, { once: true });
   }
 }
@@ -1363,10 +1381,10 @@ function offerToConnectedAccount(root) {
   if (slot && slot !== root.parentNode) slot.appendChild(root);
 
   var refresh = function () {
-    var bridge = window.asastatsSwap;
+    var source = connectionSource();
     var active =
-      bridge && typeof bridge.activeAddress === "function"
-        ? bridge.activeAddress()
+      source && typeof source.activeAddress === "function"
+        ? source.activeAddress()
         : "";
     var address = sweepableAddress(candidates, active);
     if (address === button.dataset.address) return;
@@ -1718,6 +1736,7 @@ if (typeof module !== "undefined" && module.exports) {
     badgeFor: badgeFor,
     choicePayload: choicePayload,
     closeOutProblems: closeOutProblems,
+    connectionSource: connectionSource,
     convertedInputProblems: convertedInputProblems,
     csrfToken: csrfToken,
     ctaLabel: ctaLabel,
