@@ -1,0 +1,33 @@
+id = "liverefresh"
+name = "Real-time refresh"
+version = "0.1.0"
+origin = "inhouse"
+capability = "public"
+revenue_account = ""
+
+# **"public" is about the credential, not the audience.** The manifest's own
+# rule is that an engine-backed widget must declare engine_endpoints, and this
+# one calls nothing on the reader's behalf: the engine's live pass publishes to
+# this deployment's Redis on its own schedule and this widget only reads it. It
+# is still gated - the permission bands below do that - but it spends none of
+# the deployment credential, so a fork that cannot reach the engine's HTTP API
+# can host it as long as its own engine runs the pass.
+data = ["portfolio:bundle", "profile:permission"]
+hosts = []
+
+[assets]
+templates = "templates/"
+
+# The same bands as the historic widget, which is the closest analogue: engine
+# backed, priced per bundle, and worth more the more addresses it covers.
+[[required_permission]]
+max_addresses = 1
+permission = 23299689438
+
+[[required_permission]]
+max_addresses = 5
+permission = 258885438200
+
+[[required_permission]]
+max_addresses = 10
+permission = 3236067977500

@@ -41,6 +41,7 @@ class TestWidgetsRouting:
                 ("inhouse.asastats.routing",),
                 ("inhouse.swapcore.routing",),
                 ("inhouse.dustsweep.routing",),
+                ("inhouse.liverefresh.routing",),
             ]
         finally:
             mocker.stopall()

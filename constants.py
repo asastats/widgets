@@ -8,5 +8,6 @@ INHOUSE_WIDGETS = [
     "asastats",
     "swapcore",
     "dustsweep",
+    "liverefresh",
 ]
 THIRDPARTY_WIDGETS = []

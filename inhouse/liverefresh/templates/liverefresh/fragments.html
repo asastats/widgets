@@ -1,0 +1,7 @@
+{% comment %}
+Fragments this block changed, applied wherever they live by htmx.
+
+`hx-swap-oob` is what lets one response update several places at once without
+the poll knowing where any of them are on the page.
+{% endcomment %}
+<span id="live-total" hx-swap-oob="true">{{ payload.total }}</span>
