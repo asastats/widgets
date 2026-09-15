@@ -1,7 +1,29 @@
 {% comment %}
-Fragments this block changed, applied wherever they live by htmx.
+What this block changed, applied wherever it lives by htmx.
 
-`hx-swap-oob` is what lets one response update several places at once without
-the poll knowing where any of them are on the page.
+**These are the address page's own partials, not copies of them.** Each is
+`{% partialdef %}`-ed in `address_dynamic.html` and rendered twice: once when
+the page is built, from `account.total`, and once a block from here, from the
+payload the engine published. The payload's keys are spelled exactly like
+`Total`'s fields so `band` means the same thing either way.
+
+That matters more than the duplication it saves. A second copy of this markup
+would have to reimplement `floatformat`, the data attributes `address.js` reads
+to switch currency, and the tooltip - and would drift the first time one of them
+changed, silently, because nothing renders both and compares.
+
+`hx-swap-oob` rides along on the partial under `oob`, because the attribute has
+to be on the swapped element itself and the page must not carry it.
 {% endcomment %}
-<span id="live-total" hx-swap-oob="true">{{ payload.total }}</span>
+{% include "address_dynamic.html#bandtotal" with band=payload oob=True %}
+{% include "address_dynamic.html#bandusd" with band=payload oob=True %}
+{% comment %}
+One span per holding whose value moved, and only those: the engine diffs against
+last block so a quiet block sends none of these at all. Each lands on the row it
+belongs to by id.
+
+Same partial the row itself is built from, for the same reason as the band - the
+rounding, the `data-val` the currency switch reads, and the unit beside it are
+written once.
+{% endcomment %}
+{% for asset_id, value in payload.values.items %}{% include "snippets/dynamic/asset.html#assetvalue" with asset_id=asset_id value=value oob=True %}{% endfor %}

@@ -174,3 +174,306 @@ class TestLiveRefreshViewGate:
         view.test_func()
 
         gate.assert_called_once_with(2)
+
+
+class TestLiveRefreshFragments:
+    """What actually reaches the page, rendered rather than asserted about.
+
+    The eight tests above cover the view's decisions - heartbeat, 204, session.
+    None of them rendered the template, so the fragments could have been
+    anything: the placeholder they started as, a `partialdef` that was never
+    loaded, or an include naming a partial that does not exist. Each of those
+    fails at the first real poll and none of them fails in a unit test that
+    stops at the response.
+    """
+
+    #: A published block, keyed exactly as `Total`'s fields are.
+    PAYLOAD = {
+        "total": 1881.509592,
+        "algo": 300.0,
+        "asa": 86.517108,
+        "nft": 1494.992484,
+        "totalusdc": 216.302465,
+        "priceusdc": 8.698512,
+        "pricealgo": 0.114962,
+    }
+
+    def _rendered(self):
+        from django.template.loader import render_to_string
+
+        return render_to_string(
+            "liverefresh/fragments.html", {"payload": self.PAYLOAD}
+        )
+
+    def test_liverefresh_fragments_are_marked_for_out_of_band_swaps(self):
+        """Without this htmx puts the whole response where the poll fired.
+
+        `hx-swap-oob` is what lets one response update the band in two places
+        at once, neither of them where the request came from.
+        """
+        html = self._rendered()
+
+        assert html.count('hx-swap-oob="true"') == 2
+        assert 'id="id-band-total"' in html
+        assert 'id="id-band-usd"' in html
+
+    def test_liverefresh_fragments_carry_the_figures_the_block_changed(self):
+        """Formatted the way the page formats them, because it is the page's
+        own partial doing the formatting."""
+        html = self._rendered()
+
+        assert "1,881.51 ALGO" in html
+        assert "216.30 USD at 0.114962 USD/ALGO" in html
+
+    def test_liverefresh_fragments_carry_what_the_currency_switch_reads(self):
+        """`address.js` converts every figure on the page from these.
+
+        The span is replaced whole, so an attribute missing here is an
+        attribute gone from the page - and the switch then reads `undefined`
+        and renders NaN, a block after the reader last touched anything.
+        """
+        html = self._rendered()
+
+        for attribute, value in (
+            ("data-price", "8.698512"),
+            ("data-pricealgo", "0.114962"),
+            ("data-total", "216.302465"),
+            ("data-totalwnft", "1881.509592"),
+            ("data-totalnft", "1494.992484"),
+        ):
+            # Quoted: an unquoted attribute that renders empty swallows the
+            # next one, so the quotes are load-bearing rather than style.
+            assert f'{attribute}="{value}"' in html, attribute
+
+    def test_liverefresh_fragments_leave_the_nft_floor_alone(self):
+        """It is not block-volatile and it lives outside the replaced span.
+
+        `data-totalnftfloor` sits on the h1 for exactly this reason. Sending it
+        from here would be harmless only until the value it carried went stale,
+        because the engine's re-price never touches NFT floors.
+        """
+        assert "data-totalnftfloor" not in self._rendered()
+
+
+class TestLiveRefreshRowFragments:
+    """The per-holding half: one span per row whose figure moved."""
+
+    BAND = {
+        "total": 1881.509592,
+        "algo": 300.0,
+        "asa": 86.517108,
+        "nft": 1494.992484,
+        "totalusdc": 216.302465,
+        "priceusdc": 8.698512,
+        "pricealgo": 0.114962,
+    }
+
+    def _rendered(self, values):
+        from django.template.loader import render_to_string
+
+        return render_to_string(
+            "liverefresh/fragments.html",
+            {"payload": dict(self.BAND, values=values)},
+        )
+
+    def test_liverefresh_rows_land_on_the_row_they_belong_to(self):
+        """Addressed by asset id, because that is the only identity a payload
+        and a rendered row share - the engine does not know the page's order
+        and the page does not know the block's."""
+        html = self._rendered({31566704: 2.5, 226701642: 0.0})
+
+        assert '<span id="v31566704" hx-swap-oob="true"' in html
+        assert '<span id="v226701642" hx-swap-oob="true"' in html
+
+    def test_liverefresh_rows_are_formatted_by_the_row_s_own_partial(self):
+        """Two decimals for the reader, the full figure in `data-val`.
+
+        The currency switch recomputes from `data-val`, never from the visible
+        text, so a fragment that rounded the attribute too would make every
+        switch lose precision a block after the reader stopped touching it.
+        """
+        html = self._rendered({31566704: 2.5678901})
+
+        assert 'data-val="2.5678901"' in html
+        assert ">2.57<" in html
+
+    def test_liverefresh_sends_no_rows_on_a_quiet_block(self):
+        """The engine diffs against last block, so most blocks move the band
+        and nothing else. That has to cost no spans at all, not empty ones."""
+        html = self._rendered({})
+
+        assert 'class="v val"' not in html
+        # The band still went, which is the whole point of the quiet case.
+        assert 'id="id-band-total"' in html
+
+    def test_liverefresh_rows_do_not_touch_the_row_around_them(self):
+        """Only the figure is swapped.
+
+        Swapping the `<details>` would close it, discard the reader's drag
+        order and lose anything open inside - so `data-sort-value` on the row
+        stays as the page was built, and nothing here may address it.
+        """
+        html = self._rendered({31566704: 2.5})
+
+        assert "data-sort-value" not in html
+        assert "<details" not in html
+
+
+class TestLiveRefreshOlderEngine:
+    """The window where the frontend is ahead of the engine.
+
+    The two services deploy separately, so a browser can poll a payload
+    published by an engine that predates a field the band reads. Every figure
+    the band shows comes off this payload, so a missing key is not a smaller
+    update - it is a figure the reader watches go blank.
+    """
+
+    def test_liverefresh_derives_pricealgo_when_the_engine_omitted_it(self, mocker):
+        """It is the reciprocal of a field the old engine did send.
+
+        So there is a right answer available, and refusing to compute it would
+        blank the "USD/ALGO" figure for as long as the two versions differ.
+        """
+        view = _view(mocker)
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(
+            {"total": 6.0, "totalusdc": 12.0, "priceusdc": 0.5, "values": {}}
+        )
+
+        payload = view._payload(client)
+
+        assert payload["pricealgo"] == 2.0
+
+    def test_liverefresh_keeps_the_engine_s_own_pricealgo(self, mocker):
+        """Derived only when absent. The engine's figure is the authority -
+        it is computed from the same block as everything beside it."""
+        view = _view(mocker)
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(
+            {"total": 6.0, "totalusdc": 12.0, "priceusdc": 0.5,
+             "pricealgo": 1.9999, "values": {}}
+        )
+
+        payload = view._payload(client)
+
+        assert payload["pricealgo"] == 1.9999
+
+    def test_liverefresh_survives_a_price_of_zero(self, mocker):
+        """No division, and no exception inside a poll that fires every block.
+
+        A zero price is the engine failing to read a pool, not an ALGO worth
+        nothing, and the band showing a blank beats the poll 500ing.
+        """
+        view = _view(mocker)
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(
+            {"total": 6.0, "totalusdc": 0.0, "priceusdc": 0.0, "values": {}}
+        )
+
+        payload = view._payload(client)
+
+        assert "pricealgo" not in payload or not payload["pricealgo"]
+
+    def test_liverefresh_band_attributes_are_quoted(self):
+        """**An empty unquoted attribute eats the next one.**
+
+        Rendered without `pricealgo`, `data-pricealgo=` unquoted took
+        `data-total=216.3` as its value and `data-total` disappeared - so one
+        missing key cost two figures, and the currency switch computed the
+        total from `undefined`. Quoting contains the damage to the key that is
+        actually missing.
+        """
+        from core.tests.dom import parse
+        from django.template.loader import render_to_string
+
+        html = render_to_string(
+            "liverefresh/fragments.html",
+            {
+                "payload": {
+                    "total": 1881.5,
+                    "algo": 300.0,
+                    "asa": 86.5,
+                    "nft": 1494.99,
+                    "totalusdc": 216.3,
+                    "priceusdc": 8.698512,
+                    "values": {},
+                }
+            },
+        )
+        band = [
+            element
+            for element in parse(html).select("span")
+            if element.attrs.get("id") == "id-band-total"
+        ][0]
+
+        assert band.attrs.get("data-total") == "216.3"
+        assert band.attrs.get("data-pricealgo") == ""
+
+
+class TestLiveRefreshAddressLimits:
+    """How many addresses each tier may watch live.
+
+    The manifest is the only place these numbers live, so this is the only
+    place they can be pinned. They are a pricing decision rather than a
+    technical one, and a band edited by hand - the top one was the historic
+    widget's 10 until it was given this widget's own 20 - is exactly the kind
+    of value that moves without anybody noticing.
+    """
+
+    #: Addresses a reader of each tier may watch. `Intro` clears no band.
+    EXPECTED = {"Intro": 0, "Asastatser": 1, "Professional": 5, "Cluster": 20}
+
+    def test_liverefresh_bands_are_the_agreed_address_counts(self):
+        from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
+        from widgethost.manifest import addresses_limit_for_permission
+
+        from widgets.inhouse.liverefresh.manifest import MANIFEST
+
+        for tier, expected in self.EXPECTED.items():
+            allowed = addresses_limit_for_permission(
+                MANIFEST.required_permission, SUBSCRIPTION_TIER_PERMISSIONS[tier]
+            )
+            assert allowed == expected, f"{tier} may watch {allowed}, not {expected}"
+
+    def test_liverefresh_counts_addresses_rather_than_pages(self):
+        """A bundle of five and five single addresses cost the same allowance.
+
+        The gate is asked with the number of addresses a page resolves to, so a
+        Professional reader may spend their five on one bundle in one tab or on
+        five tabs - which is the promise made to them, and the reason this asks
+        about `size` rather than about how they arranged it.
+        """
+        from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
+        from widgethost.manifest import can_access
+
+        from widgets.inhouse.liverefresh.manifest import MANIFEST
+
+        professional = SUBSCRIPTION_TIER_PERMISSIONS["Professional"]
+
+        assert can_access(professional, MANIFEST.required_permission, 5)
+        assert can_access(professional, MANIFEST.required_permission, 1)
+        assert not can_access(professional, MANIFEST.required_permission, 6)
+
+    def test_liverefresh_does_not_yet_limit_the_total_across_tabs(self):
+        """**A known gap, asserted so it is a decision rather than a surprise.**
+
+        `can_access` is asked once per request with that page's count, so five
+        tabs of five-address bundles is five passing checks and twenty-five
+        addresses re-priced every block - well past the twenty the tier buys.
+
+        Closing it needs `lvx` to carry who is watching; it is keyed by the
+        address string alone. When that changes, this test is the one that
+        should start failing.
+        """
+        from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
+        from widgethost.manifest import can_access
+
+        from widgets.inhouse.liverefresh.manifest import MANIFEST
+
+        professional = SUBSCRIPTION_TIER_PERMISSIONS["Professional"]
+
+        # Each tab passes on its own, and nothing sums them.
+        assert all(
+            can_access(professional, MANIFEST.required_permission, 5)
+            for _ in range(5)
+        )

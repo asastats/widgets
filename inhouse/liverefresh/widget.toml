@@ -18,8 +18,35 @@ hosts = []
 [assets]
 templates = "templates/"
 
-# The same bands as the historic widget, which is the closest analogue: engine
-# backed, priced per bundle, and worth more the more addresses it covers.
+# **How many addresses a reader may watch live, by tier:**
+#
+#   Asastatser     1
+#   Professional   5
+#   Cluster       20
+#
+# Started as the historic widget's bands, which is the closest analogue -
+# engine-backed, priced per bundle, worth more the more addresses it covers -
+# but the top band is this widget's own number rather than that one's 10,
+# because what is being sold here is different: historic pays once per report,
+# live pays the engine a re-price of every watched page on every block.
+#
+# **The count is addresses, not tabs.** A Professional reader may watch one
+# bundle of five in a single tab, five tabs each on one address, or any
+# combination - the gate asks how many addresses a page resolves to, not how
+# the reader arranged them.
+#
+# **What is enforced here is per page, and the total across tabs is not.**
+# `can_access` is asked once per request with that page's address count, so
+# five tabs of one address each is five independent size-1 checks, all of which
+# pass - which happens to land on the intended five. Five tabs of five-address
+# bundles is also five passing checks, and twenty-five addresses being
+# re-priced every block.
+#
+# Closing that needs the subscription set to know *who* is watching: `lvx` is
+# keyed by the address string alone today, with no reader in it, so nothing can
+# count a reader's pages without adding that. Written down rather than left as
+# a surprise in the engine's cycle time - and see LIVE_HOLDINGS_CAP, which caps
+# what one worker retains but not what a reader may ask for.
 [[required_permission]]
 max_addresses = 1
 permission = 23299689438
@@ -29,5 +56,5 @@ max_addresses = 5
 permission = 258885438200
 
 [[required_permission]]
-max_addresses = 10
+max_addresses = 20
 permission = 3236067977500

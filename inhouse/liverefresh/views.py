@@ -96,9 +96,20 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         import msgpack
 
         raw = client.get(f"{PAYLOAD_PREFIX}:{self.bundle}")
+        if not raw:
+            return None
         # `strict_map_key=False` because the values map is keyed by asset id,
         # and msgpack refuses integer keys by default.
-        return msgpack.unpackb(raw, strict_map_key=False) if raw else None
+        payload = msgpack.unpackb(raw, strict_map_key=False)
+
+        # **Derived when the engine did not send it**, which is any block
+        # published by an engine older than the one that added the field. The
+        # two services deploy separately, so that window is real rather than
+        # hypothetical - and the band reads every figure it shows off this
+        # payload, so a missing key is a figure the reader watches go blank.
+        if not payload.get("pricealgo") and payload.get("priceusdc"):
+            payload["pricealgo"] = 1 / payload["priceusdc"]
+        return payload
 
     def _session_key(self):
         return f"liverefresh:{self.bundle}"

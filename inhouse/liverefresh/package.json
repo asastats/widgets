@@ -1,0 +1,34 @@
+{
+  "name": "asastats-widget-liverefresh",
+  "private": true,
+  "scripts": {
+    "test": "jest"
+  },
+  "jest": {
+    "verbose": true,
+    "collectCoverage": true,
+    "coverageDirectory": "<rootDir>/tests/javascript/coverage",
+    "collectCoverageFrom": [
+      "<rootDir>/static/liverefresh/*.js",
+      "!<rootDir>/static/liverefresh/*.min*.js",
+      "!<rootDir>/tests/javascript/coverage/**"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "statements": 100,
+        "branches": 100,
+        "functions": 100,
+        "lines": 100
+      }
+    },
+    "coverageReporters": [
+      "lcov",
+      "text"
+    ],
+    "testEnvironment": "jsdom"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1"
+  }
+}
