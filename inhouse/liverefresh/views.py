@@ -24,6 +24,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 from django.views.generic.base import TemplateView
 from utils.clients import redis_instance
+from utils.layouts import layout_for_user
 from widgethost.enforcement import WidgetAccessMixin
 
 from .manifest import MANIFEST
@@ -174,6 +175,12 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         context = super().get_context_data(*args, **kwargs)
         context["addresses"] = self.addresses
         context["bundle"] = self.bundle
+        # **The same helper the address page keys its cache entry on.** The
+        # fragments address ids only one layout renders, so serving the wrong
+        # set means every swap lands nowhere - and htmx says so, loudly, on
+        # every poll. Deriving it here rather than trusting a parameter keeps
+        # the two from ever disagreeing about which markup this reader holds.
+        context["layout"] = layout_for_user(getattr(self.request, "user", None))
         return context
 
     def test_func(self):

@@ -202,11 +202,12 @@ class TestLiveRefreshFragments:
         "pricealgo": 0.114962,
     }
 
-    def _rendered(self):
+    def _rendered(self, layout="dynamic", values=None):
         from django.template.loader import render_to_string
 
+        payload = dict(self.PAYLOAD, values=values or {})
         return render_to_string(
-            "liverefresh/fragments.html", {"payload": self.PAYLOAD}
+            "liverefresh/fragments.html", {"payload": payload, "layout": layout}
         )
 
     def test_liverefresh_fragments_are_marked_for_out_of_band_swaps(self):
@@ -645,3 +646,65 @@ class TestLiveRefreshViewHoldingsChanged:
 
         assert response.status_code == 200
         assert response["HX-Refresh"] == "true"
+
+
+class TestLiveRefreshFragmentsPerLayout:
+    """The two layouts render different markup, and the wrong set reaches nothing.
+
+    **The fragments address ids only one layout renders.** The dynamic band is
+    `#id-band-total` and `#id-band-usd`; the classic one is `#id-band-classic`
+    and `#id-total-tip`, a `.tooltip` wrapper and an sr-only span rather than a
+    figure and a visible sub-line. Serving one layout's set to the other means
+    every swap lands nowhere - and htmx says so on every poll, so it is not even
+    a quiet failure.
+
+    Rendering both and letting htmx discard the unmatched half was the obvious
+    shortcut and is closed: htmx 2 fires `htmx:oobErrorNoTarget`, and htmx 4
+    does not document the case at all.
+    """
+
+    PAYLOAD = TestLiveRefreshFragments.PAYLOAD
+
+    def _rendered(self, layout, values=None):
+        return TestLiveRefreshFragments._rendered(self, layout, values)
+
+    def test_liverefresh_classic_renders_the_classic_band(self):
+        html = self._rendered("classic")
+
+        assert 'id="id-band-classic"' in html
+        assert 'id="id-total-tip"' in html
+        assert 'id="id-band-total"' not in html
+        assert 'id="id-band-usd"' not in html
+
+    def test_liverefresh_dynamic_renders_the_dynamic_band(self):
+        html = self._rendered("dynamic")
+
+        assert 'id="id-band-total"' in html
+        assert 'id="id-band-usd"' in html
+        assert 'id="id-band-classic"' not in html
+
+    def test_liverefresh_classic_band_is_marked_for_out_of_band_swaps(self):
+        """Without this htmx puts the response where the poll fired instead."""
+        html = self._rendered("classic")
+
+        assert html.count('hx-swap-oob="true"') >= 2
+
+    def test_liverefresh_classic_carries_the_unit_inside_the_value(self):
+        """The layouts differ in what they render, not only in what they
+        address: classic puts ALGO inside the value span, the dynamic layout in
+        a sibling. A shared fragment would print the unit twice on one of them.
+        """
+        classic = self._rendered("classic", {7: 12.5})
+        dynamic = self._rendered("dynamic", {7: 12.5})
+
+        assert 'id="v7"' in classic and "ALGO" in classic
+        assert 'id="v7"' in dynamic
+        assert "ALGO" not in dynamic.split('id="v7"')[1].split("</span>")[0]
+
+    def test_liverefresh_an_unknown_layout_gets_the_dynamic_set(self):
+        """A layout key nobody planned for is not a reason to send nothing: the
+        dynamic page is the design direction, and its ids are what a new layout
+        is most likely to have copied."""
+        html = self._rendered("something-new")
+
+        assert 'id="id-band-total"' in html

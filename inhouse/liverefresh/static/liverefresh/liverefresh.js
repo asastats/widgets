@@ -33,7 +33,14 @@
   // Asked of the page rather than told by the server, so that a layout gaining
   // the partials starts working without anything else being changed - and one
   // losing them stops, rather than quietly polling into the void.
-  if (!document.getElementById("id-band-total")) {
+  //
+  // Either layout's band counts. The dynamic one renders `#id-band-total` and
+  // the classic one `#id-band-classic`; a reader is on one or the other, and a
+  // page with neither is one the swaps cannot reach.
+  if (
+    !document.getElementById("id-band-total") &&
+    !document.getElementById("id-band-classic")
+  ) {
     return;
   }
 

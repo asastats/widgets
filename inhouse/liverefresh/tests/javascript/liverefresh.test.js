@@ -37,6 +37,8 @@ const POLLED = `${POLL_URL}?holdings=beef1234`;
  * @param {string} [options.grace] `data-grace`, omitted when null
  * @param {string} [options.holdings] `data-holdings` on the band's carrier,
  *   omitted when null - what the page was rendered from
+ * @param {string} [options.bandId] which layout's band to render: the dynamic
+ *   layout's `id-band-total` or the classic layout's `id-band-classic`
  */
 function page(options = {}) {
   const {
@@ -45,13 +47,14 @@ function page(options = {}) {
     interval = "3",
     grace = "300",
     holdings = "beef1234",
+    bandId = "id-band-total",
   } = options;
   const parts = [];
   if (band) {
     parts.push(
       "<h1" +
         (holdings === null ? "" : ` data-holdings="${holdings}"`) +
-        '><span id="id-band-total">1,881.51 ALGO</span></h1>'
+        `><span id="${bandId}">1,881.51 ALGO</span></h1>`
     );
   }
   if (marker) {
@@ -226,6 +229,19 @@ describe("the interval", () => {
       POLL_URL,
       expect.anything()
     );
+  });
+
+  it("polls on the classic layout too", () => {
+    // The classic band is a different element with a different id. Guarding on
+    // the dynamic one alone is what kept this layout from ever polling - which
+    // was correct while there was nothing to swap there, and is not now.
+    localStorage.setItem("refresh", "y");
+    page({ bandId: "id-band-classic" });
+    load();
+
+    jest.advanceTimersByTime(3000);
+
+    expect(window.htmx.ajax).toHaveBeenCalledTimes(1);
   });
 
   it("asks for nothing while the reader has it off", () => {

@@ -15,8 +15,24 @@ changed, silently, because nothing renders both and compares.
 `hx-swap-oob` rides along on the partial under `oob`, because the attribute has
 to be on the swapped element itself and the page must not carry it.
 {% endcomment %}
+{% comment %}
+**Branched, not rendered twice.** The tempting alternative is to emit both
+layouts' fragments and let htmx drop whichever finds no target - it would remove
+this condition for a few hundred bytes a block. It is closed: htmx 2 fires
+`htmx:oobErrorNoTarget` for an unmatched out-of-band element, so every poll would
+log errors for the half that did not apply, and htmx 4 does not document the case
+at all. Neither version promises silence, so the server decides.
+
+`layout` comes from `layout_for_user`, the same helper the address page keys its
+cache entry on, so the two cannot disagree about which markup this reader has.
+{% endcomment %}
+{% if layout == "classic" %}
+{% include "address.html#classicband" with band=payload oob=True %}
+{% include "address.html#classictip" with band=payload oob=True %}
+{% else %}
 {% include "address_dynamic.html#bandtotal" with band=payload oob=True %}
 {% include "address_dynamic.html#bandusd" with band=payload oob=True %}
+{% endif %}
 {% comment %}
 One span per holding whose value moved, and only those: the engine diffs against
 last block so a quiet block sends none of these at all. Each lands on the row it
@@ -26,4 +42,4 @@ Same partial the row itself is built from, for the same reason as the band - the
 rounding, the `data-val` the currency switch reads, and the unit beside it are
 written once.
 {% endcomment %}
-{% for asset_id, value in payload.values.items %}{% include "snippets/dynamic/asset.html#assetvalue" with asset_id=asset_id value=value oob=True %}{% endfor %}
+{% if layout == "classic" %}{% for asset_id, value in payload.values.items %}{% include "snippets/asas.html#classicvalue" with asset_id=asset_id value=value oob=True %}{% endfor %}{% else %}{% for asset_id, value in payload.values.items %}{% include "snippets/dynamic/asset.html#assetvalue" with asset_id=asset_id value=value oob=True %}{% endfor %}{% endif %}
