@@ -477,3 +477,74 @@ class TestLiveRefreshAddressLimits:
             can_access(professional, MANIFEST.required_permission, 5)
             for _ in range(5)
         )
+
+
+class TestLiveRefreshPageKey:
+    """The Redis key this widget reads has to be the one the engine writes.
+
+    **Nothing above this caught the two sides disagreeing**, because every test
+    here sets `view.bundle` by hand and so never runs the resolution. The widget
+    asked for a hash of a single address; the engine publishes single addresses
+    under the address itself. Bundles agreed, single addresses never did - and
+    the symptom was a permanent 204, which is indistinguishable from a quiet
+    chain.
+
+    **Asserted on the argument, not on the result.** The first version of these
+    called through to the real `api.widgets` and passed here and failed for the
+    user: `widgets/inhouse/historic/tests/conftest.py` installs a fake
+    `api.widgets` into `sys.modules` whose
+    `bundle_and_addresses_from_path` is ``lambda *a, **kw: None``, so whether
+    the real one is reachable depends on which widget suites ran first. What
+    was wrong was the argument this view passes, and that is a fact about this
+    view - so it is patched at this view's own import site and holds either
+    way.
+    """
+
+    ADDRESS = "MULILZCPNVCE3DZHTIWY4B2SDY2H3U2QN6KWZFFSS6JSFU6FWZFSXO3BBM"
+    RESOLVER = "widgets.inhouse.liverefresh.views.bundle_and_addresses_from_path"
+
+    def test_liverefresh_does_not_hash_the_page_it_looks_up(self, mocker):
+        """`force_bundle=False`, or a single address is asked for as a hash.
+
+        `_live_page` publishes under
+        ``bundle_from_addresses(addresses) if " " in addresses else addresses``.
+        Hashing here asks for a key nothing writes, and the poll answers 204
+        for as long as the page exists.
+        """
+        view = _view(mocker)
+        view.kwargs = {"value": self.ADDRESS}
+        resolver = mocker.patch(
+            self.RESOLVER, return_value=(self.ADDRESS, self.ADDRESS)
+        )
+        mocker.patch.object(
+            LiveRefreshView, "manifest_test_func", return_value=True
+        )
+
+        view.test_func()
+
+        assert resolver.call_args.kwargs.get("force_bundle") is False, (
+            "the page is being hashed before lookup; a single address is its "
+            "own key at the engine"
+        )
+
+    def test_liverefresh_reads_the_page_the_resolver_returned(self, mocker):
+        """Both halves are kept: the key to read, and the page to heartbeat.
+
+        `_payload` reads `lvp:<bundle>` and `_heartbeat` scores `addresses`, so
+        dropping either would break a different half of the loop.
+        """
+        pair = f"{self.ADDRESS} {self.ADDRESS}"
+        view = _view(mocker)
+        view.kwargs = {"value": "540A5D8CEC896E073F9170AF0A962503E69147CF"}
+        mocker.patch(
+            self.RESOLVER,
+            return_value=("540A5D8CEC896E073F9170AF0A962503E69147CF", pair),
+        )
+        mocker.patch.object(
+            LiveRefreshView, "manifest_test_func", return_value=True
+        )
+
+        view.test_func()
+
+        assert view.bundle == "540A5D8CEC896E073F9170AF0A962503E69147CF"
+        assert view.addresses == pair

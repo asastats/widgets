@@ -30,8 +30,13 @@ anything):
   Hand-edited, and **Python concatenates adjacent string literals**: a missing comma
   silently fuses two addresses into one that can never resolve. Check
   ``len(settings.TRANSMITTER_LIVE_ADDRESSES)``, never the line count.
-- ``TRANSMITTER_LIVE_HOLDINGS_CAP`` — pages one worker retains, default ``24``. A cap on
-  retention, **not** on admission; see *Capacity* below.
+- ``TRANSMITTER_LIVE_MAX_PAGES`` — most pages one block will re-price, pinned and
+  subscribed together, default ``200``. Over it the pass keeps the pinned pages and the
+  *freshest* readers and sheds the stalest; a shed reader sees what a non-subscriber sees.
+  Zero disables the limit.
+- ``TRANSMITTER_LIVE_HOLDINGS_CAP`` — pages one worker retains, default ``64``. Retention,
+  not admission. Keep it at or above ``TRANSMITTER_LIVE_MAX_PAGES`` or the surplus becomes
+  re-reads (about 4x a re-price, and far worse on a heavy page).
 
 Redis keys, on the liveserver's own instance:
 
@@ -76,9 +81,16 @@ Two columns answer most questions:
 - ``usdc`` **must move every block.** It is the ALGO price, re-read on each re-price. If
   it is identical across two dumps minutes apart, the engine's re-read is not landing and
   every dollar figure on every watched page is stale.
-- ``changed N`` counts the holdings whose value moved, **not** how many are held. Small,
-  often zero, is healthy. A page reporting its whole holding count every block means the
-  per-block diff has stopped working.
+- ``changed N`` counts the holdings whose value moved **since that worker last held the
+  page** — which is not "since last block". ``_live_holdings`` is worker-local and
+  deliberately unpinned, so the gap varies and this number with it: a 120-asset page swung
+  between 12 and 76 over five consecutive samples. A worker that is not holding the page
+  re-reads it and publishes the whole set, logging ``live read`` instead of
+  ``live repriced``.
+
+  A high number is therefore not a fault. What is one is the count sitting at the page's
+  *full* holding count on every block — nothing is being retained, so check
+  ``TRANSMITTER_LIVE_HOLDINGS_CAP`` against the number of watched pages.
 
 ``lvx`` in the same dump lists who is being watched. An empty ``lvx`` with readers who
 believe they opted in points at the gate, not at the pass.
@@ -102,18 +114,25 @@ In the order worth checking:
 Capacity
 ^^^^^^^^
 
-**Nothing caps how many pages the engine re-prices per block in total.** The tier bands
-limit one reader; they do not limit the sum across readers, and the pass takes the whole
-subscribed set.
+``TRANSMITTER_LIVE_MAX_PAGES`` bounds it. Past the limit the pass keeps the pinned pages
+and the freshest readers and drops the rest, logging once per change::
 
-Roughly 27 ms per warm page, 11 appstransmitter workers, and about 1.5 s of headroom in
-each 2.721 s cycle. ``TRANSMITTER_LIVE_HOLDINGS_CAP`` is 24 **per worker**, so past
-roughly **264 concurrently watched pages** the retention cache thrashes and an evicted
-page is *re-read* — the 3.69 s path — rather than re-priced.
+    live pass at capacity: 260 pages wanted, 200 admitted, 60 readers shed
+    (TRANSMITTER_LIVE_MAX_PAGES=200, 50 pinned)
 
-The failure is not gradual. Past that point the pass starts missing blocks and the
-feature goes quiet for everybody rather than for the marginal reader. Watch the size of
-``lvx`` and the transmitter's cycle time together.
+**That warning is the signal to act**, not an error. It means readers are being turned
+away, so either raise the limit against measurement or cut the pinned list.
+
+The limit exists because the failure without it is not gradual: past the point where the
+pass no longer fits its block the whole wave starts missing rounds, and the feature goes
+quiet for *everybody* rather than for the readers past the limit. A shed reader sees what
+a reader who never subscribed sees — a page that does not update.
+
+Sizing, measured (2026-09-15): about 9 ms to re-price a page in production and 60–160 ms
+to read one; a 7,002-NFT bundle is 0.35 s and 1.7 s respectively. Fifty pages measured
+1.557 s of serial work per cycle, and the cycle did not move — the pass is a few percent
+of it. Raise the limit against ``live/tools/pass_stats.py`` rather than against a guess,
+and raise ``TRANSMITTER_LIVE_HOLDINGS_CAP`` with it.
 
 Turning it off
 ^^^^^^^^^^^^^^

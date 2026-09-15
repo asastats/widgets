@@ -133,7 +133,18 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
 
         :return: Boolean
         """
+        # **`force_bundle=False`, because the engine does not hash a single
+        # address.** Its pass publishes under
+        # `bundle_from_addresses(addresses) if " " in addresses else addresses`
+        # - the raw address when there is only one, the hash when there are
+        # several. Hashing unconditionally here asked for a key nothing writes.
+        #
+        # The failure had the worst possible shape: the poll still ran, still
+        # heartbeated, so the engine went on re-pricing the page every block -
+        # and every response was a 204, so the reader saw a live indicator over
+        # a page that never moved and nothing anywhere logged a problem. A
+        # bundle worked throughout, because both sides hash those.
         self.bundle, self.addresses = bundle_and_addresses_from_path(
-            self.kwargs.get("value") or self.args[0]
+            self.kwargs.get("value") or self.args[0], force_bundle=False
         )
         return self.manifest_test_func(len(self.addresses.split()))
