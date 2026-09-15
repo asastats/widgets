@@ -12,11 +12,15 @@ from widgets.inhouse.liverefresh.views import (
 ADDRESS = "2EVGZ4BGOSL3J64UYDE2BUGTNTBZZZLI54VUQQNZZLYCDODLY33UGXNSIU"
 
 
-def _view(mocker, bundle="HASH", addresses=ADDRESS, session=None):
+def _view(mocker, bundle="HASH", addresses=ADDRESS, session=None, holdings=None):
     view = LiveRefreshView()
     view.bundle = bundle
     view.addresses = addresses
     view.request = mocker.MagicMock(session=session if session is not None else {})
+    # A real mapping, not the MagicMock's attribute: `GET.get` on a mock answers
+    # a truthy mock for every key, which would make every poll look like a page
+    # reporting a fingerprint it never sent.
+    view.request.GET = {} if holdings is None else {"holdings": holdings}
     view.kwargs = {}
     return view
 
@@ -548,3 +552,96 @@ class TestLiveRefreshPageKey:
 
         assert view.bundle == "540A5D8CEC896E073F9170AF0A962503E69147CF"
         assert view.addresses == pair
+
+
+class TestLiveRefreshViewHoldingsChanged:
+    """The half the fragments cannot express.
+
+    **An out-of-band swap can only reach a row the page already has.** So an
+    asset just bought has nowhere to arrive, one just sold is never mentioned
+    and its row stays exactly as it was, and the amount column is not what a
+    value fragment carries. The engine publishes a fingerprint of the holdings
+    themselves; when it disagrees with what the reader's page was rendered from,
+    the honest update is the page.
+    """
+
+    def _published(self, mocker, payload):
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(payload)
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        return client
+
+    def test_liverefresh_poll_orders_a_reload_when_the_holdings_changed(self, mocker):
+        """`HX-Refresh` rather than anything of our own: htmx reloads on it, and
+        the address page's own cache entry is keyed on the same fingerprint, so
+        the reload cannot be answered with the markup that prompted it."""
+        view = _view(mocker, holdings="beef1234")
+        self._published(mocker, {"total": 5.0, "values": {}, "holdings": "cafe5678"})
+
+        response = view.get(view.request)
+
+        assert response.status_code == 200
+        assert response["HX-Refresh"] == "true"
+
+    def test_liverefresh_poll_swaps_fragments_while_the_holdings_stand(self, mocker):
+        """**A price move is not a reload.** This is most blocks for most pages,
+        and throwing the reader's scroll position and open rows away on every
+        one of them would be worse than not updating at all."""
+        view = _view(mocker, holdings="beef1234")
+        self._published(mocker, {"total": 5.0, "values": {1: 2.0}, "holdings": "beef1234"})
+        rendered = mocker.patch.object(
+            LiveRefreshView, "render_to_response", return_value=HttpResponse()
+        )
+
+        response = view.get(view.request)
+
+        assert "HX-Refresh" not in response
+        assert rendered.called
+
+    def test_liverefresh_poll_does_not_reload_a_page_that_sent_no_fingerprint(
+        self, mocker
+    ):
+        """A page rendered before this existed, and the legacy layout. Neither
+        can be compared against anything, and a reload on every poll is what
+        guessing would cost."""
+        view = _view(mocker)
+        self._published(mocker, {"total": 5.0, "values": {}, "holdings": "cafe5678"})
+        mocker.patch.object(
+            LiveRefreshView, "render_to_response", return_value=HttpResponse()
+        )
+
+        response = view.get(view.request)
+
+        assert "HX-Refresh" not in response
+
+    def test_liverefresh_poll_does_not_reload_against_an_older_engine(self, mocker):
+        """An engine that does not publish the fingerprint yet. The two services
+        deploy separately, so this window is real rather than hypothetical, and
+        the answer is the behaviour that existed before: fragments only."""
+        view = _view(mocker, holdings="beef1234")
+        self._published(mocker, {"total": 5.0, "values": {}})
+        mocker.patch.object(
+            LiveRefreshView, "render_to_response", return_value=HttpResponse()
+        )
+
+        response = view.get(view.request)
+
+        assert "HX-Refresh" not in response
+
+    def test_liverefresh_poll_reloads_even_when_the_total_is_unchanged(self, mocker):
+        """**The case a total cannot see.** Swapping one asset for another of
+        equal value, or receiving something the pass prices at zero, leaves the
+        total exactly where it was - and the 204 shortcut would then leave the
+        reader on a page whose rows are wrong. The holdings check comes first
+        for that reason."""
+        view = _view(
+            mocker, session={"liverefresh:HASH": 5.0}, holdings="beef1234"
+        )
+        self._published(mocker, {"total": 5.0, "values": {}, "holdings": "cafe5678"})
+
+        response = view.get(view.request)
+
+        assert response.status_code == 200
+        assert response["HX-Refresh"] == "true"

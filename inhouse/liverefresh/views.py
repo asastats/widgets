@@ -80,12 +80,60 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             # reader has only just asked for it. Leave the page as it is.
             return HttpResponse(status=204)
 
+        reload = self._reload_response(request, payload)
+        if reload is not None:
+            return reload
+
         if payload.get("total") == self._last_total():
             return HttpResponse(status=204)
 
         self.request.session[self._session_key()] = payload.get("total")
         context = self.get_context_data(payload=payload, **kwargs)
         return self.render_to_response(context)
+
+    def _reload_response(self, request, payload):
+        """Return a reload instruction when the *holdings* changed, else None.
+
+        **The fragments cannot express this, and that is not a gap that can be
+        closed by sending more of them.** An out-of-band swap needs an element
+        on the reader's page to land in, so an asset just bought has no row to
+        arrive in, one just sold is never mentioned and its row stays exactly as
+        it was, and the amount column is not what a value fragment carries. What
+        the engine publishes can only ever move figures that are already there.
+
+        So when the holdings themselves move, the honest update is the page: it
+        is the one renderer that produces rows, and reusing it is what keeps
+        this from growing a second one that would drift. It is also rare - a
+        page reloads when its account transacts, not when a price moves - which
+        is why the fingerprint is over amounts and never over values.
+
+        ``HX-Refresh`` rather than anything of our own: htmx reloads on it, and
+        the address page's cache entry is keyed on the same fingerprint, so the
+        reload cannot be answered with the markup that prompted it.
+
+        Sent by the page rather than remembered per reader, because a session
+        would record the fingerprint at the *first poll* - and a change between
+        the render and that poll would then never be noticed at all. What the
+        reader is looking at is what has to be compared.
+
+        No parameter means a page that predates this, or the legacy layout;
+        an empty published fingerprint means an engine that predates it. Both
+        degrade to what happened before, which is fragments only.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :param payload: what the pass last published for this page
+        :type payload: dict
+        :return: :class:`HttpResponse` or None
+        """
+        rendered = request.GET.get("holdings")
+        published = payload.get("holdings")
+        if not rendered or not published or rendered == published:
+            return None
+
+        response = HttpResponse(status=200)
+        response["HX-Refresh"] = "true"
+        return response
 
     def _heartbeat(self, client):
         """Say the page is being read, so the engine keeps re-pricing it."""

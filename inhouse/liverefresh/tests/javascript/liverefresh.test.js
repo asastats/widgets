@@ -24,6 +24,8 @@ const MODULE = "../../static/liverefresh/liverefresh.js";
 const STORAGE = Object.getOwnPropertyDescriptor(window, "localStorage");
 
 const POLL_URL = "/widgets/liverefresh/HASH";
+/** What the poll actually asks for: the URL plus what the page was built from. */
+const POLLED = `${POLL_URL}?holdings=beef1234`;
 
 /**
  * Put a page on screen for the module to find.
@@ -33,6 +35,8 @@ const POLL_URL = "/widgets/liverefresh/HASH";
  * @param {boolean} [options.band] render the out-of-band swap target
  * @param {string} [options.interval] `data-interval`, omitted when null
  * @param {string} [options.grace] `data-grace`, omitted when null
+ * @param {string} [options.holdings] `data-holdings` on the band's carrier,
+ *   omitted when null - what the page was rendered from
  */
 function page(options = {}) {
   const {
@@ -40,10 +44,15 @@ function page(options = {}) {
     band = true,
     interval = "3",
     grace = "300",
+    holdings = "beef1234",
   } = options;
   const parts = [];
   if (band) {
-    parts.push('<span id="id-band-total">1,881.51 ALGO</span>');
+    parts.push(
+      "<h1" +
+        (holdings === null ? "" : ` data-holdings="${holdings}"`) +
+        '><span id="id-band-total">1,881.51 ALGO</span></h1>'
+    );
   }
   if (marker) {
     parts.push(
@@ -161,8 +170,61 @@ describe("the interval", () => {
     expect(window.htmx.ajax).toHaveBeenCalledTimes(1);
     expect(window.htmx.ajax).toHaveBeenCalledWith(
       "GET",
-      POLL_URL,
+      POLLED,
       expect.objectContaining({ swap: "none" })
+    );
+  });
+
+  it("tells the server what the page was rendered from", () => {
+    // **The half the fragments cannot do.** An out-of-band swap needs a row
+    // that is already on the page, so an asset just bought has nowhere to
+    // arrive and one just sold is never mentioned. The server answers that with
+    // a reload instead - and it can only know to when it is told what the
+    // reader is actually looking at.
+    localStorage.setItem("refresh", "y");
+    page({ holdings: "cafe5678" });
+    load();
+
+    jest.advanceTimersByTime(3000);
+
+    expect(window.htmx.ajax).toHaveBeenCalledWith(
+      "GET",
+      `${POLL_URL}?holdings=cafe5678`,
+      expect.anything()
+    );
+  });
+
+  it("keeps a poll URL that already has a query string intact", () => {
+    localStorage.setItem("refresh", "y");
+    page();
+    document
+      .getElementById("id-liverefresh")
+      .setAttribute("data-poll-url", `${POLL_URL}?x=1`);
+    load();
+
+    jest.advanceTimersByTime(3000);
+
+    expect(window.htmx.ajax).toHaveBeenCalledWith(
+      "GET",
+      `${POLL_URL}?x=1&holdings=beef1234`,
+      expect.anything()
+    );
+  });
+
+  it("polls without it when the page carries no fingerprint", () => {
+    // A page rendered before this existed, and the legacy layout. Neither can
+    // be reloaded on a signal it never sends, and both keep working exactly as
+    // they did: fragments, and nothing else.
+    localStorage.setItem("refresh", "y");
+    page({ holdings: null });
+    load();
+
+    jest.advanceTimersByTime(3000);
+
+    expect(window.htmx.ajax).toHaveBeenCalledWith(
+      "GET",
+      POLL_URL,
+      expect.anything()
     );
   });
 

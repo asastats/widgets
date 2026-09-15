@@ -38,6 +38,23 @@
   }
 
   var url = marker.dataset.pollUrl;
+  // **What this page was rendered from**, so the server can tell a price move
+  // from a holdings change. The out-of-band swaps can only reach rows the page
+  // already has, so an asset bought or sold is not something the fragments can
+  // express at all - the server answers that with a reload instead, and it can
+  // only know to when it is told what the reader is actually looking at.
+  //
+  // Read from the page rather than remembered per reader: a change between the
+  // render and the first poll would otherwise never be noticed.
+  //
+  // Read once. A reload replaces the document, so the value cannot go stale
+  // without this script starting again.
+  var carrier = document.querySelector("[data-holdings]");
+  var holdings = carrier ? carrier.dataset.holdings : "";
+  if (holdings) {
+    url += (url.indexOf("?") === -1 ? "?" : "&") +
+      "holdings=" + encodeURIComponent(holdings);
+  }
   var interval = (parseInt(marker.dataset.interval, 10) || 3) * 1000;
   var grace = (parseInt(marker.dataset.grace, 10) || 300) * 1000;
   var timer = null;
