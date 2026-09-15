@@ -65,6 +65,7 @@ function page(options = {}) {
         "></span>"
     );
   }
+  parts.push('<div id="id-liverefresh-spent" hidden></div>');
   document.body.innerHTML = parts.join("");
 }
 
@@ -406,5 +407,54 @@ describe("following the tab out of view and back", () => {
     jest.advanceTimersByTime(30000);
 
     expect(window.htmx.ajax).not.toHaveBeenCalled();
+  });
+});
+
+describe("the daily allowance running out", () => {
+  it("stops polling and hands the page back to the free timer", () => {
+    // **The handover is the point.** A page that simply stopped would leave the
+    // reader with neither the live updates nor the 60-second reload a
+    // non-subscriber gets - worse than never having had it, and
+    // indistinguishable from the feature being broken. `address.js` stands its
+    // own timer down whenever the marker is present and asks every tick, so
+    // removing the marker is the whole handover.
+    localStorage.setItem("refresh", "y");
+    const module = load();
+
+    module.spent();
+    jest.advanceTimersByTime(30000);
+
+    expect(window.htmx.ajax).not.toHaveBeenCalled();
+    expect(document.getElementById("id-liverefresh")).toBeNull();
+  });
+
+  it("says so rather than going quiet", () => {
+    const loaded = load();
+
+    loaded.spent();
+
+    expect(document.getElementById("id-liverefresh-spent").hidden).toBe(false);
+  });
+
+  it("is safe to run twice", () => {
+    // htmx fires the trigger on every response carrying the header, and a
+    // reader whose allowance ran out mid-flight can have one already in the
+    // air. The second call finds the marker detached.
+    const module = load();
+
+    module.spent();
+
+    expect(() => module.spent()).not.toThrow();
+  });
+
+  it("survives a page with no notice to reveal", () => {
+    // The notice lives in the same non-cached partial as the marker, so it is
+    // always there together with it - but a template edit that dropped one must
+    // not throw on every poll of every reader who ran out.
+    page();
+    document.getElementById("id-liverefresh-spent").remove();
+    const module = load();
+
+    expect(() => module.spent()).not.toThrow();
   });
 });

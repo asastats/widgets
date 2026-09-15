@@ -47,6 +47,25 @@ templates = "templates/"
 # count a reader's pages without adding that. Written down rather than left as
 # a surprise in the engine's cycle time - and see LIVE_HOLDINGS_CAP, which caps
 # what one worker retains but not what a reader may ask for.
+# **The free band, and why it reads as "everyone".**
+#
+# Every *authenticated* reader may watch one address - anonymous readers cannot,
+# and that is the existing gate rather than a decision here: the access mixin
+# requires `is_authenticated` before any band is consulted.
+#
+# What separates the tiers below Asastatser is not whether they may watch but
+# for how long, and a manifest band cannot say "fifteen minutes". That lives in
+# `allowance.py`: 15 minutes a day with no tier, 30 with Intro, unlimited from
+# Asastatser up. So this band grants admission and the allowance grants
+# duration, which is the only split the two mechanisms allow.
+#
+# First in the list on purpose: `required_permission_for_size` returns the first
+# band wide enough for the size asked for, so a one-address reader lands here
+# whatever they hold, and the paid bands below answer for two addresses and up.
+[[required_permission]]
+max_addresses = 1
+permission = 0
+
 [[required_permission]]
 max_addresses = 1
 permission = 23299689438

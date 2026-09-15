@@ -135,6 +135,29 @@
     }
   }
 
+  /**
+   * The day's free watching is gone.
+   *
+   * **Handing back to the free timer is the point.** A page that simply stopped
+   * would leave the reader with neither the live updates nor the 60-second
+   * reload a non-subscriber gets, which is worse than never having had it - and
+   * indistinguishable from the feature being broken.
+   *
+   * `address.js` stands its own timer down whenever `#id-liverefresh` is on the
+   * page, and asks every tick rather than once, so removing the marker is the
+   * whole handover. No coordination between the two scripts beyond that.
+   */
+  function spent() {
+    stop();
+    var notice = document.getElementById("id-liverefresh-spent");
+    if (notice) {
+      notice.hidden = false;
+    }
+    if (marker.parentNode) {
+      marker.parentNode.removeChild(marker);
+    }
+  }
+
   // **The interval runs regardless; `poll` decides whether to ask.**
   //
   // Binding to the control was the obvious thing and it was wrong. The two
@@ -147,10 +170,12 @@
   // thing read. The cost of asking every interval while disarmed is one
   // `localStorage` read every few seconds and no request at all.
   document.addEventListener("visibilitychange", visibility);
+  // Fired by the server through `HX-Trigger` when the allowance runs out.
+  document.body.addEventListener("liverefresh:spent", spent);
   start();
 
   /* istanbul ignore next -- exported for the jest suite only */
   if (typeof exports !== "undefined") {
-    module.exports = { poll, start, stop, visibility, armed };
+    module.exports = { poll, start, stop, visibility, armed, spent };
   }
 })();

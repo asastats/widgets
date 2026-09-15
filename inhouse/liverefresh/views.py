@@ -27,12 +27,17 @@ from utils.clients import redis_instance
 from utils.layouts import layout_for_user
 from widgethost.enforcement import WidgetAccessMixin
 
+from .allowance import remaining
 from .manifest import MANIFEST
 
 #: Sorted set the engine's live pass reads to decide which pages to re-price.
 #: Members are space-joined address strings, scored by the unix time this view
 #: last served a poll for them. See the engine's `CACHE_KEY_LIVE_SUBSCRIBED`.
 SUBSCRIBED_KEY = "lvx"
+#: Sorted set of pages a *paying* reader has open, scored the same way. The
+#: engine keeps these ahead of the rest when the block budget runs out, so a
+#: free reader's page is shed before a subscriber's. See `CACHE_KEY_LIVE_PAID`.
+PAID_KEY = "lvq"
 #: Prefix the pass publishes under, keyed by bundle. See `CACHE_KEY_LIVE_PAYLOAD`.
 PAYLOAD_PREFIX = "lvp"
 
@@ -73,7 +78,22 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         :return: :class:`HttpResponse`
         """
         client = redis_instance()
-        self._heartbeat(client)
+        # One timestamp for one poll. Read twice, the heartbeat and the paid
+        # mark carry different scores for the same event, and the two sets age
+        # out of step - by microseconds, but for no reason at all.
+        now = time.time()
+        self._heartbeat(client, now)
+
+        left = self._allowance(client, now)
+        if left is None:
+            # **No daily limit means this reader is paying for it**, and the
+            # engine needs to know before capacity runs out rather than after.
+            # Same score and the same 90-second ageing as `lvx`, so a page stops
+            # counting as paid 90 s after the last subscriber closes it and
+            # nothing has to expire it on purpose.
+            client.zadd(PAID_KEY, {self.addresses: now})
+        elif left <= 0:
+            return self._spent_response()
 
         payload = self._payload(client)
         if payload is None:
@@ -91,6 +111,41 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         self.request.session[self._session_key()] = payload.get("total")
         context = self.get_context_data(payload=payload, **kwargs)
         return self.render_to_response(context)
+
+    def _allowance(self, client, now):
+        """Charge this poll to the reader's day, and return what is left.
+
+        None means unlimited, which is every tier from Asastatser up and costs
+        no round trip. Everyone else is buying a look at what they would get.
+
+        :param client: Redis client instance
+        :type client: :class:`Redis`
+        :return: float or None
+        """
+        profile = getattr(self.request.user, "profile", None)
+        return remaining(
+            getattr(profile, "permission", 0) or 0,
+            self.request.user.pk,
+            client,
+            now,
+        )
+
+    def _spent_response(self):
+        """Tell the page the day's free watching is used up.
+
+        **Not a 204.** A reader whose page simply stopped moving would have no
+        way to tell that from the feature being broken, and would be left with
+        neither the live updates nor the 60-second reload that non-subscribers
+        get - strictly worse than never having had it. `HX-Trigger` fires a DOM
+        event the widget's script listens for: it stops polling, reveals the
+        notice, and takes the marker off the page, which is what lets
+        `address.js` pick the plain reload back up.
+
+        :return: :class:`HttpResponse`
+        """
+        response = HttpResponse(status=200)
+        response["HX-Trigger"] = "liverefresh:spent"
+        return response
 
     def _reload_response(self, request, payload):
         """Return a reload instruction when the *holdings* changed, else None.
@@ -136,9 +191,9 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         response["HX-Refresh"] = "true"
         return response
 
-    def _heartbeat(self, client):
+    def _heartbeat(self, client, now):
         """Say the page is being read, so the engine keeps re-pricing it."""
-        client.zadd(SUBSCRIBED_KEY, {self.addresses: time.time()})
+        client.zadd(SUBSCRIBED_KEY, {self.addresses: now})
 
     def _payload(self, client):
         """Return what the pass last published for this page, or None."""
