@@ -39,6 +39,8 @@ const POLLED = `${POLL_URL}?holdings=beef1234`;
  *   omitted when null - what the page was rendered from
  * @param {string} [options.bandId] which layout's band to render: the dynamic
  *   layout's `id-band-total` or the classic layout's `id-band-classic`
+ * @param {boolean} [options.badge] render the allowance badge
+ * @param {boolean} [options.control] render the toolbar's refresh control
  */
 function page(options = {}) {
   const {
@@ -48,6 +50,8 @@ function page(options = {}) {
     grace = "300",
     holdings = "beef1234",
     bandId = "id-band-total",
+    badge = true,
+    control = true,
   } = options;
   const parts = [];
   if (band) {
@@ -66,6 +70,15 @@ function page(options = {}) {
     );
   }
   parts.push('<div id="id-liverefresh-spent" hidden></div>');
+  // The badge and the control it gets moved next to. Both ship in the markup -
+  // the badge in the non-cached partial, the control in the toolbar - so a test
+  // page without them is testing a page that cannot exist.
+  if (control) {
+    parts.push('<div id="tb-wrap"><button id="tb-refresh"></button></div>');
+  }
+  if (badge) {
+    parts.push('<span id="id-liverefresh-left" hidden></span>');
+  }
   document.body.innerHTML = parts.join("");
 }
 
@@ -447,6 +460,18 @@ describe("the daily allowance running out", () => {
     expect(() => module.spent()).not.toThrow();
   });
 
+  it("survives a page with no badge to clear", () => {
+    // `spent` hides the allowance badge as well as revealing the notice, and
+    // the badge is the newer of the two - so a template that has the notice and
+    // not the badge is exactly the shape a half-finished edit leaves behind. It
+    // must not throw on every poll of every reader who ran out.
+    page({ badge: false });
+    const module = load();
+
+    expect(() => module.spent()).not.toThrow();
+    expect(document.getElementById("id-liverefresh-spent").hidden).toBe(false);
+  });
+
   it("survives a page with no notice to reveal", () => {
     // The notice lives in the same non-cached partial as the marker, so it is
     // always there together with it - but a template edit that dropped one must
@@ -456,5 +481,102 @@ describe("the daily allowance running out", () => {
     const module = load();
 
     expect(() => module.spent()).not.toThrow();
+  });
+});
+
+describe("showing what is left of the allowance", () => {
+  /** Fire the event the server sends on every poll response. */
+  function left(module, seconds) {
+    module.showLeft({ detail: { seconds } });
+  }
+
+  it("moves the badge next to the control it belongs to", () => {
+    // **The badge ships in the non-cached partial, not the toolbar.** The
+    // address page is cached across readers, so a balance rendered into it
+    // would show whoever warmed the entry to everybody else - the same trap the
+    // Dust Sweep button hit. Rendering it per-reader and relocating it is what
+    // keeps the figure private while letting it read as part of the toolbar.
+    localStorage.setItem("refresh", "y");
+    const module = load();
+
+    left(module, 7200);
+
+    const badge = document.getElementById("id-liverefresh-left");
+    expect(badge.parentNode.id).toBe("tb-wrap");
+    expect(badge.previousElementSibling.id).toBe("tb-refresh");
+  });
+
+  it("reads as an allowance rather than a stopwatch", () => {
+    localStorage.setItem("refresh", "y");
+    const module = load();
+
+    left(module, 7080);
+
+    expect(document.getElementById("id-liverefresh-left").textContent).toBe(
+      "1h 58m left"
+    );
+  });
+
+  it("formats whole hours, minutes and the last stretch", () => {
+    const module = load();
+
+    expect(module.humanize(7200)).toBe("2h");
+    expect(module.humanize(7080)).toBe("1h 58m");
+    expect(module.humanize(600)).toBe("10 min");
+    expect(module.humanize(59)).toBe("under a minute");
+    expect(module.humanize(0)).toBe("under a minute");
+  });
+
+  it("stays hidden while the control is off", () => {
+    // A figure sitting there while nothing is being spent invites the reader to
+    // watch it not move, and it is not being spent: what is not polled is not
+    // charged.
+    localStorage.removeItem("refresh");
+    const module = load();
+
+    left(module, 3600);
+
+    expect(document.getElementById("id-liverefresh-left").hidden).toBe(true);
+  });
+
+  it("goes away when the allowance runs out", () => {
+    localStorage.setItem("refresh", "y");
+    const module = load();
+    left(module, 60);
+
+    module.spent();
+
+    expect(document.getElementById("id-liverefresh-left").hidden).toBe(true);
+  });
+
+  it("ignores a response carrying no usable figure", () => {
+    // Unmetered tiers get no header at all, and a malformed one must not write
+    // "NaN left" beside the control.
+    localStorage.setItem("refresh", "y");
+    const module = load();
+
+    expect(() => module.showLeft({})).not.toThrow();
+    expect(() => left(module, "soon")).not.toThrow();
+    expect(document.getElementById("id-liverefresh-left").textContent).toBe("");
+  });
+
+  it("survives a page with no badge to fill", () => {
+    // A template edit that dropped it must not throw on every poll.
+    page({ badge: false });
+    const module = load();
+
+    expect(() => left(module, 3600)).not.toThrow();
+  });
+
+  it("leaves the badge where it is when there is no control", () => {
+    // The classic layout has no `tb-refresh`; the figure still belongs on the
+    // page, just not relocated.
+    page({ control: false });
+    localStorage.setItem("refresh", "y");
+    const module = load();
+
+    left(module, 3600);
+
+    expect(document.getElementById("id-liverefresh-left").hidden).toBe(false);
   });
 });

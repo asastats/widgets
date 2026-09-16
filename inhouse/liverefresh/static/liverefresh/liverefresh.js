@@ -149,6 +149,10 @@
    */
   function spent() {
     stop();
+    var badge = document.getElementById("id-liverefresh-left");
+    if (badge) {
+      badge.hidden = true;
+    }
     var notice = document.getElementById("id-liverefresh-spent");
     if (notice) {
       notice.hidden = false;
@@ -156,6 +160,61 @@
     if (marker.parentNode) {
       marker.parentNode.removeChild(marker);
     }
+  }
+
+  /**
+   * Show what is left of the allowance, beside the control it belongs to.
+   *
+   * **The badge ships in the non-cached partial and is moved here.** The
+   * address page is `cache_page`d across readers, so a balance rendered into it
+   * would show whoever warmed the entry to everybody else - the same trap the
+   * Dust Sweep button hit. Rendering it per-reader and relocating it keeps the
+   * figure private while letting it read as part of the toolbar.
+   *
+   * Hidden again once the control is disarmed: a number that keeps sitting
+   * there while nothing is being spent invites the reader to watch it not move.
+   *
+   * @param {CustomEvent} event carrying `{ seconds }`
+   */
+  function showLeft(event) {
+    var badge = document.getElementById("id-liverefresh-left");
+    if (!badge) {
+      return;
+    }
+    var detail = (event && event.detail) || {};
+    var seconds = Number(detail.seconds);
+    if (!isFinite(seconds)) {
+      return;
+    }
+    var control = document.getElementById("tb-refresh");
+    if (control && badge.parentNode !== control.parentNode) {
+      control.parentNode.insertBefore(badge, control.nextSibling);
+    }
+    badge.textContent = humanize(seconds) + " left";
+    badge.hidden = !armed();
+  }
+
+  /**
+   * Return a compact duration a reader can read at a glance.
+   *
+   * Minutes below an hour and whole hours above it: a badge counting seconds
+   * down beside a page that updates every block is two things moving for no
+   * reason, and the number is an allowance rather than a stopwatch.
+   *
+   * @param {number} seconds
+   * @returns {string}
+   */
+  function humanize(seconds) {
+    if (seconds < 60) {
+      return "under a minute";
+    }
+    var minutes = Math.floor(seconds / 60);
+    if (minutes < 60) {
+      return minutes + " min";
+    }
+    var hours = Math.floor(minutes / 60);
+    var rest = minutes % 60;
+    return rest ? hours + "h " + rest + "m" : hours + "h";
   }
 
   // **The interval runs regardless; `poll` decides whether to ask.**
@@ -172,10 +231,22 @@
   document.addEventListener("visibilitychange", visibility);
   // Fired by the server through `HX-Trigger` when the allowance runs out.
   document.body.addEventListener("liverefresh:spent", spent);
+  // Sent with every poll response, including the 204s, so the figure does not
+  // sit still on a quiet page and then jump.
+  document.body.addEventListener("liverefresh:left", showLeft);
   start();
 
   /* istanbul ignore next -- exported for the jest suite only */
   if (typeof exports !== "undefined") {
-    module.exports = { poll, start, stop, visibility, armed, spent };
+    module.exports = {
+      poll,
+      start,
+      stop,
+      visibility,
+      armed,
+      spent,
+      showLeft,
+      humanize,
+    };
   }
 })();

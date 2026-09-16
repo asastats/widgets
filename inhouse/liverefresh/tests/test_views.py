@@ -1,6 +1,7 @@
 """Testing module for the Real-time refresh widget's view."""
 
 import msgpack
+import pytest
 from django.http import HttpResponse
 
 from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
@@ -188,15 +189,70 @@ class TestLiveRefreshViewGate:
         view = LiveRefreshView()
         view.kwargs = {"value": ADDRESS}
         view.args = ()
+        view.request = mocker.MagicMock()
+        # A paid reader, so the free tier's linked-address requirement - tested
+        # on its own below - does not stand in for the manifest here.
+        view.request.user.profile.permission = SUBSCRIPTION_TIER_PERMISSIONS[
+            "Asastatser"
+        ]
         mocker.patch(
             "widgets.inhouse.liverefresh.views.bundle_and_addresses_from_path",
             return_value=("HASH", f"{ADDRESS} {ADDRESS}"),
         )
-        gate = mocker.patch.object(LiveRefreshView, "manifest_test_func")
+        gate = mocker.patch.object(
+            LiveRefreshView, "manifest_test_func", return_value=True
+        )
 
         view.test_func()
 
         gate.assert_called_once_with(2)
+
+    def test_liverefresh_the_free_tier_may_only_watch_what_it_has_linked(
+        self, mocker
+    ):
+        """**The half that stops an abuser needing no accounts at all.**
+
+        The free allowance hangs on the address so that farming accounts buys
+        nothing. Without this, farming accounts is unnecessary: a list of other
+        people's addresses does just as well, and every one of them arrives with
+        a fresh two hours. Requiring the wallet signature means the addresses a
+        reader can spend are the addresses they control.
+        """
+        view = LiveRefreshView()
+        view.kwargs = {"value": ADDRESS}
+        view.args = ()
+        view.request = mocker.MagicMock()
+        view.request.user.profile.permission = 0
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.bundle_and_addresses_from_path",
+            return_value=(None, ADDRESS),
+        )
+        mocker.patch.object(LiveRefreshView, "manifest_test_func", return_value=True)
+        linked = mocker.patch(
+            "widgets.inhouse.liverefresh.views.is_linked_to_user", return_value=False
+        )
+
+        assert view.test_func() is False
+        linked.assert_called_once_with(view.request.user, ADDRESS)
+
+    def test_liverefresh_a_paid_reader_may_watch_any_address(self, mocker):
+        """Watching an address you do not own is an ordinary thing to buy."""
+        view = LiveRefreshView()
+        view.kwargs = {"value": ADDRESS}
+        view.args = ()
+        view.request = mocker.MagicMock()
+        view.request.user.profile.permission = SUBSCRIPTION_TIER_PERMISSIONS["Intro"]
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.bundle_and_addresses_from_path",
+            return_value=(None, ADDRESS),
+        )
+        mocker.patch.object(LiveRefreshView, "manifest_test_func", return_value=True)
+        linked = mocker.patch(
+            "widgets.inhouse.liverefresh.views.is_linked_to_user", return_value=False
+        )
+
+        assert view.test_func() is True
+        assert not linked.called
 
 
 class TestLiveRefreshFragments:
@@ -755,167 +811,202 @@ class TestLiveRefreshFragmentsPerLayout:
 
 
 class TestLiveRefreshAllowance:
-    """The daily free taste, and what it costs to give away.
+    """The refilling bucket, and what the key it hangs on is defending.
 
     **A feature nobody has seen is a hard thing to sell.** The bands were
     all-or-nothing, so a reader below Asastatser never saw figures move in place
     while their scroll position and open rows survived - which is the whole
     argument, and one no pricing page makes as well as ten seconds of watching.
+
+    What replaced the daily clock is a bucket: a grant to start, a weekly
+    top-up, capped back at the grant. Daily renewal was what made farming worth
+    scripting - a new account every morning was a new fifteen minutes - and a
+    bucket that refills slowly is a taste rather than a supply.
     """
 
-    def test_liverefresh_allowance_by_tier(self):
-        from widgets.inhouse.liverefresh.allowance import daily_allowance
+    FREE = 0
+    INTRO = SUBSCRIPTION_TIER_PERMISSIONS["Intro"]
+    PAID = SUBSCRIPTION_TIER_PERMISSIONS["Asastatser"]
+    ADDRESS = "MULILZCPNVCE3DZHTIWY4B2SDY2H3U2QN6KWZFFSS6JSFU6FWZFSXO3BBM"
 
-        assert daily_allowance(0) == 15 * 60
-        assert daily_allowance(SUBSCRIPTION_TIER_PERMISSIONS["Intro"]) == 30 * 60
-        assert daily_allowance(SUBSCRIPTION_TIER_PERMISSIONS["Asastatser"]) is None
-        assert daily_allowance(SUBSCRIPTION_TIER_PERMISSIONS["Cluster"]) is None
+    class _Redis:
+        """Enough Redis to hold one hash, since the arithmetic is the subject."""
 
-    def test_liverefresh_a_nonsense_permission_gets_nothing(self):
-        """**The fall-through, and it falls the safe way.**
+        def __init__(self):
+            self.hashes = {}
 
-        Every band is cleared by a permission of zero or more, so this is only
-        reached by a negative one - a corrupt profile row, or a caller passing a
-        sentinel. Returning the free allowance there would hand time out on the
-        strength of bad data; returning zero costs a reader who does not exist
-        nothing, and is visible as "it never works for them" rather than as a
-        quietly generous bug.
+        def hgetall(self, key):
+            return dict(self.hashes.get(key, {}))
+
+        def hset(self, key, mapping=None):
+            self.hashes.setdefault(key, {}).update(
+                {name: str(value) for name, value in (mapping or {}).items()}
+            )
+
+        def expire(self, key, seconds):
+            pass
+
+    def test_liverefresh_terms_by_tier(self):
+        from widgets.inhouse.liverefresh.allowance import terms
+
+        assert terms(self.PAID) is None
+        assert terms(self.INTRO)["capacity"] == 4 * 60 * 60
+        assert terms(self.INTRO)["per_week"] == 30 * 60
+        assert terms(self.FREE)["capacity"] == 2 * 60 * 60
+        assert terms(self.FREE)["per_week"] == 15 * 60
+
+    def test_liverefresh_free_hangs_on_the_address_and_intro_on_the_reader(self):
+        """**This is the whole anti-abuse design, in one function.**
+
+        An allowance bound to an account is bound to the cheapest thing in the
+        system: accounts are free and need no email, so a hundred of them would
+        be a hundred allowances. Bound to the address, a hundred accounts
+        watching one address all spend the same bucket, and buying more free
+        time means splitting a portfolio across addresses - which costs fees and
+        minimum balances and fragments the combined view that was the reason to
+        watch.
+
+        Intro hangs on the reader instead, because a subscriber is not what that
+        defends against, and because per-address would be four hours for every
+        address they open, which is no limit at all.
         """
-        from widgets.inhouse.liverefresh.allowance import daily_allowance
+        from widgets.inhouse.liverefresh.allowance import bucket_key
 
-        assert daily_allowance(-1) == 0
+        assert bucket_key(self.FREE, self.ADDRESS, 7) == self.ADDRESS
+        assert bucket_key(self.INTRO, self.ADDRESS, 7) == "u:7"
+        assert bucket_key(self.PAID, self.ADDRESS, 7) is None
 
-    def test_liverefresh_remaining_is_the_allowance_less_what_is_spent(self, mocker):
-        """The metered path, which is the one every free reader takes.
+    def test_liverefresh_only_the_free_tier_is_held_to_linked_addresses(self):
+        """The other half of it: without this an abuser needs no accounts at
+        all, only a list of other people's addresses, each arriving with a fresh
+        grant. Paid tiers are unaffected - watching an address you do not own is
+        an ordinary thing to buy."""
+        from widgets.inhouse.liverefresh.allowance import requires_linked_address
 
-        `remaining` going negative is not guarded here on purpose: the view
-        treats anything at or below zero as spent, and a number that says *how
-        far* over tells a log reader more than a clamp would.
-        """
-        from widgets.inhouse.liverefresh.allowance import _today, remaining
+        assert requires_linked_address(self.FREE) is True
+        assert requires_linked_address(self.INTRO) is False
+        assert requires_linked_address(self.PAID) is False
 
-        client = mocker.MagicMock()
-        client.hgetall.return_value = {
-            b"day": _today(1000.0).encode(), b"used": b"880", b"seen": b"1000"
-        }
-
-        # 15 minutes of allowance, 880 seconds gone, plus 2.5 for this poll.
-        assert remaining(0, 1, client, 1002.5) == 15 * 60 - 882.5
-
-    def test_liverefresh_remaining_goes_negative_once_spent(self, mocker):
-        from widgets.inhouse.liverefresh.allowance import _today, remaining
-
-        client = mocker.MagicMock()
-        client.hgetall.return_value = {
-            b"day": _today(1000.0).encode(), b"used": b"901", b"seen": b"1000"
-        }
-
-        assert remaining(0, 1, client, 1000.0) < 0
-
-    def test_liverefresh_a_paid_reader_is_not_metered_at_all(self, mocker):
+    def test_liverefresh_a_paid_reader_is_not_metered_at_all(self):
         """Unlimited is the common case for anyone this is sold to, so it must
-        not cost a Redis round trip the poll had not already made."""
-        from widgets.inhouse.liverefresh.allowance import remaining
+        cost neither a Redis round trip nor a query."""
+        from widgets.inhouse.liverefresh.allowance import spend
 
-        client = mocker.MagicMock()
+        client = self._Redis()
 
-        assert remaining(
-            SUBSCRIPTION_TIER_PERMISSIONS["Asastatser"], 1, client, 1000.0
-        ) is None
-        assert not client.hgetall.called
+        assert spend(self.PAID, self.ADDRESS, 1, client, 1000.0) is None
+        assert client.hashes == {}
 
-    def test_liverefresh_the_first_poll_of_a_day_charges_nothing(self, mocker):
+    @pytest.mark.django_db
+    def test_liverefresh_the_first_poll_of_a_session_charges_nothing(self):
         """There is no previous poll to measure from, and guessing would charge
         a reader for opening a page."""
-        from widgets.inhouse.liverefresh.allowance import charge
+        from widgets.inhouse.liverefresh.allowance import spend
 
-        client = mocker.MagicMock()
-        client.hgetall.return_value = {}
+        client = self._Redis()
 
-        assert charge(1, client, 1000.0) == 0.0
+        assert spend(self.FREE, self.ADDRESS, 1, client, 1000.0) == 2 * 60 * 60
 
-    def test_liverefresh_a_new_day_starts_the_allowance_over(self, mocker):
-        """Yesterday's spend is not today's. Unix 1000 is 1970-01-01, so the
-        stored day here really is a different one - the first draft of this test
-        used that very date as the "different" day and passed for the wrong
-        reason."""
-        from widgets.inhouse.liverefresh.allowance import charge
+    @pytest.mark.django_db
+    def test_liverefresh_charges_wall_clock_between_polls(self):
+        from widgets.inhouse.liverefresh.allowance import spend
 
-        client = mocker.MagicMock()
-        client.hgetall.return_value = {
-            b"day": b"1999-12-31", b"used": b"899", b"seen": b"1000"
-        }
+        client = self._Redis()
+        spend(self.FREE, self.ADDRESS, 1, client, 1000.0)
 
-        assert charge(1, client, 1002.5) == 0.0
+        assert spend(self.FREE, self.ADDRESS, 1, client, 1003.0) == 2 * 60 * 60 - 3
 
-    def test_liverefresh_the_same_day_accumulates(self, mocker):
-        from widgets.inhouse.liverefresh.allowance import charge, _today
+    @pytest.mark.django_db
+    def test_liverefresh_switching_it_off_is_a_pause_that_costs_one_step(self):
+        """**Pausing needs no mechanism of its own.** What is not polled is not
+        charged, and a reader who comes back after an hour pays `MAX_STEP` for
+        the gap rather than the hour - they were not watching it."""
+        from widgets.inhouse.liverefresh.allowance import MAX_STEP, spend
 
-        client = mocker.MagicMock()
-        client.hgetall.return_value = {
-            b"day": _today(1000.0).encode(), b"used": b"10", b"seen": b"1000"
-        }
+        client = self._Redis()
+        spend(self.FREE, self.ADDRESS, 1, client, 1000.0)
 
-        assert charge(1, client, 1002.5) == 12.5
+        left_after = spend(self.FREE, self.ADDRESS, 1, client, 1000.0 + 3600)
 
-    def test_liverefresh_a_long_absence_is_charged_the_cap(self, mocker):
-        """**A reader who shut the laptop was not watching it.** Charging the
-        wall-clock gap would spend a whole allowance on one poll after lunch."""
-        from widgets.inhouse.liverefresh.allowance import MAX_STEP, charge, _today
+        assert 2 * 60 * 60 - left_after <= MAX_STEP
 
-        client = mocker.MagicMock()
-        client.hgetall.return_value = {
-            b"day": _today(1000.0).encode(), b"used": b"0", b"seen": b"1000"
-        }
+    @pytest.mark.django_db
+    def test_liverefresh_two_accounts_share_one_address_bucket(self):
+        """The farming case, stated as a test: a second account buys nothing."""
+        from widgets.inhouse.liverefresh.allowance import spend
 
-        assert charge(1, client, 1000.0 + 3600) == MAX_STEP
+        client = self._Redis()
+        spend(self.FREE, self.ADDRESS, 1, client, 1000.0)
+        spend(self.FREE, self.ADDRESS, 1, client, 1010.0)
 
-    def test_liverefresh_several_tabs_do_not_multiply_the_spend(self, mocker):
-        """Four tabs poll four times as often, each charging a quarter of the
-        gap, so a reader spends one second per second however they arranged it -
-        which is the same promise the address bands make."""
-        from widgets.inhouse.liverefresh.allowance import charge, _today
+        assert spend(self.FREE, self.ADDRESS, 999, client, 1020.0) < 2 * 60 * 60
 
-        client = mocker.MagicMock()
-        state = {"day": _today(1000.0), "used": "0", "seen": "1000"}
-        client.hgetall.side_effect = lambda *a: {
-            k.encode(): str(v).encode() for k, v in state.items()
-        }
-        client.hset.side_effect = lambda key, mapping: state.update(
-            {k: str(v) for k, v in mapping.items()}
+    @pytest.mark.django_db
+    def test_liverefresh_one_intro_reader_shares_a_bucket_across_addresses(self):
+        from widgets.inhouse.liverefresh.allowance import spend
+
+        client = self._Redis()
+        spend(self.INTRO, self.ADDRESS, 1, client, 1000.0)
+        spend(self.INTRO, self.ADDRESS, 1, client, 1010.0)
+
+        assert spend(self.INTRO, "X" * 58, 1, client, 1020.0) < 4 * 60 * 60
+
+    @pytest.mark.django_db
+    def test_liverefresh_a_spent_bucket_stops_at_zero(self):
+        """Never negative: the view treats anything at or below zero as spent,
+        and a negative balance would refill into credit the reader never had."""
+        from widgets.inhouse.liverefresh.allowance import SPEND_KEY, spend
+
+        client = self._Redis()
+        client.hset(
+            f"{SPEND_KEY}:{self.ADDRESS}",
+            mapping={"balance": 1.0, "seen": 1000.0, "flushed": 0},
         )
 
-        # Twelve seconds of wall clock, polled by four tabs every 0.75s.
-        now = 1000.0
-        for _ in range(16):
-            now += 0.75
-            used = charge(1, client, now)
+        assert spend(self.FREE, self.ADDRESS, 1, client, 1100.0) == 0.0
 
-        assert 11.5 <= used <= 12.5, used
+    @pytest.mark.django_db
+    def test_liverefresh_exhaustion_is_written_through_immediately(self):
+        """**Redis may lose an entry; this moment may not be lost with it.**
+        Sixty seconds of spend can be forgiven, a spent bucket cannot - that is
+        the difference between a cache and the anti-abuse mechanism."""
+        from core.models import LiveAllowanceBucket
+        from widgets.inhouse.liverefresh.allowance import SPEND_KEY, spend
 
-    def test_liverefresh_a_clock_that_steps_backwards_refunds_nothing(self, mocker):
-        """An NTP correction must not hand out allowance."""
-        from widgets.inhouse.liverefresh.allowance import charge, _today
+        client = self._Redis()
+        client.hset(
+            f"{SPEND_KEY}:{self.ADDRESS}",
+            mapping={"balance": 1.0, "seen": 1000.0, "flushed": 0},
+        )
+        spend(self.FREE, self.ADDRESS, 1, client, 1100.0)
 
-        client = mocker.MagicMock()
-        client.hgetall.return_value = {
-            b"day": _today(1000.0).encode(), b"used": b"100", b"seen": b"1000"
-        }
+        assert LiveAllowanceBucket.objects.get(key=self.ADDRESS).balance == 0.0
 
-        assert charge(1, client, 990.0) == 100.0
+    @pytest.mark.django_db
+    def test_liverefresh_reading_what_is_left_does_not_spend_it(self):
+        """The figure beside the button must not tick down while nothing moves."""
+        from widgets.inhouse.liverefresh.allowance import left, spend
 
-    def test_liverefresh_unreadable_spend_starts_the_day_over(self, mocker):
-        """Rubbish in the hash is a reader who gets their allowance again, not a
-        poll that raises. Nothing else writes this key, but it is a shared cache
-        and the failure should be generous rather than loud."""
-        from widgets.inhouse.liverefresh.allowance import charge, _today
+        client = self._Redis()
+        spend(self.FREE, self.ADDRESS, 1, client, 1000.0)
 
-        client = mocker.MagicMock()
-        client.hgetall.return_value = {
-            b"day": _today(1000.0).encode(), b"used": b"nonsense", b"seen": b"x"
-        }
+        assert left(self.FREE, self.ADDRESS, 1, client) == 2 * 60 * 60
+        assert left(self.FREE, self.ADDRESS, 1, client) == 2 * 60 * 60
+        assert left(self.PAID, self.ADDRESS, 1, client) is None
 
-        assert charge(1, client, 1002.5) == 0.0
+    def test_liverefresh_the_refill_is_capped_at_the_grant(self):
+        """Uncapped, an address nobody touched would accumulate indefinitely and
+        be worth farming precisely because nobody had used it."""
+        from core.models import LiveAllowanceBucket
+        from widgets.inhouse.liverefresh.allowance import WEEK
+
+        capacity, per_second = 2 * 60 * 60.0, (15 * 60) / WEEK
+
+        assert LiveAllowanceBucket.refilled(0, WEEK, capacity, per_second) == 900.0
+        assert LiveAllowanceBucket.refilled(0, WEEK * 100, capacity, per_second) == capacity
+        assert LiveAllowanceBucket.refilled(capacity, WEEK * 9, capacity, per_second) == capacity
+        # A clock that steps backwards must not refund anything.
+        assert LiveAllowanceBucket.refilled(500, -10, capacity, per_second) == 500
 
 
 class TestLiveRefreshSpentResponse:
@@ -933,7 +1024,7 @@ class TestLiveRefreshSpentResponse:
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
         mocker.patch(
-            "widgets.inhouse.liverefresh.views.remaining", return_value=-1.0
+            "widgets.inhouse.liverefresh.views.spend", return_value=-1.0
         )
 
         response = view.get(view.request)
@@ -950,7 +1041,7 @@ class TestLiveRefreshSpentResponse:
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
         mocker.patch(
-            "widgets.inhouse.liverefresh.views.remaining", return_value=0.0
+            "widgets.inhouse.liverefresh.views.spend", return_value=0.0
         )
 
         view.get(view.request)
@@ -1006,7 +1097,7 @@ class TestLiveRefreshPaidPriority:
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
         mocker.patch(
-            "widgets.inhouse.liverefresh.views.remaining", return_value=600.0
+            "widgets.inhouse.liverefresh.views.spend", return_value=600.0
         )
 
         view.get(view.request)
@@ -1023,7 +1114,7 @@ class TestLiveRefreshPaidPriority:
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
         mocker.patch(
-            "widgets.inhouse.liverefresh.views.remaining", return_value=-1.0
+            "widgets.inhouse.liverefresh.views.spend", return_value=-1.0
         )
 
         view.get(view.request)

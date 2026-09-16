@@ -16,6 +16,7 @@ scopes. A deployment that cannot reach the engine's HTTP API can still serve
 this, as long as its engine runs the pass.
 """
 
+import json
 import time
 
 from api.widgets import bundle_and_addresses_from_path
@@ -25,9 +26,10 @@ from django.views.decorators.cache import never_cache
 from django.views.generic.base import TemplateView
 from utils.clients import redis_instance
 from utils.layouts import layout_for_user
+from walletauth.gating import is_linked_to_user
 from widgethost.enforcement import WidgetAccessMixin
 
-from .allowance import remaining
+from .allowance import left, requires_linked_address, spend
 from .manifest import MANIFEST
 
 #: Sorted set the engine's live pass reads to decide which pages to re-price.
@@ -84,7 +86,8 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         now = time.time()
         self._heartbeat(client, now)
 
-        left = self._allowance(client, now)
+        remaining_seconds = self._allowance(client, now)
+        left = remaining_seconds
         if left is None:
             # **No daily limit means this reader is paying for it**, and the
             # engine needs to know before capacity runs out rather than after.
@@ -99,32 +102,68 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         if payload is None:
             # Nothing published: the pass has not reached this page yet, or the
             # reader has only just asked for it. Leave the page as it is.
-            return HttpResponse(status=204)
+            return self._with_left(HttpResponse(status=204), remaining_seconds)
 
         reload = self._reload_response(request, payload)
         if reload is not None:
-            return reload
+            return self._with_left(reload, remaining_seconds)
 
         if payload.get("total") == self._last_total():
-            return HttpResponse(status=204)
+            return self._with_left(HttpResponse(status=204), remaining_seconds)
 
         self.request.session[self._session_key()] = payload.get("total")
         context = self.get_context_data(payload=payload, **kwargs)
-        return self.render_to_response(context)
+        return self._with_left(self.render_to_response(context), remaining_seconds)
+
+    @staticmethod
+    def _with_left(response, seconds):
+        """Attach what is left of the allowance to a response, for the badge.
+
+        **On every response, including the 204s.** Most blocks move nothing, so
+        a figure sent only with changed fragments would sit still for minutes on
+        a quiet page and then jump - which reads as broken rather than as quiet.
+        htmx processes `HX-Trigger` on a 204 as readily as on a body.
+
+        Nothing is attached for the unmetered tiers: there is no number to show,
+        and a header saying so would invite the script to render a zero.
+
+        :param response: the response this poll is about to return
+        :type response: :class:`HttpResponse`
+        :param seconds: allowance left, or None when unlimited
+        :type seconds: float or None
+        :return: :class:`HttpResponse`
+        """
+        if seconds is None:
+            return response
+        response["HX-Trigger"] = json.dumps(
+            {"liverefresh:left": {"seconds": int(max(0, seconds))}}
+        )
+        return response
 
     def _allowance(self, client, now):
-        """Charge this poll to the reader's day, and return what is left.
+        """Charge this poll and return what is left, or None for unlimited.
 
         None means unlimited, which is every tier from Asastatser up and costs
         no round trip. Everyone else is buying a look at what they would get.
+
+        **The free tier spends an address's bucket, not a reader's day.** An
+        allowance bound to an account is bound to the cheapest thing in the
+        system, so it is bound to the address instead - see `allowance`. Intro
+        keeps the daily per-reader clock, because a paying reader is not what
+        the anti-abuse design is defending against.
 
         :param client: Redis client instance
         :type client: :class:`Redis`
         :return: float or None
         """
         profile = getattr(self.request.user, "profile", None)
-        return remaining(
-            getattr(profile, "permission", 0) or 0,
+        permission = getattr(profile, "permission", 0) or 0
+        # The metered bands are one address wide (`max_addresses = 1` in the
+        # manifest), so the page and the address are the same thing here; the
+        # unmetered ones never reach the address at all.
+        return spend(
+            permission,
+            self.addresses.split()[0],
             self.request.user.pk,
             client,
             now,
@@ -257,4 +296,26 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         self.bundle, self.addresses = bundle_and_addresses_from_path(
             self.kwargs.get("value") or self.args[0], force_bundle=False
         )
-        return self.manifest_test_func(len(self.addresses.split()))
+        if not self.manifest_test_func(len(self.addresses.split())):
+            return False
+
+        # **The free tier may only watch an address it has connected.**
+        #
+        # The free allowance is spent per address so that farming accounts buys
+        # nothing, and this is the other half of that: without it, an abuser
+        # needs no accounts at all, only a list of other people's addresses, and
+        # every one of them arrives with a fresh two hours. Requiring the wallet
+        # signature means the addresses a reader can spend are the addresses
+        # they control, and those are the ones already holding their portfolio.
+        #
+        # Self-scoped by `linked_addresses_for_user`, which only ever reads the
+        # requesting user's own rows - never an oracle for whose address this
+        # is. Paid tiers are unaffected: watching an address you do not own is
+        # a perfectly ordinary thing to buy.
+        profile = getattr(self.request.user, "profile", None)
+        if requires_linked_address(getattr(profile, "permission", 0) or 0):
+            return all(
+                is_linked_to_user(self.request.user, address)
+                for address in self.addresses.split()
+            )
+        return True
