@@ -1,6 +1,7 @@
 """Testing module for the Real-time refresh widget's view."""
 
 import json
+import time
 import msgpack
 import pytest
 from django.http import HttpResponse
@@ -1632,3 +1633,97 @@ class TestLiveRefreshChunksALargeResync:
         assert _asset_key(31566704) == 31566704
         assert _asset_key("total") == "total"
         assert _asset_key(None) is None
+
+
+class TestLiveRefreshReloadCooldown:
+    """Bounding how often the poll may order a page reload.
+
+    **A page slower to render than its account is to transact never converges.**
+    The reload fires when the fingerprint the page was rendered with differs
+    from the one the engine published, and that fingerprint's counter steps on
+    every block striking the account. A bundle with one busy address is struck
+    most blocks - so a page taking seven seconds to render is already stale on
+    arrival, reloads, and is stale again on arrival.
+
+    Observed on a real bundle as a page reloading forever, every reload a cold
+    render, and the auto-refresh checkbox flickering off and on because each
+    load repaints the markup before `address.js` re-reads localStorage.
+    """
+
+    @staticmethod
+    def _poll(mocker, view, holdings="published"):
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(
+            {"total": 5.0, "holdings": holdings, "values": {}}
+        )
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        return view.get(view.request)
+
+    def test_liverefresh_the_first_mismatch_reloads(self, mocker):
+        """The mechanism still has to work: a page that really did gain an
+        asset needs the one renderer that can produce a row for it."""
+        view = _view(mocker, session={}, holdings="rendered")
+
+        response = self._poll(mocker, view)
+
+        assert response["HX-Refresh"] == "true"
+
+    def test_liverefresh_a_second_mismatch_is_refused(self, mocker):
+        """**The loop, closed.** The fingerprint still disagrees - it will keep
+        disagreeing for as long as the account is busy - and answering every
+        poll with a reload is what made the page unusable."""
+        view = _view(mocker, session={}, holdings="rendered")
+        self._poll(mocker, view)
+
+        response = self._poll(mocker, view)
+
+        assert "HX-Refresh" not in response
+
+    def test_liverefresh_fragments_still_flow_during_the_cooldown(self, mocker):
+        """Refusing the reload must not mean refusing the update. Values keep
+        arriving; only the row structure waits."""
+        view = _view(mocker, session={}, holdings="rendered")
+        self._poll(mocker, view)
+
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(
+            {"total": 7.0, "holdings": "published", "values": {31566704: 2.5}}
+        )
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        rendered = mocker.patch.object(
+            LiveRefreshView, "render_to_response", return_value=HttpResponse()
+        )
+
+        view.get(view.request)
+
+        assert rendered.called
+        assert rendered.call_args.args[0]["payload"]["values"] == {31566704: 2.5}
+
+    def test_liverefresh_reloads_again_once_the_cooldown_passes(self, mocker):
+        """It is a cooling-off, not a switch: a page whose holdings really are
+        stale must eventually be rebuilt."""
+        from utils.constants.core import LIVEREFRESH_RELOAD_COOLDOWN_SECONDS
+
+        view = _view(mocker, session={}, holdings="rendered")
+        self._poll(mocker, view)
+
+        view.request.session["liverefresh:reloaded:HASH"] = (
+            time.time() - LIVEREFRESH_RELOAD_COOLDOWN_SECONDS - 1
+        )
+        response = self._poll(mocker, view)
+
+        assert response["HX-Refresh"] == "true"
+
+    def test_liverefresh_matching_fingerprints_never_reload(self, mocker):
+        """Unchanged from before: the cooldown only ever refuses, never
+        proposes."""
+        view = _view(mocker, session={}, holdings="same")
+
+        response = self._poll(mocker, view, holdings="same")
+
+        assert "HX-Refresh" not in response
+        assert "liverefresh:reloaded:HASH" not in view.request.session

@@ -20,12 +20,15 @@ import json
 import time
 
 from api.widgets import bundle_and_addresses_from_path
-from utils.constants.core import LIVEREFRESH_MAX_FRAGMENTS as MAX_FRAGMENTS
 from django.http import HttpResponse
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 from django.views.generic.base import TemplateView
 from utils.clients import redis_instance
+from utils.constants.core import LIVEREFRESH_MAX_FRAGMENTS as MAX_FRAGMENTS
+from utils.constants.core import (
+    LIVEREFRESH_RELOAD_COOLDOWN_SECONDS as RELOAD_COOLDOWN,
+)
 from utils.layouts import layout_for_user
 from walletauth.gating import is_linked_to_user
 from widgethost.enforcement import WidgetAccessMixin
@@ -307,6 +310,29 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         if not rendered or not published or rendered == published:
             return None
 
+        # **A page slower to render than its account is to transact never
+        # converges without this.** The engine's counter steps on every block
+        # that strikes the account, so a bundle with one busy address is
+        # struck most blocks - and a page that takes seven seconds to render is
+        # already stale when it arrives. It reloads, renders, arrives stale,
+        # reloads. Every one of those is a cold render, because the address
+        # page's cache entry is keyed on the same fingerprint.
+        #
+        # Observed as a page reloading forever and an auto-refresh checkbox
+        # flickering off and on, because each load re-reads `localStorage`
+        # after the markup has painted unchecked.
+        #
+        # Refusing here rather than in the script: the reader's page has no way
+        # to know how often it has been told to reload, and a client-side guard
+        # would have to survive the very reloads it is counting.
+        now = time.time()
+        last = self.request.session.get(self._reload_key())
+        if last and now - last < RELOAD_COOLDOWN:
+            # Fragments still go out; the reader keeps getting live figures
+            # while the row structure waits for the cooling-off to pass.
+            return None
+        self.request.session[self._reload_key()] = now
+
         response = HttpResponse(status=200)
         response["HX-Refresh"] = "true"
         return response
@@ -337,6 +363,10 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
 
     def _session_key(self):
         return f"liverefresh:{self.bundle}"
+
+    def _reload_key(self):
+        """Key holding when this reader was last told to reload this page."""
+        return f"liverefresh:reloaded:{self.bundle}"
 
     def _carry_key(self):
         """Key holding the values this reader is still owed for this page."""
