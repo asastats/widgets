@@ -86,23 +86,57 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         now = time.time()
         self._heartbeat(client, now)
 
-        remaining_seconds = self._allowance(client, now)
-        left = remaining_seconds
-        if left is None:
+        # **Read first, charge later.** What is left decides two things that
+        # must be answered before the payload is looked at - whether this reader
+        # is paying, and whether they have run out - and neither of them may
+        # cost the reader time. `left` spends nothing.
+        remaining_seconds = self._left(client)
+        if remaining_seconds is None:
             # **No daily limit means this reader is paying for it**, and the
             # engine needs to know before capacity runs out rather than after.
             # Same score and the same 90-second ageing as `lvx`, so a page stops
             # counting as paid 90 s after the last subscriber closes it and
             # nothing has to expire it on purpose.
+            #
+            # **Marked before the payload is looked at, deliberately.** This is
+            # what lifts a page over the admission budget, and a page that is
+            # not admitted is never published - so deciding it on whether
+            # something has been published would make a shed page's shedding
+            # permanent.
             client.zadd(PAID_KEY, {self.addresses: now})
-        elif left <= 0:
+        elif remaining_seconds <= 0:
+            # Told before the payload is read, and not folded into the "nothing
+            # published" branch below: a reader who is out must be *told* so the
+            # widget stops polling and `address.js` takes the plain reload back
+            # up. Answering them with a 204 would leave them with neither.
             return self._spent_response()
 
         payload = self._payload(client)
         if payload is None:
-            # Nothing published: the pass has not reached this page yet, or the
-            # reader has only just asked for it. Leave the page as it is.
+            # **Nothing published, so nothing is charged.**
+            #
+            # The pass has not reached this page yet, the reader has only just
+            # asked for it, or - the case that made this a bug rather than an
+            # edge - the page was shed by admission control and its payload
+            # aged out of the 120 s TTL behind it. On 2026-09-16 the overnight
+            # rotation shed 528 of 978 wanted pages at once, and every reader of
+            # one of those was being billed wall-clock seconds for a page that
+            # could not move.
+            #
+            # A deployment whose engine publishes nothing at all is the same
+            # shape: a fork can host this widget - it reads its own Redis and
+            # spends none of our API - but with no live pass behind it the
+            # payload never arrives, and charging an allowance down to zero for
+            # a feature that never produced a figure is indefensible.
+            #
+            # `left` reads the balance without spending, so the badge still
+            # shows the truth while the reader waits.
             return self._with_left(HttpResponse(status=204), remaining_seconds)
+
+        # Delivered, so charged. This is the only call that spends.
+        remaining_seconds = self._allowance(client, now)
+        if remaining_seconds is not None and remaining_seconds <= 0:
+            return self._spent_response()
 
         reload = self._reload_response(request, payload)
         if reload is not None:
@@ -139,6 +173,28 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             {"liverefresh:left": {"seconds": int(max(0, seconds))}}
         )
         return response
+
+    def _permission(self):
+        """Return the reader's permission integer, or 0 when they have none.
+
+        :return: int
+        """
+        profile = getattr(self.request.user, "profile", None)
+        return getattr(profile, "permission", 0) or 0
+
+    def _left(self, client):
+        """Return what is left without spending any, or None for unlimited.
+
+        :param client: Redis client instance
+        :type client: :class:`Redis`
+        :return: float or None
+        """
+        return left(
+            self._permission(),
+            self.addresses.split()[0],
+            self.request.user.pk,
+            client,
+        )
 
     def _allowance(self, client, now):
         """Charge this poll and return what is left, or None for unlimited.

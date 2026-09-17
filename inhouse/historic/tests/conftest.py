@@ -14,7 +14,12 @@ AsaProgram = namedtuple(
 )
 Provider = namedtuple("Provider", ["name", "info"], defaults=["Unknown", None])
 
-if not settings.configured:
+# **Standalone-mode bootstrap, and unreachable from this suite by
+# construction.** Run through the frontend - which is how the widget suite runs
+# here and in CI - settings are already configured, so the body never executes
+# and cannot be covered without running the widgets repo on its own. It is kept
+# because the repo ships separately and needs to stand up without the host.
+if not settings.configured:  # pragma: no cover
     settings.configure(
         INSTALLED_APPS=[
             "django.contrib.auth",

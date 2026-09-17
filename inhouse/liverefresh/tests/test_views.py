@@ -1023,6 +1023,7 @@ class TestLiveRefreshSpentResponse:
         mocker.patch(
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
+        mocker.patch("widgets.inhouse.liverefresh.views.left", return_value=-1.0)
         mocker.patch(
             "widgets.inhouse.liverefresh.views.spend", return_value=-1.0
         )
@@ -1040,6 +1041,7 @@ class TestLiveRefreshSpentResponse:
         mocker.patch(
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
+        mocker.patch("widgets.inhouse.liverefresh.views.left", return_value=0.0)
         mocker.patch(
             "widgets.inhouse.liverefresh.views.spend", return_value=0.0
         )
@@ -1096,6 +1098,7 @@ class TestLiveRefreshPaidPriority:
         mocker.patch(
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
+        mocker.patch("widgets.inhouse.liverefresh.views.left", return_value=600.0)
         mocker.patch(
             "widgets.inhouse.liverefresh.views.spend", return_value=600.0
         )
@@ -1113,6 +1116,7 @@ class TestLiveRefreshPaidPriority:
         mocker.patch(
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
+        mocker.patch("widgets.inhouse.liverefresh.views.left", return_value=-1.0)
         mocker.patch(
             "widgets.inhouse.liverefresh.views.spend", return_value=-1.0
         )
@@ -1141,3 +1145,331 @@ class TestLiveRefreshPaidPriority:
             for call in client.zadd.call_args_list
         }
         assert scores[PAID_KEY] == scores[SUBSCRIBED_KEY]
+
+
+class TestLiveRefreshChargesOnlyForWhatItDelivers:
+    """**An allowance is for watching a page move, not for asking whether it did.**
+
+    The poll used to charge before it looked at the payload, so a reader whose
+    page had nothing published was billed wall-clock seconds for 204s. Three
+    ways that happens, none of them hypothetical:
+
+    * the pass has not reached a newly-watched page yet;
+    * admission control shed the page - on 2026-09-16 the overnight rotation
+      shed 528 of 978 wanted pages at once - and the 120 s TTL behind `lvp`
+      then expired it;
+    * the deployment runs no live pass at all, which is any fork: the widget
+      reads its own Redis and spends none of our API, so a fork may host it,
+      and with nothing publishing it would have metered a feature that never
+      produced a figure.
+    """
+
+    def test_liverefresh_nothing_published_is_not_charged(self, mocker):
+        """The whole of the fix: no payload, no spend."""
+        view = _view(mocker, permission=0)
+        client = mocker.MagicMock()
+        client.get.return_value = None  # `lvp:<bundle>` absent
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        mocker.patch("widgets.inhouse.liverefresh.views.left", return_value=600.0)
+        spend = mocker.patch("widgets.inhouse.liverefresh.views.spend")
+
+        response = view.get(view.request)
+
+        assert response.status_code == 204
+        assert not spend.called
+
+    def test_liverefresh_a_delivered_payload_is_charged(self, mocker):
+        """The other half, and the one that stops the fix becoming a giveaway:
+        a poll that *did* return a figure still costs the reader time."""
+        import msgpack
+
+        view = _view(mocker, permission=0)
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb({"total": 1.0, "priceusdc": 0.2})
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        mocker.patch("widgets.inhouse.liverefresh.views.left", return_value=600.0)
+        spend = mocker.patch(
+            "widgets.inhouse.liverefresh.views.spend", return_value=597.0
+        )
+
+        view.get(view.request)
+
+        assert spend.called
+
+    def test_liverefresh_nothing_published_still_heartbeats(self, mocker):
+        """**Not charging must not become not subscribing.**
+
+        The heartbeat is what puts the page in `lvx`, and `lvx` is what makes
+        the pass publish it. Skipping it for a page with no payload would be
+        self-fulfilling: the page nothing has published for would be the page
+        nothing ever publishes for.
+        """
+        from widgets.inhouse.liverefresh.views import SUBSCRIBED_KEY
+
+        view = _view(mocker, permission=0)
+        client = mocker.MagicMock()
+        client.get.return_value = None
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        mocker.patch("widgets.inhouse.liverefresh.views.left", return_value=600.0)
+        mocker.patch("widgets.inhouse.liverefresh.views.spend")
+
+        view.get(view.request)
+
+        keys = [call.args[0] for call in client.zadd.call_args_list]
+        assert SUBSCRIBED_KEY in keys
+
+    def test_liverefresh_nothing_published_still_marks_a_payer(self, mocker):
+        """**The same trap, and worse, for a subscriber.**
+
+        `lvq` is what lifts a page over the admission budget. A shed page has no
+        payload, so deciding the paid mark on the payload would leave a
+        subscriber's shed page unmarked, unadmitted and therefore never
+        published - permanently shed, by the very condition that shedding
+        caused.
+        """
+        from widgets.inhouse.liverefresh.views import PAID_KEY
+
+        view = _view(mocker)  # Asastatser: unmetered
+        client = mocker.MagicMock()
+        client.get.return_value = None
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+
+        view.get(view.request)
+
+        keys = [call.args[0] for call in client.zadd.call_args_list]
+        assert PAID_KEY in keys
+
+    def test_liverefresh_a_spent_reader_is_told_even_with_no_payload(self, mocker):
+        """**The spent check cannot be folded into the no-payload branch.**
+
+        A reader who is out must be *told*, so the widget stops polling and
+        `address.js` picks the plain 60-second reload back up. Answering with a
+        204 because nothing happened to be published would leave them with
+        neither the live updates nor the reload.
+        """
+        view = _view(mocker, permission=0)
+        client = mocker.MagicMock()
+        client.get.return_value = None
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        mocker.patch("widgets.inhouse.liverefresh.views.left", return_value=0.0)
+
+        response = view.get(view.request)
+
+        assert response.status_code == 200
+        assert response["HX-Trigger"] == "liverefresh:spent"
+
+
+class TestLiveRefreshAllowanceEdges:
+    """The branches the happy path never reaches.
+
+    Every one of these is a `try/except` or a fallback that exists because the
+    two layers behind the allowance - a Redis hash and a database row - can
+    disagree, go missing, or hold something that will not parse. They are
+    unreachable from a normal poll by construction, which is exactly why they
+    need writing down: a defensive branch nobody exercises is a defensive branch
+    nobody knows is wrong.
+    """
+
+    def test_liverefresh_terms_is_none_below_every_band(self):
+        """**The bands are floors, and the lowest is zero.**
+
+        Nothing reaches this from a real profile - a permission is unsigned in
+        practice - but `terms` is the function every other one asks "is this
+        reader metered", so it answers for any integer rather than raising at
+        the bottom of the stack.
+        """
+        from widgets.inhouse.liverefresh.allowance import terms
+
+        assert terms(-1) is None
+
+    def test_liverefresh_is_free_tier_splits_at_intro(self):
+        """The paid/free line the settings copy and the linked-address rule both
+        key on."""
+        from widgets.inhouse.liverefresh.allowance import is_free_tier
+
+        assert is_free_tier(0) is True
+        assert is_free_tier(SUBSCRIPTION_TIER_PERMISSIONS["Intro"]) is False
+        assert is_free_tier(ASASTATSER) is False
+
+    def test_liverefresh_step_survives_an_unparseable_hash(self):
+        """**A corrupt hash must charge nothing, not crash the poll.**
+
+        Redis holds strings, so anything that can write to the key can put a
+        word where a float belongs. Falling back to "no previous poll" charges
+        this one nothing, which is the same thing a new session gets.
+        """
+        from widgets.inhouse.liverefresh.allowance import _step
+
+        step, used = _step({"used": "not-a-number", "seen": "1000"}, 2000.0)
+
+        assert step == 0.0
+        assert used == 0.0
+
+    def test_liverefresh_step_never_refunds_on_a_backwards_clock(self):
+        """An NTP correction must not hand time back."""
+        from widgets.inhouse.liverefresh.allowance import _step
+
+        step, _used = _step({"used": "10", "seen": "2000"}, 1000.0)
+
+        assert step == 0.0
+
+    @pytest.mark.django_db
+    def test_liverefresh_spend_survives_an_unparseable_balance(self, mocker):
+        """A balance that will not parse falls back to the row, not to zero -
+        charging a reader their whole allowance because a cache entry was
+        garbled would be the worst possible reading of it."""
+        from widgets.inhouse.liverefresh.allowance import spend
+
+        client = mocker.MagicMock()
+        client.hgetall.return_value = {
+            b"balance": b"not-a-number",
+            b"seen": b"1000",
+            b"flushed": b"also-not-a-number",
+        }
+
+        balance = spend(0, ADDRESS, 42, client, 1010.0)
+
+        # The row was created at capacity, and the ten seconds since the stored
+        # `seen` are clamped to MAX_STEP - a reader whose tab slept for an hour
+        # is charged one poll, not an hour.
+        from widgets.inhouse.liverefresh.allowance import MAX_STEP
+
+        assert balance == pytest.approx(2 * 60 * 60 - MAX_STEP)
+
+    @pytest.mark.django_db
+    def test_liverefresh_left_falls_back_to_capacity_with_no_row(self, mocker):
+        """A reader nobody has metered yet has the whole grant, and asking must
+        not create a row - `left` is called to render a badge."""
+        from core.models import LiveAllowanceBucket
+        from widgets.inhouse.liverefresh.allowance import left
+
+        client = mocker.MagicMock()
+        client.hgetall.return_value = {}
+
+        assert left(0, ADDRESS, 42, client) == float(2 * 60 * 60)
+        assert not LiveAllowanceBucket.objects.filter(key=ADDRESS).exists()
+
+    @pytest.mark.django_db
+    def test_liverefresh_left_reads_the_row_when_redis_is_empty(self, mocker):
+        """The row is the durable half: Redis entries age out, and a reader who
+        comes back tomorrow must not find the grant refilled by the eviction."""
+        from core.models import LiveAllowanceBucket
+        from widgets.inhouse.liverefresh.allowance import left
+
+        LiveAllowanceBucket.objects.create(
+            key=ADDRESS, balance=90.0, capacity=2 * 60 * 60
+        )
+        client = mocker.MagicMock()
+        client.hgetall.return_value = {}
+
+        # Refill is 15 minutes a week, so a row written just now is worth what
+        # it says to within a second.
+        assert left(0, ADDRESS, 42, client) == pytest.approx(90.0, abs=1.0)
+
+    @pytest.mark.django_db
+    def test_liverefresh_left_falls_back_when_the_cached_balance_is_garbled(
+        self, mocker
+    ):
+        """Same fallback as `spend`, reached the same way and separately, since
+        a badge that read zero would tell a reader they were out when they are
+        not."""
+        from core.models import LiveAllowanceBucket
+        from widgets.inhouse.liverefresh.allowance import left
+
+        LiveAllowanceBucket.objects.create(
+            key=ADDRESS, balance=120.0, capacity=2 * 60 * 60
+        )
+        client = mocker.MagicMock()
+        client.hgetall.return_value = {b"balance": b"not-a-number"}
+
+        assert left(0, ADDRESS, 42, client) == pytest.approx(120.0, abs=1.0)
+
+
+class TestLiveRefreshRemainingBranches:
+    """The two branches in the view that only a specific poll reaches."""
+
+    def test_liverefresh_the_poll_that_exhausts_it_says_so(self, mocker):
+        """**Spent is checked twice, and this is the second.**
+
+        The first check catches a reader who arrived with nothing left. This one
+        catches the poll that took the last of it: the payload was delivered and
+        charged, and the reader has to be told now rather than on the next poll,
+        which would spend another step first.
+        """
+        view = _view(mocker, permission=0)
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb({"total": 1.0, "priceusdc": 0.2})
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        mocker.patch("widgets.inhouse.liverefresh.views.left", return_value=3.0)
+        mocker.patch("widgets.inhouse.liverefresh.views.spend", return_value=0.0)
+
+        response = view.get(view.request)
+
+        assert response.status_code == 200
+        assert response["HX-Trigger"] == "liverefresh:spent"
+
+    def test_liverefresh_too_many_addresses_for_the_tier_is_refused(self, mocker):
+        """The manifest's bands are the gate, and a bundle wider than the band
+        is refused before the address is looked at - so a Professional reader
+        cannot reach a twenty-address page by asking for it directly."""
+        view = _view(mocker, permission=0)
+        view.args = ()
+        view.kwargs = {"value": ADDRESS}
+        # Mocked like every other `test_func` test here: the path parsing is a
+        # different unit, and leaving it real made this test depend on state
+        # another widget's suite mutates - it passed alone and failed in the
+        # combined run.
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.bundle_and_addresses_from_path",
+            return_value=(None, ADDRESS),
+        )
+        mocker.patch.object(view, "manifest_test_func", return_value=False)
+
+        assert view.test_func() is False
+
+
+class TestLiveRefreshUrls:
+    """The widget's own URL entry.
+
+    Imported by the host at startup rather than by anything here, so nothing in
+    the suite loaded this module and a typo in the pattern would have surfaced
+    only as a 404 in a browser.
+    """
+
+    def test_liverefresh_the_poll_url_is_registered_for_an_address_and_a_bundle(
+        self,
+    ):
+        """**Read off the module, not through `reverse`.**
+
+        `reverse` loads the root URLconf, which pulls in the whole site - and in
+        the widgets-only run that dies on an unrelated import. The historic
+        widget's routing test reads its patterns the same way for the same
+        reason. What matters here is that the module imports and that its one
+        pattern accepts both lengths.
+        """
+        import re
+
+        from widgets.inhouse.liverefresh import urls
+
+        assert len(urls.urlpatterns) == 1
+        entry = urls.urlpatterns[0]
+        assert entry.name == "liverefresh"
+        assert entry.lookup_str == (
+            "widgets.inhouse.liverefresh.views.LiveRefreshView"
+        )
+        pattern = re.compile(str(entry.pattern))
+        assert pattern.match(ADDRESS)  # 58, an address
+        assert pattern.match("A" * 40)  # 40, a bundle hash
+        assert not pattern.match("A" * 39)
