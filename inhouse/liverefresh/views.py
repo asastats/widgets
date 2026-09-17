@@ -20,7 +20,6 @@ import json
 import time
 
 from api.widgets import bundle_and_addresses_from_path
-from utils.constants.core import LIVEREFRESH_MAX_FRAGMENTS as MAX_FRAGMENTS
 from django.http import HttpResponse
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
@@ -43,22 +42,6 @@ SUBSCRIBED_KEY = "lvx"
 PAID_KEY = "lvq"
 #: Prefix the pass publishes under, keyed by bundle. See `CACHE_KEY_LIVE_PAYLOAD`.
 PAYLOAD_PREFIX = "lvp"
-
-
-def _asset_key(key):
-    """Return `key` as the asset id it was before a session stringified it.
-
-    Anything that is not a plain asset id is handed back untouched rather than
-    forced, so a future payload keyed by something else survives the trip
-    instead of raising on the way out.
-
-    :param key: a mapping key read back from the session
-    :return: int or the original key
-    """
-    try:
-        return int(key)
-    except (TypeError, ValueError):
-        return key
 
 
 @method_decorator(never_cache, name="dispatch")
@@ -157,17 +140,9 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
 
         reload = self._reload_response(request, payload)
         if reload is not None:
-            # The page is about to be re-rendered whole, so anything still
-            # queued describes markup that will not exist in a moment.
-            self.request.session.pop(self._carry_key(), None)
             return self._with_left(reload, remaining_seconds)
 
-        payload, sending = self._chunked(payload)
-
-        # **`sending` first**, because a resync can outlive the block that
-        # started it: the total settles while values are still going out, and
-        # answering 204 then would strand the rest of them.
-        if not sending and payload.get("total") == self._last_total():
+        if payload.get("total") == self._last_total():
             return self._with_left(HttpResponse(status=204), remaining_seconds)
 
         self.request.session[self._session_key()] = payload.get("total")
@@ -337,74 +312,6 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
 
     def _session_key(self):
         return f"liverefresh:{self.bundle}"
-
-    def _carry_key(self):
-        """Key holding the values this reader is still owed for this page."""
-        return f"liverefresh:carry:{self.bundle}"
-
-    def _chunked(self, payload):
-        """Return `payload` with at most `MAX_FRAGMENTS` values, and whether any.
-
-        **The engine sends everything after a re-read, and that is deliberate.**
-        A reader polling every three seconds against blocks arriving every 2.7
-        cannot see every diff, so the periodic full payload is what heals the
-        drift. It cannot be turned into a diff without making values quietly
-        wrong on every page, to fix one.
-
-        What it can be is *spread*. One account measured 85 kB of fragments in a
-        single response - ten times what the docstring on `_live_payload` calls
-        a full one - which htmx then has to parse and out-of-band swap into a 22
-        MB document, every time the account is struck. The reader's browser, not
-        the engine, is what that overwhelms.
-
-        So the values are queued and released `MAX_FRAGMENTS` at a time. Nothing
-        is dropped: what does not fit stays in the session and goes out on the
-        polls that follow, newest value winning if the same asset moves again
-        mid-resync. A resync of nine hundred holdings finishes in about half a
-        minute of polling instead of arriving as one unusable lump.
-
-        **Only large payloads are touched.** An ordinary block's diff is a
-        handful of values and passes through whole, which is every page but this
-        kind of one.
-
-        :param payload: what the pass published, as `_payload` decoded it
-        :type payload: dict
-        :return: two-tuple of (payload, bool)
-        """
-        values = payload.get("values") or {}
-        carry = self.request.session.get(self._carry_key()) or {}
-
-        # **Integer keys out, string keys in the session.** The values map is
-        # keyed by asset id and `_payload` decodes it with `strict_map_key=False`
-        # to keep those integers - the fragments are addressed by them. A session
-        # round-trips through JSON, which has no integer keys, so what is carried
-        # comes back as `"31566704"` and has to be turned back before it can
-        # merge with, or be ordered against, the `31566704` a later payload
-        # brings.
-        merged = {_asset_key(key): value for key, value in carry.items()}
-        merged.update(values)
-
-        if len(merged) <= MAX_FRAGMENTS:
-            self.request.session.pop(self._carry_key(), None)
-            return dict(payload, values=merged), bool(merged)
-
-        # **What moved this block goes first, and the backlog fills the rest.**
-        # Ordering the whole queue by asset id would make a holding the reader
-        # has just watched change wait its turn behind nine hundred that did
-        # not - which is the complaint this whole mechanism is answering, not a
-        # detail of it. A transfer a reader made themselves has to show up on
-        # the next poll.
-        fresh = [key for key in values if key in merged]
-        behind = sorted(
-            (key for key in merged if key not in values),
-            key=lambda key: (isinstance(key, str), key),
-        )
-        ordered = fresh + behind
-        going = {key: merged[key] for key in ordered[:MAX_FRAGMENTS]}
-        self.request.session[self._carry_key()] = {
-            str(key): merged[key] for key in ordered[MAX_FRAGMENTS:]
-        }
-        return dict(payload, values=going), True
 
     def _last_total(self):
         """Return the total this reader was last shown, or None."""
