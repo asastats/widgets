@@ -1,5 +1,6 @@
 """Testing module for the Real-time refresh widget's view."""
 
+import json
 import msgpack
 import pytest
 from django.http import HttpResponse
@@ -1473,3 +1474,161 @@ class TestLiveRefreshUrls:
         assert pattern.match(ADDRESS)  # 58, an address
         assert pattern.match("A" * 40)  # 40, a bundle hash
         assert not pattern.match("A" * 39)
+
+
+class TestLiveRefreshChunksALargeResync:
+    """Spreading a full payload over several polls.
+
+    **The engine's full send is deliberate and stays.** A reader polling every
+    three seconds against 2.7-second blocks cannot see every diff, so the
+    payload after a re-read carries every holding and heals the drift. Turning
+    that into a diff would make values quietly wrong on every page.
+
+    What it could not do was arrive all at once. One real account measured 85 kB
+    of fragments in a single response, out-of-band swapped into a 22 MB
+    document, every time the account was struck - which pinned the browser and
+    made the page unusable. So the values are released a hundred at a time and
+    nothing is dropped.
+    """
+
+    @staticmethod
+    def _payload(count, total=5.0):
+        return msgpack.packb(
+            {"total": total, "values": {1000 + i: float(i) for i in range(count)}}
+        )
+
+    @staticmethod
+    def _rendered(mocker, view, raw, session=None):
+        client = mocker.MagicMock()
+        client.get.return_value = raw
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        rendered = mocker.patch.object(
+            LiveRefreshView, "render_to_response", return_value=HttpResponse()
+        )
+        view.get(view.request)
+        return rendered
+
+    def test_liverefresh_a_small_payload_is_untouched(self, mocker):
+        """**Every page but the pathological one.** An ordinary block moves a
+        handful of values, and they must not pay for this."""
+        view = _view(mocker, session={})
+        rendered = self._rendered(mocker, view, self._payload(5))
+
+        assert len(rendered.call_args.args[0]["payload"]["values"]) == 5
+        assert "liverefresh:carry:HASH" not in view.request.session
+
+    def test_liverefresh_a_large_payload_is_capped(self, mocker):
+        from utils.constants.core import LIVEREFRESH_MAX_FRAGMENTS
+
+        view = _view(mocker, session={})
+        rendered = self._rendered(mocker, view, self._payload(250))
+
+        sent = rendered.call_args.args[0]["payload"]["values"]
+        assert len(sent) == LIVEREFRESH_MAX_FRAGMENTS
+        assert len(view.request.session["liverefresh:carry:HASH"]) == 150
+
+    def test_liverefresh_the_remainder_goes_out_on_later_polls(self, mocker):
+        """**Nothing is dropped, which is the whole claim.** A capped response
+        that quietly forgot the rest would leave figures stale on the page with
+        nothing to say so."""
+        from utils.constants.core import LIVEREFRESH_MAX_FRAGMENTS
+
+        view = _view(mocker, session={})
+        seen = set()
+
+        rendered = self._rendered(mocker, view, self._payload(250))
+        seen.update(rendered.call_args.args[0]["payload"]["values"])
+
+        # The same total on the polls that follow: nothing new has moved, and
+        # the reader is owed the rest regardless.
+        for _ in range(2):
+            rendered = self._rendered(mocker, view, self._payload(0))
+            seen.update(rendered.call_args.args[0]["payload"]["values"])
+
+        assert len(seen) == 250
+        assert seen == {1000 + i for i in range(250)}
+        assert not view.request.session.get("liverefresh:carry:HASH")
+        assert LIVEREFRESH_MAX_FRAGMENTS == 100
+
+    def test_liverefresh_the_carry_keeps_integer_asset_keys(self, mocker):
+        """**A session round-trips through JSON, which has no integer keys.**
+
+        The fragments are addressed by asset id, and `_payload` decodes the map
+        with `strict_map_key=False` precisely to keep those integers. A carried
+        id coming back as `"31566704"` would never match the `31566704` a later
+        payload brings, and would address no element on the page.
+        """
+        view = _view(mocker, session={})
+        self._rendered(mocker, view, self._payload(150))
+        # Exactly what a cache-backed session does to it.
+        carried = view.request.session["liverefresh:carry:HASH"]
+        view.request.session["liverefresh:carry:HASH"] = json.loads(
+            json.dumps(carried)
+        )
+
+        rendered = self._rendered(mocker, view, self._payload(0))
+
+        sent = rendered.call_args.args[0]["payload"]["values"]
+        assert sent
+        assert all(isinstance(key, int) for key in sent)
+
+    def test_liverefresh_a_newer_value_wins_mid_resync(self, mocker):
+        """A holding that moves again while the queue drains must go out at its
+        new figure, not the one it had when it joined the queue."""
+        view = _view(mocker, session={})
+        self._rendered(mocker, view, self._payload(250))
+
+        moved = msgpack.packb({"total": 9.0, "values": {1249: 99.0}})
+        rendered = self._rendered(mocker, view, moved)
+
+        sent = rendered.call_args.args[0]["payload"]["values"]
+        assert sent[1249] == 99.0
+
+    def test_liverefresh_does_not_answer_204_while_it_still_owes_values(
+        self, mocker
+    ):
+        """**A resync outlives the block that started it.** The total settles
+        while values are still going out, and 204 then would strand them."""
+        view = _view(mocker, session={})
+        self._rendered(mocker, view, self._payload(250))
+
+        # Same total as the poll before: unchanged, but the queue is not empty.
+        rendered = self._rendered(mocker, view, self._payload(0))
+
+        assert rendered.called
+
+    def test_liverefresh_a_reload_clears_what_was_queued(self, mocker):
+        """The page is about to be rendered whole, so the queue describes
+        markup that is about to stop existing."""
+        view = _view(mocker, session={}, holdings="stale")
+        self._rendered(mocker, view, self._payload(250))
+        assert view.request.session.get("liverefresh:carry:HASH")
+
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(
+            {"total": 5.0, "holdings": "fresh", "values": {}}
+        )
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        view.get(view.request)
+
+        assert not view.request.session.get("liverefresh:carry:HASH")
+
+    def test_liverefresh_a_non_numeric_carry_key_survives(self, mocker):
+        """**Handed back rather than forced.**
+
+        Every key the payload carries today is an asset id, so this branch is
+        unreachable from the engine as it stands. It is here because the
+        alternative - `int()` on whatever a future payload is keyed by - turns
+        a new field into a 500 on the poll, and the mechanism that drains a
+        backlog is the worst place to put a crash.
+        """
+        from widgets.inhouse.liverefresh.views import _asset_key
+
+        assert _asset_key("31566704") == 31566704
+        assert _asset_key(31566704) == 31566704
+        assert _asset_key("total") == "total"
+        assert _asset_key(None) is None
