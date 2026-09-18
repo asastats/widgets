@@ -327,6 +327,32 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # would have to survive the very reloads it is counting.
         now = time.time()
         last = self.request.session.get(self._reload_key())
+
+        # **A gap clears it, and that is what makes this a cooldown rather than
+        # a deadline.** The stamp lives in the session, so it survived the tab
+        # being closed: a reader who was told to reload, closed the window,
+        # transacted and came back was refused the reload they now genuinely
+        # needed, and sat on stale rows until the clock ran out. Reported
+        # 2026-09-18 as "it took 60 seconds and an F5" - this constant, to the
+        # second.
+        #
+        # Keying on the fingerprint instead does not work, and the loop above is
+        # why: the counter steps on every block that strikes the account, so in
+        # a runaway the fingerprint is *different* on every pass and a
+        # fingerprint key would wave every reload through - which is the bug
+        # this was written for.
+        #
+        # What separates the two cases is not what changed but how continuously.
+        # A runaway is found out of date on essentially every poll, so this gap
+        # never opens; a closed window is not polling at all, so it opens at
+        # once. Recorded here rather than on every poll deliberately: the
+        # question is when this reader was last *found stale*, and a page that
+        # has been in sync for ten minutes has no cooldown worth keeping.
+        stale = self.request.session.get(self._stale_key())
+        if stale and now - stale > RELOAD_COOLDOWN:
+            last = None
+        self.request.session[self._stale_key()] = now
+
         if last and now - last < RELOAD_COOLDOWN:
             # Fragments still go out; the reader keeps getting live figures
             # while the row structure waits for the cooling-off to pass.
@@ -367,6 +393,15 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
     def _reload_key(self):
         """Key holding when this reader was last told to reload this page."""
         return f"liverefresh:reloaded:{self.bundle}"
+
+    def _stale_key(self):
+        """Key holding when this reader's page was last found out of date.
+
+        Not "when they last polled": a page in sync polls without ever reaching
+        the cooldown, and a cooldown it has outlived is not worth keeping. See
+        `_reload_response` for what the gap between this and now decides.
+        """
+        return f"liverefresh:stale:{self.bundle}"
 
     def _carry_key(self):
         """Key holding the values this reader is still owed for this page."""

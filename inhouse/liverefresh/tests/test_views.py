@@ -1727,3 +1727,51 @@ class TestLiveRefreshReloadCooldown:
 
         assert "HX-Refresh" not in response
         assert "liverefresh:reloaded:HASH" not in view.request.session
+
+    def test_liverefresh_a_reader_who_went_away_is_not_still_cooling_off(
+        self, mocker
+    ):
+        """**Closing the tab is not polling, and the stamp outlived it.**
+
+        Reported 2026-09-18: swap, close the window, swap again, come back - and
+        the reload the page now genuinely needed was refused because the *first*
+        swap had spent the cooldown less than a minute earlier. "60 seconds and
+        an F5" is this constant to the second.
+
+        The gap is what a runaway cannot fake: it is found out of date on every
+        poll, so its stamp is never stale.
+        """
+        from utils.constants.core import LIVEREFRESH_RELOAD_COOLDOWN_SECONDS
+
+        view = _view(mocker, session={}, holdings="rendered")
+        self._poll(mocker, view)
+        assert "HX-Refresh" not in self._poll(mocker, view)
+
+        # Away for longer than the cooldown, then back with a page that is
+        # stale again. Both stamps are old; only the gap decides.
+        gone = time.time() - LIVEREFRESH_RELOAD_COOLDOWN_SECONDS - 1
+        view.request.session["liverefresh:stale:HASH"] = gone
+
+        assert self._poll(mocker, view)["HX-Refresh"] == "true"
+
+    def test_liverefresh_a_reader_who_kept_polling_still_cools_off(self, mocker):
+        """The other half, and the one that matters: a page found stale on
+        consecutive polls is the runaway, and it must stay refused. Without this
+        the fix above would simply reopen the loop."""
+        view = _view(mocker, session={}, holdings="rendered")
+        self._poll(mocker, view)
+
+        # A moment later, still stale - which is what a busy account looks like.
+        view.request.session["liverefresh:stale:HASH"] = time.time() - 1
+
+        assert "HX-Refresh" not in self._poll(mocker, view)
+
+    def test_liverefresh_a_page_in_sync_records_no_staleness(self, mocker):
+        """The stamp says when the page was last found *out of date*, not when
+        it last polled. A page that has been in sync for ten minutes has no
+        cooldown left worth honouring, and must not be made to look like one."""
+        view = _view(mocker, session={}, holdings="same")
+
+        self._poll(mocker, view, holdings="same")
+
+        assert "liverefresh:stale:HASH" not in view.request.session
