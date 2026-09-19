@@ -1728,6 +1728,35 @@ class TestLiveRefreshReloadCooldown:
         assert "HX-Refresh" not in response
         assert "liverefresh:reloaded:HASH" not in view.request.session
 
+    def test_liverefresh_a_struck_account_still_reloads(self, mocker):
+        """**Narrowed to the digest on 2026-09-19 and reverted the same day.**
+
+        Comparing only the digest - the half of `<counter>:<digest>` that says
+        *what* is held - stopped a transacting account rebuilding on every
+        block, which is the reload this work exists to retire. It was wrong
+        about what a row contains: a row's positions render `prog.amount` with
+        no id, nothing has ever addressed them, and the rebuild was the only
+        thing that corrected them. Removing it froze them while the total above
+        them stayed right, which is a page disagreeing with itself about money.
+
+        So any change to the fingerprint reloads again, and this pins it until
+        positions are in the payload.
+        """
+        view = _view(mocker, session={}, holdings="3:same-assets")
+
+        response = self._poll(mocker, view, holdings="9:same-assets")
+
+        assert response["HX-Refresh"] == "true"
+
+    def test_liverefresh_a_changed_asset_set_reloads(self, mocker):
+        """The case that must reload however the comparison is done: no
+        fragment can create a row for an asset that has just arrived."""
+        view = _view(mocker, session={}, holdings="3:old-assets")
+
+        response = self._poll(mocker, view, holdings="3:new-assets")
+
+        assert response["HX-Refresh"] == "true"
+
     def test_liverefresh_a_reader_who_went_away_is_not_still_cooling_off(
         self, mocker
     ):

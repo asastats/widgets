@@ -310,6 +310,53 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         if not rendered or not published or rendered == published:
             return None
 
+        # **Reverted 2026-09-19, the same day it shipped. Do not re-apply this
+        # without covering positions first.**
+        #
+        # The narrowing below is correct about rows and wrong about what a row
+        # contains. `_live_payload` is keyed by asset id and reaches `q<id>` and
+        # `v<id>` - a row's aggregate amount and its value. A row's *positions*
+        # - "Wallet balance", a farm, a lend - render `prog.amount` with no id
+        # at all (`snippets/dynamic/position.html`), so nothing has ever
+        # addressed them and the rebuild was the only thing that corrected them.
+        #
+        # Removing the rebuild therefore froze them. Reported within the hour:
+        # 1 USDC sent from one watched page to another, the receiver's figure
+        # rose, the sender's "Wallet balance" sat at 3.7552 USDC until F5 made
+        # it 2.7552. The row's total above it was right the whole time, which is
+        # the worst version of this - a page disagreeing with itself about money.
+        #
+        # Stale figures are worse than a reload, so the reload comes back. The
+        # amounts half stays: it is a pure gain, correcting a row's aggregate
+        # between rebuilds where nothing corrected it before.
+        #
+        # What this needs before it returns is position-level figures in the
+        # payload and ids to land them on - a bigger piece than the row work,
+        # because a position is keyed by asset *and* program. The check itself
+        # was one line: compare `fingerprint.split(":", 1)[-1]` on each side
+        # rather than the whole string, the digest being the half that says
+        # *what* is held.
+        #
+        # **Only the asset *set* needs the page rebuilt; the counter does not.**
+        # A fingerprint is `<counter>:<digest>`, and the counter steps on every
+        # block that strikes the account while the digest covers which assets
+        # are held. Comparing whole fingerprints meant a transacting account
+        # reloaded on almost every block - losing its scroll, its filters and
+        # every collection the reader had opened - to correct figures the
+        # fragments can now carry themselves.
+        #
+        # What a fragment still cannot do is create a row for an asset that has
+        # just arrived, and that is exactly what moves the digest. A *sold*
+        # asset moves it too and does not strictly need a rebuild, since the
+        # payload zero-fills its row; reloading anyway is a deliberate
+        # simplification, because it is rare and it clears the zeroed row away
+        # rather than leaving it to sit there until the reader navigates.
+        #
+        # Amounts had to become fragments before this was safe - see the
+        # `amounts` half of `_live_payload`. Without them a page that stopped
+        # reloading would show an accruing dApp position's quantity frozen at
+        # whatever it was rendered with, for ever.
+
         # **A page slower to render than its account is to transact never
         # converges without this.** The engine's counter steps on every block
         # that strikes the account, so a bundle with one busy address is

@@ -43,3 +43,18 @@ rounding, the `data-val` the currency switch reads, and the unit beside it are
 written once.
 {% endcomment %}
 {% if layout == "classic" %}{% for asset_id, value in payload.values.items %}{% include "snippets/asas.html#classicvalue" with asset_id=asset_id value=value oob=True %}{% endfor %}{% else %}{% for asset_id, value in payload.values.items %}{% include "snippets/dynamic/asset.html#assetvalue" with asset_id=asset_id value=value oob=True %}{% endfor %}{% endif %}
+{% comment %}
+And the other number on the row. A value follows the price; an amount follows a
+transaction or an accrual, and dApp positions accrue every block - so on a page
+holding one this was the column the reload existed to correct.
+
+`amount.0` and `amount.1` are the amount and the decimals it is rendered with,
+sent together because an amount is in the asset's own base units and means
+nothing without them. The row's own partial does the formatting, so there is no
+second `amount_repr` here to drift from the one on the page.
+
+The unit is not in these fragments and must not be: it is a sibling of the span
+being swapped, in both layouts, precisely so that a block does not have to
+re-send a string that never changes.
+{% endcomment %}
+{% if layout == "classic" %}{% for asset_id, amount in payload.amounts.items %}{% include "snippets/asas.html#classicamount" with asset_id=asset_id amount=amount.0 decimals=amount.1 oob=True %}{% endfor %}{% else %}{% for asset_id, amount in payload.amounts.items %}{% include "snippets/dynamic/asset.html#assetamount" with asset_id=asset_id amount=amount.0 decimals=amount.1 oob=True %}{% endfor %}{% endif %}
