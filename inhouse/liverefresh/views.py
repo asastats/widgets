@@ -105,6 +105,21 @@ def _named_positions(payload):
     return named
 
 
+def _digest(fingerprint):
+    """Return the part of `fingerprint` that says *what* is held.
+
+    `<counter>:<digest>` - the counter is how many times the account has been
+    struck, the digest is over the asset id set. A fingerprint that predates the
+    counter, or any shape without a separator, is returned whole: comparing it
+    against itself still works, and guessing at it would not.
+
+    :param fingerprint: what `_holdings_fingerprint` made
+    :type fingerprint: str
+    :return: str
+    """
+    return fingerprint.split(":", 1)[-1]
+
+
 @method_decorator(never_cache, name="dispatch")
 class LiveRefreshView(WidgetAccessMixin, TemplateView):
     """GET /widgets/liverefresh/<value> -> the fragments this block changed.
@@ -351,65 +366,36 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         if not rendered or not published or rendered == published:
             return None
 
-        # **Reverted 2026-09-19, the same day it shipped. Do not re-apply this
-        # without covering positions first.**
-        #
-        # The narrowing below is correct about rows and wrong about what a row
-        # contains. `_live_payload` is keyed by asset id and reaches `q<id>` and
-        # `v<id>` - a row's aggregate amount and its value. A row's *positions*
-        # - "Wallet balance", a farm, a lend - render `prog.amount` with no id
-        # at all (`snippets/dynamic/position.html`), so nothing has ever
-        # addressed them and the rebuild was the only thing that corrected them.
-        #
-        # Removing the rebuild therefore froze them. Reported within the hour:
-        # 1 USDC sent from one watched page to another, the receiver's figure
-        # rose, the sender's "Wallet balance" sat at 3.7552 USDC until F5 made
-        # it 2.7552. The row's total above it was right the whole time, which is
-        # the worst version of this - a page disagreeing with itself about money.
-        #
-        # Stale figures are worse than a reload, so the reload comes back. The
-        # amounts half stays: it is a pure gain, correcting a row's aggregate
-        # between rebuilds where nothing corrected it before.
-        #
-        # What this needs before it returns is position-level figures in the
-        # payload and ids to land them on - a bigger piece than the row work,
-        # because a position is keyed by asset *and* program. The check itself
-        # was one line: compare `fingerprint.split(":", 1)[-1]` on each side
-        # rather than the whole string, the digest being the half that says
-        # *what* is held.
-        #
         # **Only the asset *set* needs the page rebuilt; the counter does not.**
-        # A fingerprint is `<counter>:<digest>`, and the counter steps on every
-        # block that strikes the account while the digest covers which assets
-        # are held. Comparing whole fingerprints meant a transacting account
-        # reloaded on almost every block - losing its scroll, its filters and
-        # every collection the reader had opened - to correct figures the
-        # fragments can now carry themselves.
         #
-        # What a fragment still cannot do is create a row for an asset that has
-        # just arrived, and that is exactly what moves the digest. A *sold*
-        # asset moves it too and does not strictly need a rebuild, since the
-        # payload zero-fills its row; reloading anyway is a deliberate
-        # simplification, because it is rare and it clears the zeroed row away
-        # rather than leaving it to sit there until the reader navigates.
+        # A fingerprint is `<counter>:<digest>`. The counter steps on every block
+        # that strikes the account while the digest covers which assets are held,
+        # so comparing whole fingerprints rebuilt a transacting account's page on
+        # almost every block - costing the reader their scroll, their filters and
+        # every section they had open - to correct figures the fragments carry.
         #
-        # Amounts had to become fragments before this was safe - see the
-        # `amounts` half of `_live_payload`. Without them a page that stopped
-        # reloading would show an accruing dApp position's quantity frozen at
-        # whatever it was rendered with, for ever.
+        # **This was tried on 2026-09-19 and reverted within the hour, and the
+        # reason is the bar for putting it back.** Fragments reached a row's
+        # aggregate and nothing inside it: a row's positions - "Wallet balance",
+        # a farm, a lend - rendered with no id, so nothing addressed them and the
+        # rebuild was the only thing that ever corrected one. Removing it froze
+        # every position while the total above it stayed live, which is a page
+        # disagreeing with itself about money. Observed as 1 USDC between two
+        # watched pages: the sender's "Wallet balance" sat at 3.7552 until F5.
+        #
+        # What makes it safe now is that a position is addressable and published:
+        # `pq-<pid>` and `pv-<pid>` on the page, `positions` in the payload, and
+        # a handler that carries the new figure up to the `.position`'s own
+        # `data-value` so the band keeps agreeing with its rows. Narrowing this
+        # again without all three is how the same bug comes back.
+        #
+        # Two cases still rebuild, and both are right to. A genuinely new asset
+        # has no row for a fragment to land in. A position the page could not
+        # name - three on the reference bundle are indistinguishable - gets no
+        # id and no fragment, so its figure waits for the next rebuild.
+        if _digest(rendered) == _digest(published):
+            return None
 
-        # **A page slower to render than its account is to transact never
-        # converges without this.** The engine's counter steps on every block
-        # that strikes the account, so a bundle with one busy address is
-        # struck most blocks - and a page that takes seven seconds to render is
-        # already stale when it arrives. It reloads, renders, arrives stale,
-        # reloads. Every one of those is a cold render, because the address
-        # page's cache entry is keyed on the same fingerprint.
-        #
-        # Observed as a page reloading forever and an auto-refresh checkbox
-        # flickering off and on, because each load re-reads `localStorage`
-        # after the markup has painted unchecked.
-        #
         # Refusing here rather than in the script: the reader's page has no way
         # to know how often it has been told to reload, and a client-side guard
         # would have to survive the very reloads it is counting.

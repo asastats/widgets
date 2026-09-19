@@ -1816,34 +1816,127 @@ class TestLiveRefreshReloadCooldown:
         assert _named_positions({"values": {}}) == []
         assert _named_positions(None) == []
 
-    def test_liverefresh_a_struck_account_still_reloads(self, mocker):
-        """**Narrowed to the digest on 2026-09-19 and reverted the same day.**
+    def test_liverefresh_a_struck_account_alone_does_not_reload(self, mocker):
+        """**The reload this whole line of work exists to retire.**
 
-        Comparing only the digest - the half of `<counter>:<digest>` that says
-        *what* is held - stopped a transacting account rebuilding on every
-        block, which is the reload this work exists to retire. It was wrong
-        about what a row contains: a row's positions render `prog.amount` with
-        no id, nothing has ever addressed them, and the rebuild was the only
-        thing that corrected them. Removing it froze them while the total above
-        them stayed right, which is a page disagreeing with itself about money.
-
-        So any change to the fingerprint reloads again, and this pins it until
-        positions are in the payload.
+        A fingerprint is `<counter>:<digest>`. The counter steps on every block
+        that strikes the account; the digest covers which assets are held. Same
+        assets, different counter means nothing structural moved, and every
+        figure that did is now a fragment - including a position's, which is
+        what made this unsafe the first time it was tried.
         """
         view = _view(mocker, session={}, holdings="3:same-assets")
 
         response = self._poll(mocker, view, holdings="9:same-assets")
 
-        assert response["HX-Refresh"] == "true"
+        assert "HX-Refresh" not in response
 
-    def test_liverefresh_a_changed_asset_set_reloads(self, mocker):
-        """The case that must reload however the comparison is done: no
-        fragment can create a row for an asset that has just arrived."""
+    def test_liverefresh_a_changed_asset_set_still_reloads(self, mocker):
+        """No fragment can create a row for an asset that has just arrived, and
+        that is exactly what moves the digest."""
         view = _view(mocker, session={}, holdings="3:old-assets")
 
         response = self._poll(mocker, view, holdings="3:new-assets")
 
         assert response["HX-Refresh"] == "true"
+
+    def test_liverefresh_a_fingerprint_without_a_counter_is_compared_whole(
+        self, mocker
+    ):
+        """A page rendered before the counter existed, or any shape without a
+        separator. Comparing it against itself works; guessing does not."""
+        view = _view(mocker, session={}, holdings="bare-old-form")
+
+        assert "HX-Refresh" not in self._poll(mocker, view, holdings="bare-old-form")
+        assert self._poll(mocker, view, holdings="different")["HX-Refresh"] == "true"
+
+    def test_liverefresh_a_position_fragment_carries_the_id_its_row_has(
+        self, mocker
+    ):
+        """**The join this whole design rests on.**
+
+        The engine cannot name a position - the live pass never serializes one,
+        so it cannot build a `pid`. The page cannot value one. The engine sends
+        what the position *is* and the view turns that into the same id
+        `api/position_id.py` gave the row.
+
+        Asserted against `position_id` itself rather than a literal, because a
+        literal would agree with a broken recipe just as happily.
+        """
+        from api.position_id import position_id
+        from widgets.inhouse.liverefresh.views import _named_positions
+
+        program = {
+            "program": {
+                "type": "Added",
+                "name": "Liquidity",
+                "provider": {"name": "Pact"},
+                "url": "https://app.pact.fi",
+            },
+            "linked": [{"text": "Source LP token", "id": 1129173576}],
+        }
+        published = {
+            "positions": [
+                {
+                    "asset": 31566704,
+                    "fields": {
+                        "type": "Added",
+                        "name": "Liquidity",
+                        "provider": "Pact",
+                        "code": "",
+                        "url": "https://app.pact.fi",
+                    },
+                    "links": [["Source LP token", "1129173576"], ["Vestige", "7"]],
+                    "value": 4.5,
+                    "amount": 100,
+                    "decimals": 6,
+                    "breakdown": False,
+                }
+            ]
+        }
+
+        named = _named_positions(published)
+
+        assert len(named) == 1
+        assert named[0]["pid"] == position_id(31566704, program)
+
+    def test_liverefresh_a_position_without_an_asset_is_skipped(self, mocker):
+        """**The asset id is half the identity, so there is none without it.**
+
+        `position_id` hashes it as the first part and prefixes the result with
+        it, so a position missing one would be named `p1-None-...` - an id no
+        row on any page carries, and therefore a fragment landing nowhere on
+        every poll for as long as the engine kept sending it.
+
+        Skipping costs that position its live figure and nothing else: the
+        reload corrects it, which is what corrected every position until now.
+        """
+        from widgets.inhouse.liverefresh.views import _named_positions
+
+        published = {
+            "positions": [
+                {"fields": {"type": "Balance"}, "value": 1.0, "amount": 1},
+                {
+                    "asset": 5,
+                    "fields": {"type": "Balance"},
+                    "links": [],
+                    "value": 2.0,
+                    "amount": 2,
+                },
+            ]
+        }
+
+        named = _named_positions(published)
+
+        assert [position["asset"] for position in named] == [5]
+
+    def test_liverefresh_a_payload_without_positions_is_not_an_error(self, mocker):
+        """An engine that predates this sends no `positions` at all, and the
+        two services deploy separately - so that window is real."""
+        from widgets.inhouse.liverefresh.views import _named_positions
+
+        assert _named_positions({"values": {}}) == []
+        assert _named_positions(None) == []
 
     def test_liverefresh_a_reader_who_went_away_is_not_still_cooling_off(
         self, mocker
