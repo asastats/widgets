@@ -33,6 +33,7 @@ from utils.layouts import layout_for_user
 from walletauth.gating import is_linked_to_user
 from widgethost.enforcement import WidgetAccessMixin
 
+from . import warmset
 from .allowance import left, requires_linked_address, spend
 from .manifest import MANIFEST
 
@@ -160,13 +161,30 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # mark carry different scores for the same event, and the two sets age
         # out of step - by microseconds, but for no reason at all.
         now = time.time()
-        self._heartbeat(client, now)
+        warm = self._heartbeat(client, now)
 
         # **Read first, charge later.** What is left decides two things that
         # must be answered before the payload is looked at - whether this reader
         # is paying, and whether they have run out - and neither of them may
         # cost the reader time. `left` spends nothing.
         remaining_seconds = self._left(client)
+
+        if not warm:
+            # **Over this reader's warm-set cap**, so this page is not being
+            # kept alive for them and cannot move. Charging for it would be the
+            # same defect as billing a reader for a page admission control had
+            # shed - see the branch below, which exists because that happened.
+            #
+            # Nor is it marked paid: `lvq` lifts a page over the engine's
+            # admission budget, and asking the engine to prioritise a page we
+            # have deliberately not subscribed would be asking for work we just
+            # decided not to want.
+            #
+            # 204 rather than the spent response: they have not run out of
+            # anything, and their other tabs are still live. The page simply
+            # goes static, which is exactly what a shed page does.
+            return self._with_left(HttpResponse(status=204), remaining_seconds)
+
         if remaining_seconds is None:
             # **No daily limit means this reader is paying for it**, and the
             # engine needs to know before capacity runs out rather than after.
@@ -438,8 +456,42 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         return response
 
     def _heartbeat(self, client, now):
-        """Say the page is being read, so the engine keeps re-pricing it."""
+        """Say the page is being read, so the engine keeps re-pricing it.
+
+        **Only if this reader's warm set has room for it.** The manifest's
+        bands are checked per *page*, so a reader may hold several pages at
+        once and clear every check - five tabs of five-address bundles pass
+        five checks of five addresses each, and twenty-five addresses are
+        re-priced every block.
+        The warm set is what counts a reader's addresses across every tab and
+        every surface; see `warmset`.
+
+        **A page that does not fit is simply not warmed.** It is not refused
+        and nothing is raised: the reader still gets whatever the pass has
+        published for it, because reading a payload another reader caused to
+        exist is free. What the cap bounds is the work a reader can *cause*,
+        not the data they may see - which is also why this sits here rather
+        than in the access check.
+
+        :param client: Redis client instance
+        :type client: :class:`Redis`
+        :param now: unix time to score the touch with
+        :type now: float
+        :var admitted: the addresses this poll kept warm, empty when over cap
+        :type admitted: list
+        :return: bool
+        """
+        admitted, _ = warmset.touch(
+            self.request.user.pk,
+            self.addresses.split(),
+            warmset.cap_for(self._permission(), self.manifest.required_permission),
+            client,
+            now,
+        )
+        if not admitted:
+            return False
         client.zadd(SUBSCRIBED_KEY, {self.addresses: now})
+        return True
 
     def _payload(self, client):
         """Return what the pass last published for this page, or None."""

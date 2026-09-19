@@ -26,12 +26,22 @@ what gets written to `lvx` at all; the engine's view of the world is unchanged.
 **The two surfaces want opposite things when the budget is full**, and that
 asymmetry is what makes a shared budget shippable:
 
-* the **browser evicts** its least-recently-touched address and never refuses.
-  Live refresh already degrades this way - `_admit` sheds and the reader sees
-  what a non-subscriber sees - and a page quietly going static is a far better
-  failure than an error on a tab they are probably not looking at;
+* the **browser never errors**. A page over the cap simply is not warmed, and
+  goes static - which is exactly what a page shed by `_admit` already does, and
+  is a far better failure than an error on a tab the reader may not be looking
+  at;
 * the **API refuses**, because a machine consumer wants a status code rather
   than data that is quietly less fresh than it asked for.
+
+**Eviction only takes genuinely idle addresses, and the design note this was
+built from was wrong about that.** It said the browser should evict
+least-recently-used and never refuse. But an evicted tab is never told: it polls
+again three seconds later, re-claims the budget and evicts the other tab in
+turn. Two tabs over the cap would ping-pong for ever, both updating at half
+rate, and the cap would bound nothing. So an address touched within
+`IDLE_SECONDS` keeps its slot, and a page that cannot find room goes static and
+*stays* static until a tab is closed. That is still least-recently-used - it is
+LRU among the entries where "least recently" means anything - and it is stable.
 
 Ageing matches `lvx` exactly: a member scored with the unix time it was last
 touched, and anything older than `LIVE_SUBSCRIPTION_SECONDS` is not warm. The
@@ -39,7 +49,10 @@ engine leaves its own stale members in place and filters by score on read,
 because it only reads. This key is read *and* written here, so it trims itself.
 """
 
-from utils.constants.core import LIVEREFRESH_SUBSCRIPTION_SECONDS
+from utils.constants.core import (
+    LIVEREFRESH_POLL_SECONDS,
+    LIVEREFRESH_SUBSCRIPTION_SECONDS,
+)
 
 #: Prefix for one reader's warm set. Suffixed with the user's primary key.
 #: Members are single addresses, scored by the unix time each was last touched.
@@ -54,6 +67,14 @@ WARM_SECONDS = LIVEREFRESH_SUBSCRIPTION_SECONDS
 #: than the window, so the set outlives a slow poll and still disappears for a
 #: reader who has gone.
 WARM_TTL = WARM_SECONDS * 4
+
+#: How long an address must go untouched before another page may take its slot.
+#:
+#: Two poll intervals, the same reasoning as `allowance.MAX_STEP`: long enough
+#: that an ordinary gap - a slow block, a busy tab - does not make a live page
+#: look abandoned, and short enough that a tab the reader actually closed frees
+#: its budget within seconds rather than at the end of the 90-second window.
+IDLE_SECONDS = LIVEREFRESH_POLL_SECONDS * 2
 
 
 def key_for(user_pk):
@@ -184,31 +205,70 @@ def touch(user_pk, addresses, cap, client, now, evict=True):
     if cap <= 0:
         return [], []
 
-    held = set(members(user_pk, client, now))
+    held = _scored(user_pk, client, now)
     # The union is the accounting, and it is why members are addresses: an
     # address already warm for this reader costs nothing to ask for again.
-    wanted = held | set(addresses)
+    over = len((held.keys() | set(addresses))) - cap
 
-    if not evict and len(wanted) > cap:
+    if over <= 0:
+        client.zadd(key, dict.fromkeys(addresses, now))
+        client.expire(key, WARM_TTL)
+        return list(addresses), []
+
+    if not evict:
         # Refuse whole. Touching the ones that happen to fit would admit part
         # of a bundle and leave the caller with an answer about addresses it
         # did not ask about on their own.
         return [], []
 
+    # **Only genuinely idle addresses may be evicted, and this is the part the
+    # design note got wrong.** It said the browser should evict least-recently-
+    # used and never refuse. But an evicted tab is not told: it polls again
+    # three seconds later, re-claims the budget and evicts the other tab in
+    # turn, so two tabs over the cap would ping-pong for ever and each would
+    # update at half rate. The cap would bound nothing and the reader would see
+    # two pages both stuttering.
+    #
+    # So a page being actively polled keeps what it holds, and only addresses
+    # nobody has asked about for `IDLE_SECONDS` can be taken. That is still
+    # least-recently-used - it is LRU among the entries where "least recently"
+    # means something - and it is stable: whoever is over the cap goes static
+    # and stays static until a tab is closed, rather than both flickering.
+    idle = sorted(
+        (
+            (score, address)
+            for address, score in held.items()
+            if address not in set(addresses) and score <= now - IDLE_SECONDS
+        )
+    )
+    if len(idle) < over:
+        # Nothing stale enough to take. This page simply does not get warmed -
+        # it goes static, which is what a shed page already does and is a far
+        # better failure than an error on a tab the reader may not be looking
+        # at. No exception, no status code, nothing for them to see.
+        return [], []
+
+    evicted = [address for _, address in idle[:over]]
+    client.zrem(key, *evicted)
     client.zadd(key, dict.fromkeys(addresses, now))
     client.expire(key, WARM_TTL)
+    return list(addresses), evicted
 
-    evicted = []
-    over = client.zcard(key) - cap
-    if over > 0:
-        # Lowest scores are the least recently touched, which is the tab the
-        # reader is least likely to be looking at.
-        evicted = [
-            member.decode() if isinstance(member, bytes) else member
-            for member in client.zrange(key, 0, over - 1)
-        ]
-        client.zremrangebyrank(key, 0, over - 1)
 
-    return [
-        address for address in addresses if address not in set(evicted)
-    ], evicted
+def _scored(user_pk, client, now):
+    """Return this reader's warm addresses mapped to when each was touched.
+
+    :param user_pk: the reader's primary key
+    :type user_pk: int
+    :param client: Redis client instance
+    :type client: :class:`Redis`
+    :param now: unix time to judge staleness against
+    :type now: float
+    :return: dict
+    """
+    key = key_for(user_pk)
+    client.zremrangebyscore(key, 0, now - WARM_SECONDS)
+    return {
+        (member.decode() if isinstance(member, bytes) else member): score
+        for member, score in client.zrange(key, 0, -1, withscores=True)
+    }

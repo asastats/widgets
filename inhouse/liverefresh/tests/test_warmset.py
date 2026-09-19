@@ -120,18 +120,48 @@ class TestTouch:
 
         assert warmset.count(reader, client, NOW + 1) == 4
 
-    def test_touch_evicts_least_recently_touched_when_full(self, client, reader):
-        """The browser drops a tab rather than refusing one."""
+    def test_touch_evicts_an_idle_address_to_make_room(self, client, reader):
+        """A tab the reader has stopped polling gives up its slot."""
         warmset.touch(reader, [ADDR_A], 2, client, NOW)
         warmset.touch(reader, [ADDR_B], 2, client, NOW + 1)
 
-        admitted, evicted = warmset.touch(reader, [ADDR_C], 2, client, NOW + 2)
+        later = NOW + warmset.IDLE_SECONDS + 1
+        admitted, evicted = warmset.touch(reader, [ADDR_C], 2, client, later)
 
         assert admitted == [ADDR_C]
         assert evicted == [ADDR_A]
-        assert sorted(warmset.members(reader, client, NOW + 2)) == sorted(
+        assert sorted(warmset.members(reader, client, later)) == sorted(
             [ADDR_B, ADDR_C]
         )
+
+    def test_touch_does_not_evict_a_tab_that_is_still_polling(
+        self, client, reader
+    ):
+        """**The ping-pong this design was nearly shipped with.**
+
+        An evicted tab is never told it was evicted: it polls again three
+        seconds later, re-claims the budget and evicts the other in turn. Two
+        tabs over the cap would alternate for ever, each updating at half rate,
+        and the cap would bound nothing. So a page still being polled keeps
+        what it holds and the newcomer goes static instead.
+        """
+        warmset.touch(reader, [ADDR_A], 1, client, NOW)
+
+        admitted, evicted = warmset.touch(reader, [ADDR_B], 1, client, NOW + 1)
+
+        assert admitted == []
+        assert evicted == []
+        assert warmset.members(reader, client, NOW + 1) == [ADDR_A]
+
+    def test_touch_is_stable_when_two_tabs_contend(self, client, reader):
+        """Repeated polls from both must not swap the winner back and forth."""
+        warmset.touch(reader, [ADDR_A], 1, client, NOW)
+
+        for step in range(1, 8):
+            warmset.touch(reader, [ADDR_B], 1, client, NOW + step)
+            warmset.touch(reader, [ADDR_A], 1, client, NOW + step)
+
+        assert warmset.members(reader, client, NOW + 8) == [ADDR_A]
 
     def test_touch_refuses_whole_rather_than_partially(self, client, reader):
         """A refused API call must not admit half a bundle.
