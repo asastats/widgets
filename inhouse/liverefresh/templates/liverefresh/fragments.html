@@ -58,3 +58,19 @@ being swapped, in both layouts, precisely so that a block does not have to
 re-send a string that never changes.
 {% endcomment %}
 {% if layout == "classic" %}{% for asset_id, amount in payload.amounts.items %}{% include "snippets/asas.html#classicamount" with asset_id=asset_id amount=amount.0 decimals=amount.1 oob=True %}{% endfor %}{% else %}{% for asset_id, amount in payload.amounts.items %}{% include "snippets/dynamic/asset.html#assetamount" with asset_id=asset_id amount=amount.0 decimals=amount.1 oob=True %}{% endfor %}{% endif %}
+
+{% comment %}
+And the rows *inside* a row. A position - a wallet balance, an LP stake, a
+deposit - is what a reader watches; the figure above it is their sum. Nothing
+published them until now, so the only thing that ever corrected one was the
+reader reloading the page.
+
+`pid` is attached by the view, which is the only place that can: the engine
+sends what a position *is* and `api/position_id.py` turns that into the id its
+row was given. A position the engine dropped as indistinguishable never arrives,
+and one the page left unnamed has no element to land on - both keep being
+corrected by the reload.
+
+Design 1 renders no positions, so this half is the money designs only.
+{% endcomment %}
+{% if layout != "classic" %}{% for position in positions %}{% include "snippets/dynamic/position.html#positionvalue" with pid=position.pid pambig=False pvalue=position.value pbreakdown=position.breakdown passet=position.asset pdistkey=position.pid oob=True %}{% if position.amount %}{% include "snippets/dynamic/position.html#positionamount" with pid=position.pid pambig=False pamount=position.amount pdecimals=position.decimals oob=True %}{% endif %}{% endfor %}{% endif %}

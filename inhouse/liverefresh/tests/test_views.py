@@ -1728,6 +1728,94 @@ class TestLiveRefreshReloadCooldown:
         assert "HX-Refresh" not in response
         assert "liverefresh:reloaded:HASH" not in view.request.session
 
+    def test_liverefresh_a_position_fragment_carries_the_id_its_row_has(
+        self, mocker
+    ):
+        """**The join this whole design rests on.**
+
+        The engine cannot name a position - the live pass never serializes one,
+        so it cannot build a `pid`. The page cannot value one. The engine sends
+        what the position *is* and the view turns that into the same id
+        `api/position_id.py` gave the row.
+
+        Asserted against `position_id` itself rather than a literal, because a
+        literal would agree with a broken recipe just as happily.
+        """
+        from api.position_id import position_id
+        from widgets.inhouse.liverefresh.views import _named_positions
+
+        program = {
+            "program": {
+                "type": "Added",
+                "name": "Liquidity",
+                "provider": {"name": "Pact"},
+                "url": "https://app.pact.fi",
+            },
+            "linked": [{"text": "Source LP token", "id": 1129173576}],
+        }
+        published = {
+            "positions": [
+                {
+                    "asset": 31566704,
+                    "fields": {
+                        "type": "Added",
+                        "name": "Liquidity",
+                        "provider": "Pact",
+                        "code": "",
+                        "url": "https://app.pact.fi",
+                    },
+                    "links": [["Source LP token", "1129173576"], ["Vestige", "7"]],
+                    "value": 4.5,
+                    "amount": 100,
+                    "decimals": 6,
+                    "breakdown": False,
+                }
+            ]
+        }
+
+        named = _named_positions(published)
+
+        assert len(named) == 1
+        assert named[0]["pid"] == position_id(31566704, program)
+
+    def test_liverefresh_a_position_without_an_asset_is_skipped(self, mocker):
+        """**The asset id is half the identity, so there is none without it.**
+
+        `position_id` hashes it as the first part and prefixes the result with
+        it, so a position missing one would be named `p1-None-...` - an id no
+        row on any page carries, and therefore a fragment landing nowhere on
+        every poll for as long as the engine kept sending it.
+
+        Skipping costs that position its live figure and nothing else: the
+        reload corrects it, which is what corrected every position until now.
+        """
+        from widgets.inhouse.liverefresh.views import _named_positions
+
+        published = {
+            "positions": [
+                {"fields": {"type": "Balance"}, "value": 1.0, "amount": 1},
+                {
+                    "asset": 5,
+                    "fields": {"type": "Balance"},
+                    "links": [],
+                    "value": 2.0,
+                    "amount": 2,
+                },
+            ]
+        }
+
+        named = _named_positions(published)
+
+        assert [position["asset"] for position in named] == [5]
+
+    def test_liverefresh_a_payload_without_positions_is_not_an_error(self, mocker):
+        """An engine that predates this sends no `positions` at all, and the
+        two services deploy separately - so that window is real."""
+        from widgets.inhouse.liverefresh.views import _named_positions
+
+        assert _named_positions({"values": {}}) == []
+        assert _named_positions(None) == []
+
     def test_liverefresh_a_struck_account_still_reloads(self, mocker):
         """**Narrowed to the digest on 2026-09-19 and reverted the same day.**
 

@@ -580,3 +580,169 @@ describe("showing what is left of the allowance", () => {
     expect(document.getElementById("id-liverefresh-left").hidden).toBe(false);
   });
 });
+
+describe("settling a position fragment", () => {
+  /** A position row as the page renders it, with an open breakdown.
+   *
+   * Appended to a real page: the module returns early without its marker, so
+   * a body holding only a position would export nothing to call.
+   */
+  function position(pid, { value = "4.5", expandedNow = "true" } = {}) {
+    page();
+    document.body.innerHTML +=
+      '<div class="position" data-value="' + value + '">' +
+      '  <div class="position-val">' +
+      '    <button id="pv-' + pid + '" class="amt tdist val" data-val="' + value +
+      '" aria-expanded="' + expandedNow + '">4.50</button>' +
+      "  </div>" +
+      "</div>";
+    return document.getElementById("pv-" + pid);
+  }
+
+  /** Replace the element the way htmx does, then fire the pair around it. */
+  function swap(subject, module, pid, newValue) {
+    module.rememberExpanded({ detail: { target: subject } });
+    const fresh = document.createElement("button");
+    fresh.id = subject.id;
+    fresh.className = subject.className;
+    fresh.setAttribute("data-val", newValue);
+    fresh.setAttribute("aria-expanded", "false"); // what the server renders
+    subject.replaceWith(fresh);
+    module.settlePosition({ detail: { target: fresh } });
+    return fresh;
+  }
+
+  test("an open breakdown is still open afterwards", () => {
+    // `dynamic.js` owns aria-expanded and the `.dist` panel is a sibling, so
+    // it survives the swap. Without this the control claims closed over a
+    // panel that is still showing.
+    const subject = position("p1-5-abc");
+
+    const module = load();
+    const fresh = swap(subject, module, "p1-5-abc", "9.0");
+
+    expect(fresh.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("the position's own total follows its new value", () => {
+    // `toolbar.js` sums `data-value` off `.position` for every category total
+    // and for the allocation band. A fragment cannot reach an attribute
+    // without replacing the element holding it, so this carries it up - or
+    // the page's headline drifts away from its own rows.
+    const subject = position("p1-5-abc", { value: "4.5" });
+
+    const module = load();
+    swap(subject, module, "p1-5-abc", "9.0");
+
+    expect(
+      document.querySelector(".position").getAttribute("data-value")
+    ).toBe("9.0");
+  });
+
+  test("a closed breakdown stays closed", () => {
+    const subject = position("p1-5-abc", { expandedNow: "false" });
+
+    const module = load();
+    const fresh = swap(subject, module, "p1-5-abc", "9.0");
+
+    expect(fresh.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("an event carrying no target is ignored by both halves", () => {
+    // htmx fires these for every out-of-band element, and a malformed or
+    // synthetic one must not take the poll down with it: the handler runs
+    // inside the response, so a throw here stops the rest of the swaps.
+    const module = load();
+
+    expect(() => module.rememberExpanded({})).not.toThrow();
+    expect(() => module.rememberExpanded({ detail: {} })).not.toThrow();
+    expect(() => module.settlePosition({})).not.toThrow();
+    expect(() => module.settlePosition({ detail: {} })).not.toThrow();
+  });
+
+  test("a fragment nobody remembered keeps what the server sent", () => {
+    // `oobBeforeSwap` not having run for this id - a first fragment, or an
+    // element htmx inserted rather than replaced. There is nothing to restore,
+    // and inventing a value would close a breakdown the reader had open.
+    page();
+    const module = load();
+    document.body.innerHTML +=
+      '<div class="position" data-value="4.5">' +
+      '<button id="pv-p1-5-fresh" data-val="9.0" aria-expanded="true"></button>' +
+      "</div>";
+
+    module.settlePosition({
+      detail: { target: document.getElementById("pv-p1-5-fresh") },
+    });
+
+    expect(
+      document.getElementById("pv-p1-5-fresh").getAttribute("aria-expanded")
+    ).toBe("true");
+  });
+
+  test("a position value with no row around it is left alone", () => {
+    // Defensive: the id says position, the DOM disagrees. Nothing to carry the
+    // value up to, and a throw would stop every swap after it in the response.
+    page();
+    const module = load();
+    document.body.innerHTML +=
+      '<button id="pv-p1-5-orphan" data-val="9.0"></button>';
+
+    expect(() =>
+      module.settlePosition({
+        detail: { target: document.getElementById("pv-p1-5-orphan") },
+      })
+    ).not.toThrow();
+  });
+
+  test("a fragment whose element has left the document is ignored", () => {
+    // The lookup is by id because htmx replaces the node, so the element in
+    // the event is the old one. If the replacement never arrived there is
+    // nothing to settle.
+    page();
+    const module = load();
+    const gone = document.createElement("button");
+    gone.id = "pv-p1-5-missing";
+
+    expect(() =>
+      module.settlePosition({ detail: { target: gone } })
+    ).not.toThrow();
+  });
+
+  test("a value of nothing settles as zero rather than as absent", () => {
+    // `data-value` is summed, so an empty attribute would make the category
+    // total `NaN` and take the whole allocation band with it.
+    page();
+    const module = load();
+    document.body.innerHTML +=
+      '<div class="position" data-value="4.5">' +
+      '<button id="pv-p1-5-blank"></button></div>';
+
+    module.settlePosition({
+      detail: { target: document.getElementById("pv-p1-5-blank") },
+    });
+
+    expect(
+      document.querySelector(".position").getAttribute("data-value")
+    ).toBe("0");
+  });
+
+  test("anything that is not a position value is left alone", () => {
+    // The same events carry the band and every row figure. Reaching for a
+    // `.position` from one of those would write a row's value into whatever
+    // ancestor happened to match.
+    page();
+    const module = load();
+    document.body.innerHTML +=
+      '<div class="position" data-value="4.5">' +
+      '<span id="v31566704" data-val="9.0">9.00</span></div>';
+    const row = document.getElementById("v31566704");
+
+    module.rememberExpanded({ detail: { target: row } });
+    module.settlePosition({ detail: { target: row } });
+
+    expect(
+      document.querySelector(".position").getAttribute("data-value")
+    ).toBe("4.5");
+  });
+});

@@ -64,6 +64,47 @@ def _asset_key(key):
         return key
 
 
+def _named_positions(payload):
+    """Return the published positions, each carrying the id its row was given.
+
+    **The engine cannot name a position and the page cannot value one.** A
+    position's `pid` is the website's identifier, built from what the position
+    is (`api/position_id.py`), and the live pass never serializes a position so
+    it cannot build one. It sends the identifying fields instead and this joins
+    the two.
+
+    Which linked entries identify rather than describe is decided here too, by
+    `identifying_link_ids` - so the engine ships every link with its text and
+    the rule stays in one place.
+
+    A position the engine dropped as indistinguishable never arrives, and one
+    whose row the page left unnamed has no element to land on. Both are
+    corrected by the reload, as they always were.
+
+    :param payload: what the pass published, as `_payload` decoded it
+    :type payload: dict
+    :return: list
+    """
+    from api.position_id import identifying_link_ids, position_id_from_fields
+
+    named = []
+    for position in (payload or {}).get("positions") or ():
+        asset_id = position.get("asset")
+        if asset_id is None:
+            continue
+        named.append(
+            dict(
+                position,
+                pid=position_id_from_fields(
+                    asset_id,
+                    position.get("fields") or {},
+                    identifying_link_ids(position.get("links")),
+                ),
+            )
+        )
+    return named
+
+
 @method_decorator(never_cache, name="dispatch")
 class LiveRefreshView(WidgetAccessMixin, TemplateView):
     """GET /widgets/liverefresh/<value> -> the fragments this block changed.
@@ -536,6 +577,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # every poll. Deriving it here rather than trusting a parameter keeps
         # the two from ever disagreeing about which markup this reader holds.
         context["layout"] = layout_for_user(getattr(self.request, "user", None))
+        context["positions"] = _named_positions(context.get("payload"))
         return context
 
     def test_func(self):

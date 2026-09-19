@@ -21,6 +21,13 @@
 (function () {
   /** The per-reader marker, delivered by the page's non-cached partial. */
   var marker = document.getElementById("id-liverefresh");
+  /**
+   * `aria-expanded` per position value id, carried across its own swap.
+   *
+   * Keyed by id and cleared as each one settles, so a fragment that never
+   * arrives cannot leave a stale answer for the next one.
+   */
+  var expanded = {};
   if (!marker || !window.htmx) {
     return;
   }
@@ -228,12 +235,76 @@
   // What both layouts do agree on is the `refresh` key, so that is the only
   // thing read. The cost of asking every interval while disarmed is one
   // `localStorage` read every few seconds and no request at all.
+  /**
+   * Finish what a position fragment cannot say on its own.
+   *
+   * **Two things travel with a position's value and neither is inside the
+   * element being replaced.**
+   *
+   * `aria-expanded` is live state: `dynamic.js` toggles it, and the `.dist`
+   * panel it controls is a *sibling*, so the panel survives a swap that resets
+   * the control. Without this a reader watching an open breakdown would see the
+   * button claim closed over a panel still showing.
+   *
+   * `data-value` sits on the `.position` itself and is what `toolbar.js` sums
+   * for every category total and for the allocation band. A fragment cannot
+   * reach an attribute without replacing the element holding it, so the page's
+   * headline arithmetic would drift away from its own rows - the exact failure
+   * that made narrowing the reload a mistake in the first place.
+   *
+   * On `htmx:oobBeforeSwap`/`oobAfterSwap` rather than `htmx:afterSwap`,
+   * because the out-of-band pair brackets each element individually and both
+   * fire before the whole-response event `toolbar.js` repaints on. Doing it
+   * later would repaint from the figures this is here to correct.
+   *
+   * @param {Event} event - htmx's out-of-band swap event.
+   */
+  function rememberExpanded(event) {
+    var target = event.detail && event.detail.target;
+    if (!target || !isPositionValue(target)) return;
+    expanded[target.id] = target.getAttribute("aria-expanded");
+  }
+
+  /**
+   * @param {Event} event - htmx's out-of-band swap event.
+   */
+  function settlePosition(event) {
+    var target = event.detail && event.detail.target;
+    if (!target) return;
+    // htmx replaces the node, so read the one now in the document.
+    var element = document.getElementById(target.id);
+    if (!element || !isPositionValue(element)) return;
+
+    var was = expanded[element.id];
+    if (was !== null && was !== undefined) {
+      element.setAttribute("aria-expanded", was);
+    }
+    delete expanded[element.id];
+
+    var position = element.closest && element.closest(".position");
+    if (position) {
+      position.setAttribute("data-value", element.getAttribute("data-val") || "0");
+    }
+  }
+
+  /**
+   * @param {Element} element - a swapped element.
+   * @returns {boolean} whether it is a position's value.
+   */
+  function isPositionValue(element) {
+    return !!(element.id && element.id.indexOf("pv-") === 0);
+  }
+
   document.addEventListener("visibilitychange", visibility);
   // Fired by the server through `HX-Trigger` when the allowance runs out.
   document.body.addEventListener("liverefresh:spent", spent);
   // Sent with every poll response, including the 204s, so the figure does not
   // sit still on a quiet page and then jump.
   document.body.addEventListener("liverefresh:left", showLeft);
+  // Bracketing each out-of-band element, so both run before the whole-response
+  // event `toolbar.js` repaints on.
+  document.body.addEventListener("htmx:oobBeforeSwap", rememberExpanded);
+  document.body.addEventListener("htmx:oobAfterSwap", settlePosition);
   start();
 
   /* istanbul ignore next -- exported for the jest suite only */
@@ -247,6 +318,8 @@
       spent,
       showLeft,
       humanize,
+      rememberExpanded,
+      settlePosition,
     };
   }
 })();
