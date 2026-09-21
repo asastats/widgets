@@ -89,7 +89,7 @@ describe("SECTION: Initialization", function () {
     const events = global.getEvents
       ? global.getEvents($("body")[0])
       : $._data($("body")[0], "events");
-    expect(events["htmx:wsAfterMessage"][0].handler.name).toBe(
+    expect(events["htmx:ws:after:message:incoming"][0].handler.name).toBe(
       "messageReceived",
     );
     // Nothing is constructed any more -- the disclosures are native
@@ -125,17 +125,17 @@ describe("SECTION: Websocket communication", () => {
   it("handles update_charts message", () => {
     historic.messageReceived({
       detail: {
-        message: JSON.stringify({
+        message: { data: JSON.stringify({
           type: "update_charts",
           data: { bars: {}, candles: {} },
-        }),
+        }) },
       },
     });
     expect(global.Chart).toHaveBeenCalledTimes(2);
   });
   it("handles show_update message", () => {
     historic.messageReceived({
-      detail: { message: JSON.stringify({ type: "show_update" }) },
+      detail: { message: { data: JSON.stringify({ type: "show_update" }) } },
     });
     expect(document.getElementById("tupdate").hidden).toBe(false);
   });
@@ -168,7 +168,7 @@ describe("SECTION: Websocket communication", () => {
   it("handles lock_no_blur message", () => {
     historic.messageReceived({
       detail: {
-        message: JSON.stringify({ type: "lock_no_blur", locked: true }),
+        message: { data: JSON.stringify({ type: "lock_no_blur", locked: true }) },
       },
     });
     expect($("body").css("cursor")).toBe("progress");
@@ -190,7 +190,7 @@ describe("SECTION: Websocket communication", () => {
     candlesChart.update = jest.fn();
     // Send message – line 103 is executed
     historic.messageReceived({
-      detail: { message: JSON.stringify({ type: 'lock_interaction', locked: true }) }
+      detail: { message: { data: JSON.stringify({ type: 'lock_interaction', locked: true }) } }
     });
     // Verify effect
     expect(document.getElementById('id-bars').classList.contains('chart-blurred')).toBeTruthy();
@@ -211,7 +211,7 @@ describe("SECTION: Websocket communication", () => {
     // if/else-if chain falls through without calling anything.
     expect(() =>
       historic.messageReceived({
-        detail: { message: JSON.stringify({ type: "something_else" }) },
+        detail: { message: { data: JSON.stringify({ type: "something_else" }) } },
       }),
     ).not.toThrow();
 
@@ -222,7 +222,7 @@ describe("SECTION: Websocket communication", () => {
   });
   it("falls back to resetHistoric on raw HTML (JSON parse error)", () => {
     window.mainConsolidated.mockClear();
-    historic.messageReceived({ detail: { message: "<div>Bad JSON</div>" } });
+    historic.messageReceived({ detail: { message: { data: "<div>Bad JSON</div>" } } });
     expect(window.mainConsolidated).toHaveBeenCalled(); // mainConsolidated is called inside resetHistoric
   });
 });
@@ -286,7 +286,7 @@ describe("SECTION: Assets loading state", () => {
     historic.submitShow(3, "ALGO", null);
     expect(window.htmx.trigger).toHaveBeenCalledTimes(1);
     historic.messageReceived({
-      detail: { message: JSON.stringify({ type: "assets_end" }) },
+      detail: { message: { data: JSON.stringify({ type: "assets_end" }) } },
     });
     historic.submitShow(4, "USDC", null);
     expect(window.htmx.trigger).toHaveBeenCalledTimes(2);
@@ -309,17 +309,17 @@ describe("SECTION: Assets loading state", () => {
   it("assets_begin enters streaming and clears the watchdog", () => {
     historic.submitShow(3, "ALGO", null); // arms the watchdog, requestPending = true
     historic.messageReceived({
-      detail: { message: JSON.stringify({ type: "assets_begin" }) },
+      detail: { message: { data: JSON.stringify({ type: "assets_begin" }) } },
     });
     // While streaming, a raw-HTML fragment is swapped by htmx and NOT re-initialised.
     window.mainConsolidated.mockClear();
     historic.messageReceived({
-      detail: { message: '<ul id="id-asa-list"></ul>' },
+      detail: { message: { data: '<ul id="id-asa-list"></ul>' } },
     });
     expect(window.mainConsolidated).not.toHaveBeenCalled();
     // assets_end ends streaming and runs the one-time init.
     historic.messageReceived({
-      detail: { message: JSON.stringify({ type: "assets_end" }) },
+      detail: { message: { data: JSON.stringify({ type: "assets_end" }) } },
     });
     expect(window.mainConsolidated).toHaveBeenCalled();
   });
@@ -1463,7 +1463,7 @@ describe("the loading bar", () => {
     historic.mainHistoric();
 
     historic.messageReceived({
-      detail: { message: JSON.stringify({ type: "assets_end" }) },
+      detail: { message: { data: JSON.stringify({ type: "assets_end" }) } },
     });
 
     expect(bar.classList.contains("progress")).toBe(false);

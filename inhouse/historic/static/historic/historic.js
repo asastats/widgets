@@ -81,7 +81,7 @@ function mainHistoric() {
   $(document).on("mouseover", ".nfticon", nftShowPreview);
   $(document).on("mouseleave", ".nfticon", nftHidePreview);
   $(document).on("click", ".nfticon", nftHidePreview);
-  $("body").on("htmx:wsAfterMessage", messageReceived);
+  $("body").on("htmx:ws:after:message:incoming", messageReceived);
   $(".switch").find("input[type=checkbox]").on("change", toggleCurrency);
   $(".totalnonft").find("input[type=checkbox]").on("change", toggleTotalNoNft);
   $("#id-reset").on("click", openModalConfirmReset);
@@ -157,11 +157,19 @@ var pendingMarkerPlugin = {
  * Parse message received through websocket
  * @function messageReceived
  *
- * @param {object} event htmx:wsAfterMessage event object
+ * @param {object} event htmx:ws:after:message:incoming event object
  *
  */
 function messageReceived(event) {
-  var rawMessage = event.detail.message;
+  // **`.data`, not the message itself.** htmx 2's ws extension put the raw
+  // frame straight on `detail.message`; htmx 4 puts a wrapper there - `.data`
+  // plus async `.text()` and `.json()` - and `.data` is the raw frame.
+  //
+  // Reading the wrapper instead would not throw here. `JSON.parse` would fail
+  // on it, every frame would take the catch below, and every control message -
+  // update_charts, show_update, the two locks, assets_begin/end - would be
+  // treated as an HTML fragment and re-init the page. Silent, and wrong.
+  var rawMessage = event.detail.message.data;
 
   try {
     var message = JSON.parse(rawMessage);

@@ -133,7 +133,7 @@
 <main class="flex-1">
   <div class="mx-auto w-full max-w-6xl px-4 py-8">
     
-<div hx-ext="ws" ws-connect="/widgets/historic/540A5D8CEC896E073F9170AF0A962503E69147CF/">
+<div hx-ws:connect="/widgets/historic/540A5D8CEC896E073F9170AF0A962503E69147CF/">
   <h1>Historic data</h1>
 
   <div class="historic-body">
@@ -165,7 +165,7 @@
     </div>
     <div id="tbars" class="historic-tab-panel canvas">
       <div class="historic-chart-actions">
-        <form id="id-reset-bars" ws-send >
+        <form id="id-reset-bars" hx-ws:send >
           <button class="reset" type="submit" disabled>Reset chart</button>
         </form>
       </div>
@@ -173,14 +173,14 @@
     </div>
     <div id="tcandles" class="historic-tab-panel canvas" hidden>
       <div class="historic-chart-actions">
-        <form id="id-reset-candles" ws-send >
+        <form id="id-reset-candles" hx-ws:send >
           <button class="reset" type="submit" disabled>Reset chart</button>
         </form>
       </div>
       <canvas id="id-candles" width="500" height="250"></canvas>
     </div>
     <div id="tupdate" class="historic-tab-panel" hidden>
-      <form id="id-process" ws-send data-bundle=540A5D8CEC896E073F9170AF0A962503E69147CF data-addresses="2EVGZ4BGOSL3J64UYDE2BUGTNTBZZZLI54VUQQNZZLYCDODLY33UGXNSIU VW55KZ3NF4GDOWI7IPWLGZDFWNXWKSRD5PETRLDABZVU5XPKRJJRK3CBSU">
+      <form id="id-process" hx-ws:send data-bundle=540A5D8CEC896E073F9170AF0A962503E69147CF data-addresses="2EVGZ4BGOSL3J64UYDE2BUGTNTBZZZLI54VUQQNZZLYCDODLY33UGXNSIU VW55KZ3NF4GDOWI7IPWLGZDFWNXWKSRD5PETRLDABZVU5XPKRJJRK3CBSU">
         <div class="toolbar">
           <div>
             <div id="id-process-content">
@@ -234,13 +234,13 @@
       </div>
     </div>
 
-    <form id="id-view" ws-send style="display:none;">
+    <form id="id-view" hx-ws:send style="display:none;">
       <input type="hidden" name="type" value="zoom">
       <input type="hidden" name="x-min" id="view-x-min">
       <input type="hidden" name="x-max" id="view-x-max">
     </form>
 
-    <form id="id-show" ws-send style="display:none;">
+    <form id="id-show" hx-ws:send style="display:none;">
       <input type="hidden" name="type" value="show">
       <input type="hidden" name="x-val" id="show-x-val">
       <input type="hidden" name="label" id="show-label">
@@ -626,7 +626,7 @@
 <script src="/static/js/authmodal.js"></script>
 <script type="module" src="/static/js/bundle.js"></script>
 
-<script src="/static/historic/htmx-ext-ws.min.js"></script>
+<script src="/static/historic/hx-ws.min.js"></script>
 <script src="/static/historic/hammerjs.min.js"></script>
 <script src="/static/historic/chart.min.js"></script>
 <script src="/static/historic/luxon.min.js"></script>

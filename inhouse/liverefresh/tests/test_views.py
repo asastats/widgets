@@ -1528,7 +1528,10 @@ class TestLiveRefreshChunksALargeResync:
 
         sent = rendered.call_args.args[0]["payload"]["values"]
         assert len(sent) == LIVEREFRESH_MAX_FRAGMENTS
-        assert len(view.request.session["liverefresh:carry:HASH"]) == 150
+        assert (
+            len(view.request.session["liverefresh:carry:HASH"])
+            == 250 - LIVEREFRESH_MAX_FRAGMENTS
+        )
 
     def test_liverefresh_the_remainder_goes_out_on_later_polls(self, mocker):
         """**Nothing is dropped, which is the whole claim.** A capped response
@@ -1543,15 +1546,20 @@ class TestLiveRefreshChunksALargeResync:
         seen.update(rendered.call_args.args[0]["payload"]["values"])
 
         # The same total on the polls that follow: nothing new has moved, and
-        # the reader is owed the rest regardless.
-        for _ in range(2):
+        # the reader is owed the rest regardless. Drained rather than a fixed
+        # number of polls, so lowering the budget does not turn "nothing is
+        # dropped" into a failure of this test - how many polls it takes is the
+        # budget's business, and that it finishes is this test's.
+        for _ in range(20):
+            if not view.request.session.get("liverefresh:carry:HASH"):
+                break
             rendered = self._rendered(mocker, view, self._payload(0))
             seen.update(rendered.call_args.args[0]["payload"]["values"])
 
         assert len(seen) == 250
         assert seen == {1000 + i for i in range(250)}
         assert not view.request.session.get("liverefresh:carry:HASH")
-        assert LIVEREFRESH_MAX_FRAGMENTS == 100
+        assert LIVEREFRESH_MAX_FRAGMENTS > 0
 
     def test_liverefresh_the_carry_keeps_integer_asset_keys(self, mocker):
         """**A session round-trips through JSON, which has no integer keys.**
@@ -1729,6 +1737,11 @@ class TestLiveRefreshCountsEveryFragmentAgainstTheBudget:
         owed = view.request.session["liverefresh:carry:HASH"]
         assert owed, "nothing was deferred, so nothing was capped"
         assert 1036 - self._emitted(context) > 0
+        # **The one place the budget is pinned to its literal**, so that moving
+        # it has to be deliberate. It is a measured number, not a preference:
+        # `live/tools/fragment_budget.py`, and the working in the constant's own
+        # comment. Re-measure before changing it - and re-measure anyway if htmx
+        # is upgraded, since the quadratic being bounded here is htmx's.
         assert LIVEREFRESH_MAX_FRAGMENTS == 100
 
     def test_liverefresh_a_row_and_its_positions_never_split(self, mocker):
@@ -1757,7 +1770,11 @@ class TestLiveRefreshCountsEveryFragmentAgainstTheBudget:
         seen = set(context["payload"]["values"])
         positions = len(context["positions"])
 
-        for _ in range(20):
+        # Generous, because how many polls a drain takes is the budget's
+        # business and not this test's - it asserts only that it finishes. At 50
+        # a 1,036-fragment page takes 21, and a 20-poll bound failed here the
+        # moment the budget was re-measured downwards.
+        for _ in range(200):
             if not view.request.session.get("liverefresh:carry:HASH"):
                 break
             context = self._rendered(mocker, view, self._packed(0))

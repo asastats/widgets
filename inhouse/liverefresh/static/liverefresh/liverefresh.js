@@ -252,38 +252,57 @@
    * headline arithmetic would drift away from its own rows - the exact failure
    * that made narrowing the reload a mistake in the first place.
    *
-   * On `htmx:oobBeforeSwap`/`oobAfterSwap` rather than `htmx:afterSwap`,
-   * because the out-of-band pair brackets each element individually and both
-   * fire before the whole-response event `toolbar.js` repaints on. Doing it
-   * later would repaint from the figures this is here to correct.
+   * **Once per response, not once per element.** htmx 2 bracketed every
+   * out-of-band element with `htmx:oobBeforeSwap`/`oobAfterSwap` and this ran
+   * per element. htmx 4 has neither event: `htmx:before:swap` carries the whole
+   * task list before anything is swapped, and `htmx:after:swap` fires once all
+   * of them are in - so the same work is two passes rather than 2N events.
    *
-   * @param {Event} event - htmx's out-of-band swap event.
+   * Both still fire before the whole-response event `toolbar.js` repaints on,
+   * which is the ordering that has to survive the port. Doing it later would
+   * repaint from the figures this is here to correct.
+   *
+   * @param {Event} event - htmx's `htmx:before:swap`, carrying `detail.tasks`.
    */
   function rememberExpanded(event) {
-    var target = event.detail && event.detail.target;
-    if (!target || !isPositionValue(target)) return;
-    expanded[target.id] = target.getAttribute("aria-expanded");
+    // `task.target` is the element *currently in the document* that is about to
+    // be replaced, which is the only moment its live `aria-expanded` can be
+    // read. Afterwards it is detached, and htmx 4 redirects an event away from
+    // a detached element to `document` - so there is no second chance at it.
+    var tasks = (event.detail && event.detail.tasks) || [];
+    for (var index = 0; index < tasks.length; index += 1) {
+      var target = tasks[index] && tasks[index].target;
+      if (target && isPositionValue(target)) {
+        expanded[target.id] = target.getAttribute("aria-expanded");
+      }
+    }
   }
 
   /**
-   * @param {Event} event - htmx's out-of-band swap event.
+   * @param {Event} event - htmx's `htmx:after:swap`. Its detail is not read:
+   *   `expanded` already names every row this response touched.
    */
   function settlePosition(event) {
-    var target = event.detail && event.detail.target;
-    if (!target) return;
-    // htmx replaces the node, so read the one now in the document.
-    var element = document.getElementById(target.id);
-    if (!element || !isPositionValue(element)) return;
-
-    var was = expanded[element.id];
-    if (was !== null && was !== undefined) {
-      element.setAttribute("aria-expanded", was);
-    }
-    delete expanded[element.id];
-
-    var position = element.closest && element.closest(".position");
-    if (position) {
-      position.setAttribute("data-value", element.getAttribute("data-val") || "0");
+    for (var id in expanded) {
+      if (!Object.prototype.hasOwnProperty.call(expanded, id)) continue;
+      // htmx replaced the node, so read the one now in the document.
+      var element = document.getElementById(id);
+      if (element && isPositionValue(element)) {
+        var was = expanded[id];
+        if (was !== null && was !== undefined) {
+          element.setAttribute("aria-expanded", was);
+        }
+        var position = element.closest && element.closest(".position");
+        if (position) {
+          position.setAttribute(
+            "data-value",
+            element.getAttribute("data-val") || "0"
+          );
+        }
+      }
+      // Cleared whether or not it was found, so a fragment that never landed
+      // cannot leave a stale answer behind for the next response.
+      delete expanded[id];
     }
   }
 
@@ -301,10 +320,24 @@
   // Sent with every poll response, including the 204s, so the figure does not
   // sit still on a quiet page and then jump.
   document.body.addEventListener("liverefresh:left", showLeft);
-  // Bracketing each out-of-band element, so both run before the whole-response
-  // event `toolbar.js` repaints on.
-  document.body.addEventListener("htmx:oobBeforeSwap", rememberExpanded);
-  document.body.addEventListener("htmx:oobAfterSwap", settlePosition);
+  // Bracketing the response's whole task list. These fire on the poll's source
+  // element - the marker - and bubble, which is why listening on `body` reaches
+  // them.
+  //
+  // **`true` is the capture phase, and it is load-bearing.** Under htmx 2 this
+  // ran on `oobAfterSwap`, which fired during the swap and so always preceded
+  // the whole-response event `toolbar.js` repaints on. In htmx 4 both are
+  // `htmx:after:swap`, and bubble-phase listeners run in registration order -
+  // which puts `toolbar.js` first, because it is loaded with the page while
+  // this arrives later inside the swapped `_swap_entry.html` partial.
+  //
+  // That order is the bug this whole mechanism exists to prevent: the toolbar
+  // would recompute every category total and the allocation band from the
+  // `data-value` attributes *before* the line below corrects them. Capturing on
+  // an ancestor runs before any bubble listener on it, whatever registered
+  // first, so the ordering no longer depends on which script loaded when.
+  document.body.addEventListener("htmx:before:swap", rememberExpanded, true);
+  document.body.addEventListener("htmx:after:swap", settlePosition, true);
   start();
 
   /* istanbul ignore next -- exported for the jest suite only */

@@ -599,16 +599,22 @@ describe("settling a position fragment", () => {
     return document.getElementById("pv-" + pid);
   }
 
-  /** Replace the element the way htmx does, then fire the pair around it. */
+  /** Replace the element the way htmx does, then fire the pair around it.
+   *
+   * **htmx 4's shape, which is per response rather than per element.**
+   * `htmx:before:swap` carries the whole task list, each task naming the
+   * element still in the document that is about to be replaced;
+   * `htmx:after:swap` fires once, after every one of them is in.
+   */
   function swap(subject, module, pid, newValue) {
-    module.rememberExpanded({ detail: { target: subject } });
+    module.rememberExpanded({ detail: { tasks: [{ target: subject }] } });
     const fresh = document.createElement("button");
     fresh.id = subject.id;
     fresh.className = subject.className;
     fresh.setAttribute("data-val", newValue);
     fresh.setAttribute("aria-expanded", "false"); // what the server renders
     subject.replaceWith(fresh);
-    module.settlePosition({ detail: { target: fresh } });
+    module.settlePosition({ detail: {} });
     return fresh;
   }
 
@@ -648,22 +654,26 @@ describe("settling a position fragment", () => {
     expect(fresh.getAttribute("aria-expanded")).toBe("false");
   });
 
-  test("an event carrying no target is ignored by both halves", () => {
-    // htmx fires these for every out-of-band element, and a malformed or
-    // synthetic one must not take the poll down with it: the handler runs
-    // inside the response, so a throw here stops the rest of the swaps.
+  test("an event carrying no tasks is ignored by both halves", () => {
+    // A malformed or synthetic event must not take the poll down with it: both
+    // handlers run inside the response, so a throw here stops the swaps.
     const module = load();
 
     expect(() => module.rememberExpanded({})).not.toThrow();
     expect(() => module.rememberExpanded({ detail: {} })).not.toThrow();
+    expect(() => module.rememberExpanded({ detail: { tasks: [] } })).not.toThrow();
+    expect(() =>
+      module.rememberExpanded({ detail: { tasks: [{}, null] } })
+    ).not.toThrow();
     expect(() => module.settlePosition({})).not.toThrow();
     expect(() => module.settlePosition({ detail: {} })).not.toThrow();
   });
 
   test("a fragment nobody remembered keeps what the server sent", () => {
-    // `oobBeforeSwap` not having run for this id - a first fragment, or an
-    // element htmx inserted rather than replaced. There is nothing to restore,
-    // and inventing a value would close a breakdown the reader had open.
+    // `htmx:before:swap` not having named this id. Under htmx 4 that cannot
+    // happen for a real swap - a task exists only where a target was found -
+    // so this is the defensive case: there is nothing to restore, and
+    // inventing a value would close a breakdown the reader had open.
     page();
     const module = load();
     document.body.innerHTML +=
@@ -671,9 +681,7 @@ describe("settling a position fragment", () => {
       '<button id="pv-p1-5-fresh" data-val="9.0" aria-expanded="true"></button>' +
       "</div>";
 
-    module.settlePosition({
-      detail: { target: document.getElementById("pv-p1-5-fresh") },
-    });
+    module.settlePosition({ detail: {} });
 
     expect(
       document.getElementById("pv-p1-5-fresh").getAttribute("aria-expanded")
@@ -687,26 +695,26 @@ describe("settling a position fragment", () => {
     const module = load();
     document.body.innerHTML +=
       '<button id="pv-p1-5-orphan" data-val="9.0"></button>';
+    const orphan = document.getElementById("pv-p1-5-orphan");
+    module.rememberExpanded({ detail: { tasks: [{ target: orphan }] } });
 
-    expect(() =>
-      module.settlePosition({
-        detail: { target: document.getElementById("pv-p1-5-orphan") },
-      })
-    ).not.toThrow();
+    expect(() => module.settlePosition({ detail: {} })).not.toThrow();
   });
 
   test("a fragment whose element has left the document is ignored", () => {
-    // The lookup is by id because htmx replaces the node, so the element in
-    // the event is the old one. If the replacement never arrived there is
-    // nothing to settle.
+    // The lookup is by id because htmx replaces the node, so the element named
+    // by the task is the old one. If the replacement never arrived there is
+    // nothing to settle - and the id must still be forgotten, or it would be
+    // retried against the next response.
     page();
     const module = load();
     const gone = document.createElement("button");
     gone.id = "pv-p1-5-missing";
+    module.rememberExpanded({ detail: { tasks: [{ target: gone }] } });
 
-    expect(() =>
-      module.settlePosition({ detail: { target: gone } })
-    ).not.toThrow();
+    expect(() => module.settlePosition({ detail: {} })).not.toThrow();
+    // Forgotten: a second settle with nothing swapped must also be a no-op.
+    expect(() => module.settlePosition({ detail: {} })).not.toThrow();
   });
 
   test("a value of nothing settles as zero rather than as absent", () => {
@@ -717,10 +725,10 @@ describe("settling a position fragment", () => {
     document.body.innerHTML +=
       '<div class="position" data-value="4.5">' +
       '<button id="pv-p1-5-blank"></button></div>';
+    const blank = document.getElementById("pv-p1-5-blank");
+    module.rememberExpanded({ detail: { tasks: [{ target: blank }] } });
 
-    module.settlePosition({
-      detail: { target: document.getElementById("pv-p1-5-blank") },
-    });
+    module.settlePosition({ detail: {} });
 
     expect(
       document.querySelector(".position").getAttribute("data-value")
@@ -738,11 +746,46 @@ describe("settling a position fragment", () => {
       '<span id="v31566704" data-val="9.0">9.00</span></div>';
     const row = document.getElementById("v31566704");
 
-    module.rememberExpanded({ detail: { target: row } });
-    module.settlePosition({ detail: { target: row } });
+    module.rememberExpanded({ detail: { tasks: [{ target: row }] } });
+    module.settlePosition({ detail: {} });
 
     expect(
       document.querySelector(".position").getAttribute("data-value")
     ).toBe("4.5");
+  });
+
+  test("a key inherited from Object.prototype is not treated as a row", () => {
+    // `for...in` walks the prototype chain, so any library that writes an
+    // enumerable property onto `Object.prototype` - older polyfills and
+    // analytics shims still do - would have this loop visit a key nobody put
+    // in `expanded`. If that key happened to name a real element, its row's
+    // `data-value` would be rewritten from a figure this response never sent,
+    // and `toolbar.js` would total it.
+    //
+    // The `hasOwnProperty` guard is what stops it, and this is the only way to
+    // exercise that branch: nothing else can put an inherited key there.
+    page();
+    const module = load();
+    const intruder = "pv-p1-5-inherited";
+    Object.defineProperty(Object.prototype, intruder, {
+      value: "true",
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+    try {
+      document.body.innerHTML +=
+        '<div class="position" data-value="4.5">' +
+        '<button id="' + intruder + '" data-val="9.0"></button></div>';
+
+      module.settlePosition({ detail: {} });
+
+      // Untouched. Without the guard this would read "9.0".
+      expect(
+        document.querySelector(".position").getAttribute("data-value")
+      ).toBe("4.5");
+    } finally {
+      delete Object.prototype[intruder];
+    }
   });
 });
