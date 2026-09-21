@@ -11,24 +11,31 @@ across readers, which is why the control lives in `_swap_entry.html` and why
 these responses must not be stored either.
 """
 
+import hashlib
+import hmac
+import json
+import logging
+
 from api.widgets import bundle_and_addresses_from_path
 from django.conf import settings
-import json
-
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import TemplateView, View
 from widgethost.enforcement import WidgetAccessMixin
 
+from .evaluate import evaluate_page, payload_for
 from .forms import WINDOW_CHOICES, AlertRuleForm
 from .manifest import MANIFEST
-from .population import publish_page
-from .push import push_configured
 from .models import AlertRule, Direction, PushSubscription, Subject
+from .population import publish_page
+from .push import notify, push_configured
 from .tiers import rules_allowed
+
+logger = logging.getLogger(__name__)
 
 
 class AlertsContextMixin:
@@ -328,3 +335,105 @@ class AlertsUnsubscribeView(WidgetAccessMixin, View):
         :return: Boolean
         """
         return self.manifest_test_func(1)
+
+
+#: Header the engine signs its body with, mirroring the router monitor's.
+SIGNATURE_HEADER = "HTTP_X_ASASTATS_ALERTS_SIGNATURE"
+
+
+def signature_ok(request):
+    """Whether this request carries our signature over exactly this body.
+
+    **Three things, and each is a way this goes wrong quietly.**
+
+    `compare_digest` rather than `==`, because a signature is the one place a
+    timing comparison stops being theoretical.
+
+    The bytes as received, never a re-serialisation: signing a parsed-and-
+    re-encoded body is how a check comes to pass for a payload nobody sent.
+
+    **An unset secret rejects.** The router monitor this copies signs only when
+    it has a secret, which is right for a monitor and wrong here - without this
+    branch, a deployment that had not configured one would expose an endpoint
+    anybody could post rule firings to, and readers would be notified of things
+    that never happened.
+
+    :param request: the incoming request
+    :return: Boolean
+    """
+    secret = getattr(settings, "ALERTS_WEBHOOK_SECRET", "")
+    if not secret:
+        logger.warning("alerts webhook called with no secret configured")
+        return False
+    offered = request.META.get(SIGNATURE_HEADER, "")
+    expected = "sha256=" + hmac.new(
+        secret.encode(), request.body, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(offered, expected)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+@method_decorator(never_cache, name="dispatch")
+class AlertsRepricedView(View):
+    """The engine saying a page it watches has moved.
+
+    **No `WidgetAccessMixin`, and that is deliberate.** Every other view here is
+    reached by a signed-in reader; this one is reached by the engine, which has
+    no session and no user. Its credential is the signature over its body, and
+    mixing the two gates would mean a machine caller needing a login.
+
+    **It carries a trigger, not an answer.** The body says which page was
+    re-priced; the numbers come from the Redis both projects already share, and
+    the rules and their fire state never leave this database. See
+    `notifications/DESIGN.md`.
+    """
+
+    def post(self, request, *args, **kwargs):
+        """Evaluate the named page and notify whoever is owed an alert.
+
+        :return: :class:`django.http.JsonResponse`
+        """
+        if not signature_ok(request):
+            # 403 rather than 401: there is no authentication to retry with,
+            # and a WWW-Authenticate header would invite one.
+            return JsonResponse({"error": "Bad signature."}, status=403)
+
+        try:
+            body = json.loads(request.body or "{}")
+        except ValueError:
+            return JsonResponse({"error": "Malformed body."}, status=400)
+
+        page = body.get("page") or ""
+        if not page:
+            return JsonResponse({"error": "No page named."}, status=400)
+
+        payload = payload_for(page)
+        if payload is None:
+            # The pass said it re-priced this page and published nothing we can
+            # read. Not an error to report back at the engine - it did its part
+            # - but it is the shape of a Redis problem, so it is logged.
+            logger.warning("alerts: nothing published for %s", page)
+            return JsonResponse({"ok": True, "fired": 0, "notified": 0})
+
+        fired, skipped = evaluate_page(page, payload)
+        if skipped:
+            logger.info(
+                "alerts: %s rule(s) on %s not evaluated here; see SKIPPED",
+                skipped,
+                page,
+            )
+
+        notified = 0
+        for rule in fired:
+            notified += notify(
+                rule.user,
+                {
+                    "title": "ASA Stats",
+                    "body": str(rule),
+                    "tag": f"alert-{rule.pk}",
+                    "url": f"/{page}",
+                },
+            )
+        return JsonResponse(
+            {"ok": True, "fired": len(fired), "notified": notified}
+        )

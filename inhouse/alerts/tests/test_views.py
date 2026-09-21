@@ -1,6 +1,10 @@
 """Testing module for :py:mod:`widgets.inhouse.alerts.views` module."""
 
+import hashlib
+import hmac
+import inspect
 import json
+import logging
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -14,11 +18,14 @@ from widgets.inhouse.alerts.models import (
     Subject,
 )
 from widgets.inhouse.alerts.views import (
+    SIGNATURE_HEADER,
+    AlertsRepricedView,
     AlertsRuleDeleteView,
     AlertsRulesView,
     AlertsSubscribeView,
     AlertsUnsubscribeView,
     AlertsView,
+    signature_ok,
 )
 
 
@@ -526,3 +533,256 @@ class TestInhouseAlertsViewsUnsubscribe:
 
         assert view.test_func() is True
         gate.assert_called_once_with(1)
+
+
+class TestInhouseAlertsViewsSignature:
+    """Testing class for the one credential the machine caller has."""
+
+    def _request(self, mocker, body=b'{"page": "X"}', offered=None, secret="s3"):
+        if offered is None:
+            offered = "sha256=" + hmac.new(
+                secret.encode(), body, hashlib.sha256
+            ).hexdigest()
+        return mocker.MagicMock(body=body, META={SIGNATURE_HEADER: offered})
+
+    def test_inhouse_alerts_views_signature_accepts_our_own(
+        self, mocker, settings
+    ):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+
+        assert signature_ok(self._request(mocker)) is True
+
+    def test_inhouse_alerts_views_signature_refuses_another_secret(
+        self, mocker, settings
+    ):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+
+        assert signature_ok(self._request(mocker, secret="other")) is False
+
+    def test_inhouse_alerts_views_signature_covers_the_body(
+        self, mocker, settings
+    ):
+        """**Signed over the bytes, so changing the page invalidates it.** A
+        signature over anything less is a token, and a token replayed with a
+        different page notifies the wrong readers."""
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        offered = "sha256=" + hmac.new(
+            b"s3", b'{"page": "X"}', hashlib.sha256
+        ).hexdigest()
+
+        request = mocker.MagicMock(
+            body=b'{"page": "Y"}', META={SIGNATURE_HEADER: offered}
+        )
+
+        assert signature_ok(request) is False
+
+    def test_inhouse_alerts_views_signature_refuses_when_unset(
+        self, mocker, settings
+    ):
+        """**An empty secret must not mean "skip the check".**
+
+        The router monitor this copies signs only when it has a secret, which is
+        right for something sending and wrong for something receiving: without
+        this branch, a deployment that had not configured one would be an
+        endpoint anybody could post rule firings to.
+        """
+        settings.ALERTS_WEBHOOK_SECRET = ""
+
+        # Signed correctly for the empty secret, which is the request an
+        # attacker would send if the branch were missing.
+        offered = "sha256=" + hmac.new(
+            b"", b'{"page": "X"}', hashlib.sha256
+        ).hexdigest()
+        request = mocker.MagicMock(
+            body=b'{"page": "X"}', META={SIGNATURE_HEADER: offered}
+        )
+
+        assert signature_ok(request) is False
+
+    def test_inhouse_alerts_views_signature_says_so_in_the_log(
+        self, mocker, settings, caplog
+    ):
+        settings.ALERTS_WEBHOOK_SECRET = ""
+
+        signature_ok(self._request(mocker))
+
+        assert "no secret configured" in caplog.text
+
+    def test_inhouse_alerts_views_signature_refuses_an_absent_header(
+        self, mocker, settings
+    ):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        request = mocker.MagicMock(body=b'{"page": "X"}', META={})
+
+        assert signature_ok(request) is False
+
+    def test_inhouse_alerts_views_signature_compares_in_constant_time(self):
+        """**`compare_digest`, never `==`.** Read off the source rather than
+        timed: a timing test is flaky, while the wrong comparison is a single
+        identifier and is exactly what a later edit would reintroduce."""
+        source = inspect.getsource(signature_ok)
+
+        assert "hmac.compare_digest" in source
+
+
+class TestInhouseAlertsViewsRepriced:
+    """Testing class for the engine's trigger."""
+
+    def _post(self, mocker, body, signed=True, secret="s3"):
+        raw = json.dumps(body).encode() if not isinstance(body, bytes) else body
+        offered = (
+            "sha256=" + hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+            if signed
+            else "sha256=wrong"
+        )
+        request = mocker.MagicMock(body=raw, META={SIGNATURE_HEADER: offered})
+        return AlertsRepricedView().post(request)
+
+    def test_inhouse_alerts_views_repriced_refuses_an_unsigned_call(
+        self, mocker, settings
+    ):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+
+        response = self._post(mocker, {"page": "X"}, signed=False)
+
+        assert response.status_code == 403
+
+    def test_inhouse_alerts_views_repriced_checks_the_signature_first(
+        self, mocker, settings
+    ):
+        """**Before the body is parsed or Redis is touched.** An endpoint that
+        did work for an unsigned caller is an endpoint an unsigned caller can
+        use, whatever it answers them."""
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        payload = mocker.patch("widgets.inhouse.alerts.views.payload_for")
+
+        self._post(mocker, {"page": "X"}, signed=False)
+
+        assert payload.called is False
+
+    def test_inhouse_alerts_views_repriced_refuses_malformed_json(
+        self, mocker, settings
+    ):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+
+        assert self._post(mocker, b"{not json").status_code == 400
+
+    def test_inhouse_alerts_views_repriced_refuses_a_body_naming_no_page(
+        self, mocker, settings
+    ):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+
+        assert self._post(mocker, {}).status_code == 400
+
+    def test_inhouse_alerts_views_repriced_accepts_an_empty_body(
+        self, mocker, settings
+    ):
+        """`request.body` is empty rather than absent on a POST with no content,
+        and `json.loads(b"")` raises - so the view reads `or "{}"`, and this is
+        the path that proves it answers 400 rather than 500."""
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+
+        assert self._post(mocker, b"").status_code == 400
+
+    def test_inhouse_alerts_views_repriced_is_quiet_when_nothing_published(
+        self, mocker, settings
+    ):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        mocker.patch(
+            "widgets.inhouse.alerts.views.payload_for", return_value=None
+        )
+        evaluate = mocker.patch("widgets.inhouse.alerts.views.evaluate_page")
+
+        response = self._post(mocker, {"page": "X"})
+
+        assert response.status_code == 200
+        assert json.loads(response.content)["fired"] == 0
+        assert evaluate.called is False
+
+    def test_inhouse_alerts_views_repriced_says_so_in_the_log(
+        self, mocker, settings, caplog
+    ):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        mocker.patch(
+            "widgets.inhouse.alerts.views.payload_for", return_value=None
+        )
+
+        self._post(mocker, {"page": "X"})
+
+        assert "nothing published" in caplog.text
+
+    def test_inhouse_alerts_views_repriced_notifies_what_fired(
+        self, reader_pro, mocker, settings
+    ):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        rule = _rule(reader_pro, address="X")
+        mocker.patch(
+            "widgets.inhouse.alerts.views.payload_for", return_value={"total": 1}
+        )
+        mocker.patch(
+            "widgets.inhouse.alerts.views.evaluate_page",
+            return_value=([rule], 0),
+        )
+        notify = mocker.patch(
+            "widgets.inhouse.alerts.views.notify", return_value=2
+        )
+
+        response = self._post(mocker, {"page": "X"})
+
+        assert json.loads(response.content) == {
+            "ok": True,
+            "fired": 1,
+            "notified": 2,
+        }
+        assert notify.call_args.args[0] == reader_pro
+
+    def test_inhouse_alerts_views_repriced_sends_the_page_to_open(
+        self, reader_pro, mocker, settings
+    ):
+        """The notification has to land somewhere, and the page the rule was
+        evaluated on is the only place the reader can see what moved."""
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        rule = _rule(reader_pro, address="X")
+        mocker.patch(
+            "widgets.inhouse.alerts.views.payload_for", return_value={"total": 1}
+        )
+        mocker.patch(
+            "widgets.inhouse.alerts.views.evaluate_page",
+            return_value=([rule], 0),
+        )
+        notify = mocker.patch(
+            "widgets.inhouse.alerts.views.notify", return_value=1
+        )
+
+        self._post(mocker, {"page": "X"})
+
+        message = notify.call_args.args[1]
+        assert message["url"] == "/X"
+        assert message["tag"] == f"alert-{rule.pk}"
+
+    def test_inhouse_alerts_views_repriced_reports_what_it_skipped(
+        self, mocker, settings, caplog
+    ):
+        """**Skipped loudly.** A rule that is stored, looks active and is never
+        examined is the failure this whole endpoint could hide."""
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        mocker.patch(
+            "widgets.inhouse.alerts.views.payload_for", return_value={"total": 1}
+        )
+        mocker.patch(
+            "widgets.inhouse.alerts.views.evaluate_page", return_value=([], 3)
+        )
+
+        with caplog.at_level(logging.INFO):
+            self._post(mocker, {"page": "X"})
+
+        assert "3 rule(s) on X not evaluated here" in caplog.text
+
+    def test_inhouse_alerts_views_repriced_takes_no_session(self):
+        """**No `WidgetAccessMixin`, deliberately.** Every other view here is
+        reached by a signed-in reader; this one is reached by the engine, which
+        has no session. Mixing the gates would mean a machine caller needing a
+        login."""
+        from widgethost.enforcement import WidgetAccessMixin
+
+        assert not issubclass(AlertsRepricedView, WidgetAccessMixin)

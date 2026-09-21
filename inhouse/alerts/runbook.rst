@@ -10,15 +10,19 @@ State
 
 .. warning::
 
-   **The store and the control exist. Nothing fires yet.**
+   **Built end to end for two of the four subjects. Configuration turns it on.**
 
-   What is built: the rule table, the per-tier allowance, and the control
-   beside Dust Sweep. A rule can be kept and counted. It is never evaluated
-   and nothing is ever delivered.
+   ``total_value`` and ``asa_total`` fire: the widget publishes a page into
+   ``lvr``, the engine's live pass re-prices it and posts a signed trigger, and
+   ``AlertsRepricedView`` evaluates the rules and sends what is owed.
 
-   That is deliberate rather than unfinished - see `Build order`_ - but it
-   means the feature is not usable by a reader, and the control should not be
-   advertised until at least the configuration modal and one evaluator exist.
+   It stays silent until ``ALERTS_WEBHOOK_SECRET`` is set **in both projects'**
+   ``.env`` and ``ALERTS_WEBHOOK_URL`` in the engine's. An unset URL makes no
+   call; a URL with no secret is refused by the receiver and logged by the
+   sender. ``post-deploy/RUN-alerts-by-hand.md`` is the procedure.
+
+   ``asa_price`` and ``total_percent`` are stored, counted as skipped, and
+   never fire - see `Build order`_ step 7.
 
 Design
 ======
@@ -29,15 +33,25 @@ things worth knowing before changing anything here:
 
 **This widget holds no engine privilege.** ``capability = "public"``, no
 ``engine_endpoints``. A feature about live prices sounds engine-backed, and is
-not: the browser half reads and writes rows in this deployment's own database.
-The *evaluation* happens in the engine's loops, which is a different thing from
-the widget being allowed to call them.
+not: every row it reads and writes is in this deployment's own database, and the
+numbers it compares them against are read from the Redis both projects already
+share. Nothing here calls an engine endpoint.
 
-**There are two evaluators, not one.** ``total_value``, ``total_percent`` and
-``asa_total`` ride on numbers the live pass computes per page per block.
-``asa_price`` is not per-reader at all - it is per-asset, and belongs in a pass
-that runs once per asset over the union named in active rules. Treating them as
-one evaluator is how this gets built twice.
+**The website evaluates; the engine only says a page moved.** An earlier draft
+had it the other way round. The rules belong to users and so live here, and so
+does their fire state (``last_value``, ``last_fired_at``) - evaluating in the
+engine would mean projecting both into Redis and giving one fact two owners,
+which is how a rule comes to fire twice or never. So the engine's whole
+contribution is a signed ``POST`` to ``AlertsRepricedView`` naming the page, and
+``evaluate.py`` does the rest.
+
+**There are two evaluators, not one.** ``total_value`` and ``asa_total`` ride on
+numbers the live pass publishes per page per block, and ``evaluate.py`` reads
+them. ``asa_price`` is not per-reader at all - it is per-asset, and belongs in a
+pass that runs once per asset over the union named in active rules.
+``total_percent`` needs a series rather than a reading and waits on that same
+work. Both are named in ``evaluate.SKIPPED`` and counted rather than ignored;
+treating all four as one evaluator is how this gets built twice.
 
 **A rule fires on a crossing, not a level.** ``AlertRule.crossed`` returns true
 only when the previous reading was on the other side of the threshold. A level
@@ -133,10 +147,20 @@ harmless.
 
 1. **The rule store and the tier caps.** Done.
 2. **The widget and the control.** Done.
-3. **The configuration modal**: subject, direction, threshold, window.
+3. **The configuration modal**: subject, direction, threshold, window. Done.
 4. **Web push delivery**: VAPID keys, the service worker, the subscription
-   model, the huey task. ``~/claude/notify/`` is the sketch to adapt.
-5. **The two evaluators**, per-bundle first because it needs nothing new.
+   model, ``push.notify``. Done.
+5. **``lvr``, the rule population.** Done - ``population.py``, and **not**
+   heartbeat-scored, unlike the three sets beside it.
+6. **The per-bundle evaluator and the trigger it answers.** Done, both sides:
+   ``evaluate.py`` and ``AlertsRepricedView`` here, and the engine's
+   ``utils/alerts.py`` with the ``lvr`` read in its live pass. ``total_value``
+   and ``asa_total`` work end to end once both ``.env`` files carry
+   ``ALERTS_WEBHOOK_SECRET`` - see ``post-deploy/RUN-alerts-by-hand.md``.
+7. **The per-asset evaluator** for ``asa_price``, and with it ``total_percent``:
+   a periodic huey task beside the historic price work. Until it lands those two
+   subjects are stored, counted as skipped, and never fire - which is what the
+   modal's remaining "being built" line is about.
 
 Traps waiting in the later steps
 ================================

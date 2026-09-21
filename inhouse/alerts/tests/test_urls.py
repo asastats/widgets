@@ -19,10 +19,11 @@ class TestInhouseAlertsUrls:
     """
 
     def test_inhouse_alerts_urls_patterns_count(self):
-        assert len(urls.urlpatterns) == 5
+        assert len(urls.urlpatterns) == 6
 
     def test_inhouse_alerts_urls_are_named(self):
         assert [pattern.name for pattern in urls.urlpatterns] == [
+            "alerts_repriced",
             "alerts_subscribe",
             "alerts_unsubscribe",
             "alerts_rule_delete",
@@ -34,6 +35,7 @@ class TestInhouseAlertsUrls:
         assert [
             pattern.lookup_str.rsplit(".", 1)[-1] for pattern in urls.urlpatterns
         ] == [
+            "AlertsRepricedView",
             "AlertsSubscribeView",
             "AlertsUnsubscribeView",
             "AlertsRuleDeleteView",
@@ -58,6 +60,18 @@ class TestInhouseAlertsUrls:
         assert pattern.match("A" * 58)  # an address
         assert pattern.match("A" * 40)  # a bundle hash
         assert not pattern.match("A" * 39)
+
+    def test_inhouse_alerts_urls_repriced_carries_no_page(self):
+        """**The page it acts on is in the signed body, not the path.** A page
+        in the URL would be the one part of the request the signature did not
+        cover, which is the whole point of signing the body."""
+        pattern = str(
+            next(
+                p for p in urls.urlpatterns if p.name == "alerts_repriced"
+            ).pattern
+        )
+
+        assert "58" not in pattern and "40" not in pattern
 
     def test_inhouse_alerts_urls_subscribe_carries_no_page(self):
         """A browser subscribes once for the whole site, not per address. A page

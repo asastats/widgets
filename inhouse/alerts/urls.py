@@ -3,6 +3,7 @@
 from django.urls import re_path
 
 from .views import (
+    AlertsRepricedView,
     AlertsRuleDeleteView,
     AlertsRulesView,
     AlertsSubscribeView,
@@ -14,6 +15,10 @@ from .views import (
 PAGE = r"(\w{40}|\w{58})"
 
 urlpatterns = [
+    # The engine's trigger, and the only pattern here no reader ever reaches.
+    # It carries no page for the same reason subscribe carries none: it names
+    # its page in the body, which is the half it signs.
+    re_path(r"^repriced$", AlertsRepricedView.as_view(), name="alerts_repriced"),
     # **Before the page patterns**, and not carrying a page at all: a browser
     # subscribes once for the whole site, not per address. Putting a page in
     # the path would imply otherwise and give three ways to say the same thing.

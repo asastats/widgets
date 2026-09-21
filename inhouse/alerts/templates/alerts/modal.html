@@ -89,9 +89,11 @@
     {% endif %}
 
     <div class="alerts-foot">
-      {% comment %} Said here rather than discovered later. Nothing evaluates a
-         rule yet, and a modal that takes one without saying so is a promise the
-         product does not keep. Remove this line with step 5. {% endcomment %}
+      {% comment %} Said here rather than discovered later. A modal that takes a
+         rule without saying nothing sends it is a promise the product does not
+         keep. The website's half is complete - the page is published into `lvr`
+         and `AlertsRepricedView` evaluates it - so this line comes out when the
+         engine starts calling that endpoint, and not before. {% endcomment %}
       <p class="alerts-note">
         Alerts are being built: rules are saved, but nothing is sent yet.
       </p>
