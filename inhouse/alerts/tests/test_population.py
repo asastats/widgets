@@ -5,8 +5,11 @@ from django.contrib.auth import get_user_model
 
 from widgets.inhouse.alerts.models import AlertRule, Direction, Subject
 from widgets.inhouse.alerts.population import (
+    RULE_ASSETS_KEY,
     RULES_KEY,
+    publish_assets,
     publish_page,
+    published_assets,
     published_pages,
 )
 
@@ -154,3 +157,143 @@ class TestAlertsPopulationRead:
         client.zrange.side_effect = OSError("no route to host")
 
         assert published_pages(client) == ()
+
+
+@pytest.mark.django_db
+class TestAlertsPopulationAssets:
+    """Testing class for keeping `lvra` in step with the price rules."""
+
+    def _price_rule(self, reader, asset_id=31566704, active=True):
+        return AlertRule.objects.create(
+            user=reader,
+            subject=Subject.ASA_PRICE,
+            direction=Direction.DOWN,
+            threshold="1",
+            asset_id=asset_id,
+            active=active,
+        )
+
+    def test_alerts_population_publishes_a_watched_asset(self, reader, mocker):
+        client = mocker.MagicMock()
+        self._price_rule(reader)
+
+        assert publish_assets(client) == 1
+        key, mapping = client.pipeline.return_value.zadd.call_args.args
+        assert key == RULE_ASSETS_KEY
+        assert list(mapping) == ["31566704"]
+
+    def test_alerts_population_publishes_asset_ids_as_strings(self, reader, mocker):
+        """Redis members are strings either way; doing it here means the engine
+        converts back explicitly rather than both sides hoping."""
+        client = mocker.MagicMock()
+        self._price_rule(reader)
+
+        publish_assets(client)
+
+        _, mapping = client.pipeline.return_value.zadd.call_args.args
+        assert all(isinstance(member, str) for member in mapping)
+
+    def test_alerts_population_deduplicates_an_asset(self, reader, mocker):
+        """**One question per asset, not per rule.** Two readers watching the
+        same asset is the ordinary case, and pricing it twice a run would be
+        the per-page mistake in a new place."""
+        client = mocker.MagicMock()
+        self._price_rule(reader)
+        self._price_rule(reader)
+
+        assert publish_assets(client) == 1
+
+    def test_alerts_population_ignores_a_holding_rule(self, reader, mocker):
+        """**`asa_total` names an asset too, and must not appear here.** It is
+        answered by the live pass out of what it already published, so an asset
+        that only ever appears in holding rules would make the price task fetch
+        a price nobody asked for."""
+        client = mocker.MagicMock()
+        AlertRule.objects.create(
+            user=reader,
+            subject=Subject.ASA_TOTAL,
+            direction=Direction.DOWN,
+            threshold="1",
+            asset_id=31566704,
+        )
+
+        assert publish_assets(client) == 0
+
+    def test_alerts_population_ignores_an_inactive_price_rule(self, reader, mocker):
+        client = mocker.MagicMock()
+        self._price_rule(reader, active=False)
+
+        assert publish_assets(client) == 0
+
+    def test_alerts_population_clears_the_set_when_the_last_rule_goes(
+        self, reader, mocker
+    ):
+        client = mocker.MagicMock()
+
+        assert publish_assets(client) == 0
+        client.pipeline.return_value.delete.assert_called_once_with(RULE_ASSETS_KEY)
+        assert client.pipeline.return_value.zadd.called is False
+
+    def test_alerts_population_replaces_rather_than_adds(self, reader, mocker):
+        """**Rewritten wholesale every time.** There is no per-asset yes/no to
+        ask: whether a deleted rule was the last one naming its asset depends on
+        every other reader's rules, so the set is recomputed from the database
+        and cannot drift."""
+        client = mocker.MagicMock()
+        self._price_rule(reader)
+
+        publish_assets(client)
+
+        pipeline = client.pipeline.return_value
+        assert pipeline.delete.called
+        assert pipeline.execute.called
+
+    def test_alerts_population_survives_a_redis_that_is_away(self, reader, mocker):
+        client = mocker.MagicMock()
+        client.pipeline.return_value.execute.side_effect = OSError("no route")
+        self._price_rule(reader)
+
+        assert publish_assets(client) is None
+
+    def test_alerts_population_says_so_in_the_log(self, reader, mocker, caplog):
+        client = mocker.MagicMock()
+        client.pipeline.return_value.execute.side_effect = OSError("no route")
+        self._price_rule(reader)
+
+        publish_assets(client)
+
+        assert "could not publish the alert assets" in caplog.text
+
+    def test_alerts_population_makes_its_own_client_when_given_none(
+        self, reader, mocker
+    ):
+        instance = mocker.patch(
+            "widgets.inhouse.alerts.population.redis_instance"
+        )
+
+        publish_assets()
+
+        assert instance.called
+
+
+@pytest.mark.django_db
+class TestAlertsPopulationReadAssets:
+    """Testing class for reading `lvra` back."""
+
+    def test_alerts_population_lists_the_published_assets(self, mocker):
+        client = mocker.MagicMock()
+        client.zrange.return_value = [b"1", b"2"]
+
+        assert published_assets(client) == (1, 2)
+
+    def test_alerts_population_handles_a_client_that_decodes(self, mocker):
+        client = mocker.MagicMock()
+        client.zrange.return_value = ["1"]
+
+        assert published_assets(client) == (1,)
+
+    def test_alerts_population_assets_are_empty_when_redis_is_away(self, mocker):
+        client = mocker.MagicMock()
+        client.zrange.side_effect = OSError("no route to host")
+
+        assert published_assets(client) == ()

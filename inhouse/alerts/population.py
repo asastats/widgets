@@ -33,6 +33,88 @@ logger = logging.getLogger(__name__)
 #: `CACHE_KEY_LIVE_RULES` is the other half of this contract.
 RULES_KEY = "lvr"
 
+#: Sorted set of asset ids with at least one active `asa_price` rule.
+#:
+#: Read by the engine's periodic price task rather than by its live pass, which
+#: is the whole difference between the two subjects: `asa_total` is "my holding
+#: of an asset on this page" and rides on a page being re-priced, while
+#: `asa_price` is not per-reader at all. One question per asset, however many
+#: readers are watching it.
+#:
+#: The engine's `CACHE_KEY_LIVE_RULE_ASSETS` is the other half of this contract.
+RULE_ASSETS_KEY = "lvra"
+
+
+def publish_assets(client=None):
+    """Replace `lvra` with the assets active `asa_price` rules name.
+
+    **Replaced wholesale rather than adjusted.** `publish_page` can ask a single
+    yes/no question about one page; there is no equivalent here, because a rule
+    being deleted may or may not be the last one naming its asset, and the
+    answer depends on every other reader's rules. One `DISTINCT` over an indexed
+    column answers it exactly and cannot drift.
+
+    The score is the moment of the write and is never read - the same as
+    `publish_page`, and for the same reason: nothing ages a member out. An asset
+    leaves this set when the last rule naming it does.
+
+    :param client: an open Redis client, or None to make one
+    :return: how many assets are now published, or None when unreachable
+    :rtype: int or None
+    """
+    from .models import AlertRule, Subject  # noqa: PLC0415
+
+    # **`asa_price` only, though two subjects name an asset.** `asa_total` is
+    # "my holding of this asset on this page" and is answered by the live pass
+    # out of what it already published, so an asset that appears only in
+    # `asa_total` rules must not make the price task fetch anything.
+    wanted = sorted(
+        asset_id
+        for asset_id in AlertRule.objects.filter(
+            subject=Subject.ASA_PRICE, active=True
+        )
+        .values_list("asset_id", flat=True)
+        .distinct()
+        if asset_id
+    )
+
+    try:
+        client = client or redis_instance()
+        # Delete and rewrite rather than diff: the set is small - it is bounded
+        # by the per-tier rule caps - and a diff would need the old membership
+        # read back, which is a round trip to save nothing.
+        pipeline = client.pipeline()
+        pipeline.delete(RULE_ASSETS_KEY)
+        if wanted:
+            now = int(time.time())
+            pipeline.zadd(RULE_ASSETS_KEY, {str(a): now for a in wanted})
+        pipeline.execute()
+    except Exception as error:  # noqa: BLE001 - see the module docstring
+        logger.warning("could not publish the alert assets: %s", error)
+        return None
+    return len(wanted)
+
+
+def published_assets(client=None):
+    """Return the asset ids currently published, for checking by hand.
+
+    The companion to :func:`published_pages`, and it exists for the same
+    question: "why did my price alert not fire" starts here.
+
+    :param client: an open Redis client, or None to make one
+    :return: the asset ids in the set, or an empty tuple when unreachable
+    :rtype: tuple
+    """
+    try:
+        client = client or redis_instance()
+        return tuple(
+            int(member.decode() if isinstance(member, bytes) else member)
+            for member in client.zrange(RULE_ASSETS_KEY, 0, -1)
+        )
+    except Exception as error:  # noqa: BLE001 - see the module docstring
+        logger.warning("could not read the alert assets: %s", error)
+        return ()
+
 
 def publish_page(address, client=None):
     """Add or remove `address` in `lvr` according to whether a rule names it.

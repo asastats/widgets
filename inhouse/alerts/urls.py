@@ -3,6 +3,7 @@
 from django.urls import re_path
 
 from .views import (
+    AlertsPricedView,
     AlertsRepricedView,
     AlertsRuleDeleteView,
     AlertsRulesView,
@@ -19,6 +20,10 @@ urlpatterns = [
     # It carries no page for the same reason subscribe carries none: it names
     # its page in the body, which is the half it signs.
     re_path(r"^repriced$", AlertsRepricedView.as_view(), name="alerts_repriced"),
+    # The other machine caller: the periodic price task, which carries prices
+    # rather than naming a page. Two endpoints rather than one body that means
+    # two things, so neither has to ask what shape it was given.
+    re_path(r"^priced$", AlertsPricedView.as_view(), name="alerts_priced"),
     # **Before the page patterns**, and not carrying a page at all: a browser
     # subscribes once for the whole site, not per address. Putting a page in
     # the path would imply otherwise and give three ways to say the same thing.

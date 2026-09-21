@@ -5,20 +5,23 @@ rules and their fire state belong to users and live in this database; the engine
 only says "page X was re-priced", and everything it computed is already readable
 from the Redis both projects share.
 
-**Two of the four subjects are evaluated here, and two deliberately are not:**
+**Two evaluators, because there are two shapes of question:**
 
-* `total_value` and `asa_total` read the page's total and its per-asset values,
-  which the pass publishes on every block. They are exact.
-* `total_percent` needs a *series* of totals over a window, and the pass
-  publishes the latest total rather than a history. Evaluating it against
-  `last_value` would silently redefine the window as "since we last looked",
-  which is not what the reader chose.
-* `asa_price` is per-asset rather than per-page and belongs in the periodic
-  task, not in a page's re-price.
+* `evaluate_page` answers "this page was re-priced". `total_value` and
+  `asa_total` read the page's total and its per-asset values, which the pass
+  publishes on every block. They are exact.
+* `evaluate_prices` answers "these assets have a price now". `asa_price` is not
+  per-reader at all - one question per asset however many people watch it - so
+  it rides the engine's periodic task rather than any page's re-price.
 
-Both skipped subjects are **skipped loudly**: `SKIPPED` names them, a rule of
-that kind is counted, and the caller logs it. A rule that is stored, looks
-active and can never fire is the worst outcome this file could produce.
+**One subject is still evaluated by neither**, and deliberately: `total_percent`
+needs a *series* of totals over a window, and nothing publishes a history.
+Evaluating it against `last_value` would silently redefine the window as "since
+we last looked", which is not what the reader chose.
+
+It is **skipped loudly**: `SKIPPED` names it, a rule of that kind is counted,
+and the caller logs it. A rule that is stored, looks active and can never fire
+is the worst outcome this file could produce.
 """
 
 import logging
@@ -29,13 +32,18 @@ from .models import AlertRule, Subject
 
 logger = logging.getLogger(__name__)
 
-#: Subjects this evaluator cannot answer yet, and why.
+#: Subjects `evaluate_page` does not answer, and why.
 #:
 #: Kept as data rather than a comment so the count in `evaluate_page`'s return
 #: is honest and a caller can say how many rules went unexamined.
+#:
+#: **The two entries mean different things, and the log should not flatten
+#: them.** `asa_price` is answered elsewhere, by `evaluate_prices`; a rule of
+#: that kind counted here has not been dropped. `total_percent` is answered
+#: nowhere, and a rule of that kind never fires.
 SKIPPED = {
-    Subject.TOTAL_PERCENT: "needs a series of totals, which the pass does not publish",
-    Subject.ASA_PRICE: "is per-asset, and belongs to the periodic task",
+    Subject.TOTAL_PERCENT: "needs a series of totals, which nothing publishes",
+    Subject.ASA_PRICE: "is per-asset, and is answered by the periodic price task",
 }
 
 
@@ -116,6 +124,53 @@ def evaluate_page(address, payload, now=None):
         rule.save(update_fields=["last_value", "last_fired_at", "updated_at"])
 
     return fired, skipped
+
+
+def evaluate_prices(prices, now=None):
+    """Return the `asa_price` rules that just crossed, and record what was seen.
+
+    The per-asset half, and the only evaluator here that is not per-page. It
+    asks "who cares about this asset" once per asset rather than once per rule -
+    which is what the `asset_id, active` index on `AlertRule` is for.
+
+    **The prices are the engine's word, not something read back.** Every other
+    number this module works from is published to the Redis both projects share;
+    an asset's price is not. It lives in the engine's *primary* cache, which the
+    website has no client for, so it arrives in the signed body instead. That is
+    what the HMAC is protecting - see `views.signature_ok`.
+
+    The crossing, the arming and the cooldown are `evaluate_page`'s, for the same
+    reasons; only the reading is fetched differently.
+
+    :param prices: {asset id: price in ALGO}, as the engine computed them
+    :type prices: dict
+    :param now: the moment to evaluate at, for tests
+    :return: the rules that fired
+    :rtype: list
+    """
+    now = now or timezone.now()
+    if not prices:
+        return []
+
+    fired = []
+    for rule in AlertRule.objects.filter(
+        subject=Subject.ASA_PRICE, active=True, asset_id__in=list(prices)
+    ).select_related("user"):
+        value = prices.get(rule.asset_id)
+        # **A price the engine could not compute arrives as None, not as zero.**
+        # An asset with no pool left prices at nothing, and reading that as a
+        # collapse to zero would fire every "falls below" rule naming it at
+        # once - which is precisely the asset most likely to have rules on it.
+        if value is None:
+            continue
+
+        if rule.crossed(value) and not cooling_down(rule, now):
+            rule.last_fired_at = now
+            fired.append(rule)
+        rule.last_value = value
+        rule.save(update_fields=["last_value", "last_fired_at", "updated_at"])
+
+    return fired
 
 
 def payload_for(address, client=None):

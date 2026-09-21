@@ -10,19 +10,23 @@ State
 
 .. warning::
 
-   **Built end to end for two of the four subjects. Configuration turns it on.**
+   **Built end to end for three of the four subjects. Configuration turns it
+   on.**
 
-   ``total_value`` and ``asa_total`` fire: the widget publishes a page into
-   ``lvr``, the engine's live pass re-prices it and posts a signed trigger, and
-   ``AlertsRepricedView`` evaluates the rules and sends what is owed.
+   ``total_value`` and ``asa_total`` ride the live pass: the widget publishes a
+   page into ``lvr``, the engine re-prices it and posts a signed trigger, and
+   ``AlertsRepricedView`` evaluates and sends. ``asa_price`` rides a periodic
+   huey task instead: the widget publishes asset ids into ``lvra``, the engine
+   prices them every five minutes, and ``AlertsPricedView`` evaluates.
 
    It stays silent until ``ALERTS_WEBHOOK_SECRET`` is set **in both projects'**
    ``.env`` and ``ALERTS_WEBHOOK_URL`` in the engine's. An unset URL makes no
    call; a URL with no secret is refused by the receiver and logged by the
-   sender. ``post-deploy/RUN-alerts-by-hand.md`` is the procedure.
+   sender. ``post-deploy/RUN-alerts-by-hand.md`` is the procedure - and price
+   alerts additionally need the **huey consumer**, not just the transmitter.
 
-   ``asa_price`` and ``total_percent`` are stored, counted as skipped, and
-   never fire - see `Build order`_ step 7.
+   ``total_percent`` is stored, counted as skipped, and never fires - see
+   `Build order`_ step 7.
 
 Design
 ======
@@ -157,10 +161,13 @@ harmless.
    ``utils/alerts.py`` with the ``lvr`` read in its live pass. ``total_value``
    and ``asa_total`` work end to end once both ``.env`` files carry
    ``ALERTS_WEBHOOK_SECRET`` - see ``post-deploy/RUN-alerts-by-hand.md``.
-7. **The per-asset evaluator** for ``asa_price``, and with it ``total_percent``:
-   a periodic huey task beside the historic price work. Until it lands those two
-   subjects are stored, counted as skipped, and never fire - which is what the
-   modal's remaining "being built" line is about.
+7. **The per-asset evaluator** for ``asa_price``: done - ``engine/core/tasks.py``
+   every five minutes over ``lvra``, and ``evaluate_prices`` here.
+8. **``total_percent``**, which this did *not* unblock. It needs a series of
+   totals over a window and nothing publishes a history; evaluating it against
+   the last reading would redefine the window as "since we last looked". It is
+   the one subject still stored, counted as skipped and never fired, and the
+   only reason the modal keeps its "being built" line.
 
 Traps waiting in the later steps
 ================================

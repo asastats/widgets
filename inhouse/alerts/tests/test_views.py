@@ -19,6 +19,7 @@ from widgets.inhouse.alerts.models import (
 )
 from widgets.inhouse.alerts.views import (
     SIGNATURE_HEADER,
+    AlertsPricedView,
     AlertsRepricedView,
     AlertsRuleDeleteView,
     AlertsRulesView,
@@ -786,3 +787,176 @@ class TestInhouseAlertsViewsRepriced:
         from widgethost.enforcement import WidgetAccessMixin
 
         assert not issubclass(AlertsRepricedView, WidgetAccessMixin)
+
+
+class TestInhouseAlertsViewsPriced:
+    """Testing class for the periodic price task's endpoint."""
+
+    def _post(self, mocker, body, signed=True, secret="s3"):
+        raw = json.dumps(body).encode() if not isinstance(body, bytes) else body
+        offered = (
+            "sha256=" + hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+            if signed
+            else "sha256=wrong"
+        )
+        request = mocker.MagicMock(body=raw, META={SIGNATURE_HEADER: offered})
+        return AlertsPricedView().post(request)
+
+    def test_inhouse_alerts_views_priced_refuses_an_unsigned_call(
+        self, mocker, settings
+    ):
+        """**The body is an answer here, not a trigger.** The website acts on a
+        number it cannot check against anything, so the signature is the whole
+        of the trust."""
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+
+        assert self._post(mocker, {"prices": {}}, signed=False).status_code == 403
+
+    def test_inhouse_alerts_views_priced_checks_the_signature_first(
+        self, mocker, settings
+    ):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        evaluate = mocker.patch("widgets.inhouse.alerts.views.evaluate_prices")
+
+        self._post(mocker, {"prices": {"1": 1.0}}, signed=False)
+
+        assert evaluate.called is False
+
+    def test_inhouse_alerts_views_priced_refuses_malformed_json(
+        self, mocker, settings
+    ):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+
+        assert self._post(mocker, b"{not json").status_code == 400
+
+    def test_inhouse_alerts_views_priced_refuses_a_body_with_no_prices(
+        self, mocker, settings
+    ):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+
+        assert self._post(mocker, {}).status_code == 400
+
+    def test_inhouse_alerts_views_priced_refuses_prices_of_the_wrong_shape(
+        self, mocker, settings
+    ):
+        """A list would iterate as keys and produce a puzzle rather than a 400."""
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+
+        assert self._post(mocker, {"prices": [1, 2]}).status_code == 400
+
+    def test_inhouse_alerts_views_priced_reads_asset_ids_as_integers(
+        self, mocker, settings
+    ):
+        """**JSON has no integer keys, and the rules store integers.**
+
+        Without the conversion `prices.get(rule.asset_id)` misses every asset
+        silently, which reads exactly like "nothing moved" - the whole feature
+        quietly doing nothing while every part of it reports success.
+        """
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        evaluate = mocker.patch(
+            "widgets.inhouse.alerts.views.evaluate_prices", return_value=[]
+        )
+
+        self._post(mocker, {"prices": {"31566704": 0.25}})
+
+        assert evaluate.call_args.args[0] == {31566704: 0.25}
+
+    def test_inhouse_alerts_views_priced_keeps_a_null_price(self, mocker, settings):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        evaluate = mocker.patch(
+            "widgets.inhouse.alerts.views.evaluate_prices", return_value=[]
+        )
+
+        self._post(mocker, {"prices": {"1": None}})
+
+        assert evaluate.call_args.args[0] == {1: None}
+
+    def test_inhouse_alerts_views_priced_drops_an_unusable_entry(
+        self, mocker, settings
+    ):
+        """One bad entry must not cost every other reader their alerts."""
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        evaluate = mocker.patch(
+            "widgets.inhouse.alerts.views.evaluate_prices", return_value=[]
+        )
+
+        self._post(mocker, {"prices": {"1": 1.0, "nonsense": "x"}})
+
+        assert evaluate.call_args.args[0] == {1: 1.0}
+
+    def test_inhouse_alerts_views_priced_says_so_for_an_unusable_entry(
+        self, mocker, settings, caplog
+    ):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        mocker.patch(
+            "widgets.inhouse.alerts.views.evaluate_prices", return_value=[]
+        )
+
+        self._post(mocker, {"prices": {"nonsense": "x"}})
+
+        assert "unusable price for asset" in caplog.text
+
+    def test_inhouse_alerts_views_priced_notifies_what_fired(
+        self, reader_pro, mocker, settings
+    ):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        rule = _rule(reader_pro)
+        mocker.patch(
+            "widgets.inhouse.alerts.views.evaluate_prices", return_value=[rule]
+        )
+        notify = mocker.patch(
+            "widgets.inhouse.alerts.views.notify", return_value=2
+        )
+
+        response = self._post(mocker, {"prices": {"1": 1.0}})
+
+        assert json.loads(response.content) == {
+            "ok": True,
+            "assets": 1,
+            "fired": 1,
+            "notified": 2,
+        }
+        assert notify.call_args.args[0] == reader_pro
+
+    def test_inhouse_alerts_views_priced_opens_the_site_not_a_page(
+        self, reader_pro, mocker, settings
+    ):
+        """A price rule belongs to an asset rather than to a page, so there is
+        no address to send the reader to."""
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        rule = _rule(reader_pro)
+        mocker.patch(
+            "widgets.inhouse.alerts.views.evaluate_prices", return_value=[rule]
+        )
+        notify = mocker.patch(
+            "widgets.inhouse.alerts.views.notify", return_value=1
+        )
+
+        self._post(mocker, {"prices": {"1": 1.0}})
+
+        assert notify.call_args.args[1]["url"] == "/"
+
+    def test_inhouse_alerts_views_priced_tags_each_rule_separately(
+        self, reader_pro, mocker, settings
+    ):
+        """A shared tag makes the browser replace one notification with the
+        next, so two alerts firing together would show as one."""
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        one, two = _rule(reader_pro), _rule(reader_pro, asset_id=2)
+        mocker.patch(
+            "widgets.inhouse.alerts.views.evaluate_prices", return_value=[one, two]
+        )
+        notify = mocker.patch(
+            "widgets.inhouse.alerts.views.notify", return_value=1
+        )
+
+        self._post(mocker, {"prices": {"1": 1.0}})
+
+        tags = {call.args[1]["tag"] for call in notify.call_args_list}
+        assert tags == {f"alert-{one.pk}", f"alert-{two.pk}"}
+
+    def test_inhouse_alerts_views_priced_takes_no_session(self):
+        from widgethost.enforcement import WidgetAccessMixin
+
+        assert not issubclass(AlertsPricedView, WidgetAccessMixin)

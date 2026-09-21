@@ -19,11 +19,12 @@ class TestInhouseAlertsUrls:
     """
 
     def test_inhouse_alerts_urls_patterns_count(self):
-        assert len(urls.urlpatterns) == 6
+        assert len(urls.urlpatterns) == 7
 
     def test_inhouse_alerts_urls_are_named(self):
         assert [pattern.name for pattern in urls.urlpatterns] == [
             "alerts_repriced",
+            "alerts_priced",
             "alerts_subscribe",
             "alerts_unsubscribe",
             "alerts_rule_delete",
@@ -36,6 +37,7 @@ class TestInhouseAlertsUrls:
             pattern.lookup_str.rsplit(".", 1)[-1] for pattern in urls.urlpatterns
         ] == [
             "AlertsRepricedView",
+            "AlertsPricedView",
             "AlertsSubscribeView",
             "AlertsUnsubscribeView",
             "AlertsRuleDeleteView",
@@ -72,6 +74,27 @@ class TestInhouseAlertsUrls:
         )
 
         assert "58" not in pattern and "40" not in pattern
+
+    def test_inhouse_alerts_urls_priced_carries_no_page(self):
+        """A price rule belongs to an asset rather than to a page, and the
+        assets are in the signed body."""
+        pattern = str(
+            next(p for p in urls.urlpatterns if p.name == "alerts_priced").pattern
+        )
+
+        assert "58" not in pattern and "40" not in pattern
+
+    def test_inhouse_alerts_urls_priced_is_not_swallowed_by_repriced(self):
+        """**`^priced$` and `^repriced$`, both anchored.** Without the anchors
+        the shorter pattern matches inside the longer one, and every trigger
+        from the live pass would be evaluated as a price body - answering 400
+        for a call that was perfectly well formed."""
+        priced = re.compile(
+            str(next(p for p in urls.urlpatterns if p.name == "alerts_priced").pattern)
+        )
+
+        assert priced.match("priced")
+        assert not priced.match("repriced")
 
     def test_inhouse_alerts_urls_subscribe_carries_no_page(self):
         """A browser subscribes once for the whole site, not per address. A page

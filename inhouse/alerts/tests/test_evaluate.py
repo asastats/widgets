@@ -10,6 +10,7 @@ from widgets.inhouse.alerts.evaluate import (
     SKIPPED,
     cooling_down,
     evaluate_page,
+    evaluate_prices,
     payload_for,
     reading_for,
 )
@@ -240,3 +241,110 @@ class TestAlertsEvaluatePayloadFor:
         payload_for(PAGE)
 
         assert instance.called
+
+
+@pytest.mark.django_db
+class TestAlertsEvaluatePrices:
+    """Testing class for the per-asset evaluator."""
+
+    def _price_rule(self, reader, **overrides):
+        fields = {
+            "user": reader,
+            "subject": Subject.ASA_PRICE,
+            "direction": Direction.DOWN,
+            "threshold": "1",
+            "asset_id": 31566704,
+        }
+        fields.update(overrides)
+        return AlertRule.objects.create(**fields)
+
+    def test_alerts_evaluate_prices_reports_a_crossing(self, reader):
+        self._price_rule(reader, last_value="2")
+
+        fired = evaluate_prices({31566704: 0.5})
+
+        assert len(fired) == 1
+
+    def test_alerts_evaluate_prices_is_silent_while_it_stays_past(self, reader):
+        self._price_rule(reader, last_value="0.5")
+
+        assert evaluate_prices({31566704: 0.4}) == []
+
+    def test_alerts_evaluate_prices_arms_a_rule_that_has_seen_nothing(self, reader):
+        """A first reading past the threshold is not a crossing the reader was
+        there for - the same rule the page evaluator applies."""
+        rule = self._price_rule(reader, last_value=None)
+
+        assert evaluate_prices({31566704: 0.5}) == []
+        rule.refresh_from_db()
+        assert float(rule.last_value) == 0.5
+
+    def test_alerts_evaluate_prices_records_the_reading_when_silent(self, reader):
+        rule = self._price_rule(reader, last_value="2")
+
+        evaluate_prices({31566704: 1.5})
+
+        rule.refresh_from_db()
+        assert float(rule.last_value) == 1.5
+
+    def test_alerts_evaluate_prices_respects_the_cooldown(self, reader):
+        now = timezone.now()
+        self._price_rule(
+            reader, last_value="2", last_fired_at=now - timedelta(seconds=60)
+        )
+
+        assert evaluate_prices({31566704: 0.5}, now=now) == []
+
+    def test_alerts_evaluate_prices_a_price_it_could_not_compute_is_not_zero(
+        self, reader
+    ):
+        """**The asset most likely to have rules on it is the one in trouble.**
+
+        An asset whose pools have gone prices at nothing. Reading that None as a
+        collapse to zero would fire every "falls below" rule naming it at once,
+        on an asset that may simply have been delisted from one venue.
+        """
+        rule = self._price_rule(reader, last_value="2")
+
+        assert evaluate_prices({31566704: None}) == []
+        rule.refresh_from_db()
+        assert float(rule.last_value) == 2, "and it keeps what it last saw"
+
+    def test_alerts_evaluate_prices_ignores_an_unwatched_asset(self, reader):
+        self._price_rule(reader, last_value="2")
+
+        assert evaluate_prices({999: 0.5}) == []
+
+    def test_alerts_evaluate_prices_ignores_a_holding_rule(self, reader):
+        """`asa_total` names an asset too and is answered by the page
+        evaluator. Evaluating it here would compare a *price* against a
+        threshold the reader set on their holding's value."""
+        self._price_rule(reader, subject=Subject.ASA_TOTAL, last_value="2")
+
+        assert evaluate_prices({31566704: 0.5}) == []
+
+    def test_alerts_evaluate_prices_ignores_an_inactive_rule(self, reader):
+        self._price_rule(reader, last_value="2", active=False)
+
+        assert evaluate_prices({31566704: 0.5}) == []
+
+    def test_alerts_evaluate_prices_survives_an_empty_body(self, reader):
+        self._price_rule(reader, last_value="2")
+
+        assert evaluate_prices({}) == []
+        assert evaluate_prices(None) == []
+
+    def test_alerts_evaluate_prices_fires_upward_too(self, reader):
+        self._price_rule(reader, direction=Direction.UP, last_value="0.5")
+
+        assert len(evaluate_prices({31566704: 2.0})) == 1
+
+    def test_alerts_evaluate_prices_asks_once_per_asset(self, reader, django_assert_num_queries):
+        """**One question per asset, however many readers ask it.** Two rules on
+        one asset must not be two queries - that is what the `asset_id, active`
+        index on the model is for."""
+        self._price_rule(reader, last_value="2")
+        self._price_rule(reader, last_value="2", threshold="1.5")
+
+        with django_assert_num_queries(3):  # one select, two saves
+            evaluate_prices({31566704: 0.5})

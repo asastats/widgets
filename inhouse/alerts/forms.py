@@ -21,7 +21,7 @@ from .models import (
     Direction,
     Subject,
 )
-from .population import publish_page
+from .population import publish_assets, publish_page
 from .tiers import rules_allowed
 
 #: Windows a percentage rule may be measured over.
@@ -168,4 +168,9 @@ class AlertRuleForm(forms.Form):
         # rather than raising when Redis is away, because a rule the reader has
         # written must be stored whatever the engine can currently hear.
         publish_page(self.address)
+        # The asset set only changes for a price rule, and it is the *only*
+        # thing that puts an asset in front of the periodic task - an
+        # `asa_total` rule names an asset too and is answered by the live pass.
+        if rule.subject == Subject.ASA_PRICE:
+            publish_assets()
         return rule

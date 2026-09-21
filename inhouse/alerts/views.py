@@ -27,11 +27,11 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import TemplateView, View
 from widgethost.enforcement import WidgetAccessMixin
 
-from .evaluate import evaluate_page, payload_for
+from .evaluate import evaluate_page, evaluate_prices, payload_for
 from .forms import WINDOW_CHOICES, AlertRuleForm
 from .manifest import MANIFEST
 from .models import AlertRule, Direction, PushSubscription, Subject
-from .population import publish_page
+from .population import publish_assets, publish_page
 from .push import notify, push_configured
 from .tiers import rules_allowed
 
@@ -211,6 +211,7 @@ class AlertsRuleDeleteView(WidgetAccessMixin, AlertsContextMixin, View):
             AlertRule, pk=self.kwargs["pk"], user=request.user
         )
         address = rule.address
+        was_price_rule = rule.subject == Subject.ASA_PRICE
         rule.delete()
         # **The page's own address, not this view's bundle.** A rule stores the
         # page it was made from, and a reader may be deleting it from somewhere
@@ -219,6 +220,11 @@ class AlertsRuleDeleteView(WidgetAccessMixin, AlertsContextMixin, View):
         # `self.bundle` here would leave the real page in `lvr` with no rules
         # and take one out that still has some.
         publish_page(address)
+        # **Recomputed, not decremented.** The asset may still be named by
+        # somebody else's rule, and `publish_assets` asks the database rather
+        # than assuming - the same argument `publish_page` makes for pages.
+        if was_price_rule:
+            publish_assets()
         context = self.alerts_context(self.bundle)
         context["form"] = AlertRuleForm(user=request.user, address=self.bundle)
         return HttpResponse(
@@ -423,17 +429,88 @@ class AlertsRepricedView(View):
                 page,
             )
 
-        notified = 0
-        for rule in fired:
-            notified += notify(
-                rule.user,
-                {
-                    "title": "ASA Stats",
-                    "body": str(rule),
-                    "tag": f"alert-{rule.pk}",
-                    "url": f"/{page}",
-                },
-            )
+        notified = _notify_all(fired, f"/{page}")
         return JsonResponse(
             {"ok": True, "fired": len(fired), "notified": notified}
+        )
+
+
+def _notify_all(fired, url):
+    """Send one notification per fired rule and return how many landed.
+
+    :param fired: the rules that crossed
+    :type fired: list
+    :param url: where the notification should open
+    :type url: str
+    :return: int
+    """
+    notified = 0
+    for rule in fired:
+        notified += notify(
+            rule.user,
+            {
+                "title": "ASA Stats",
+                "body": str(rule),
+                # Per rule, so two alerts on one page replace neither. A shared
+                # tag would silently collapse them into the last one.
+                "tag": f"alert-{rule.pk}",
+                "url": url,
+            },
+        )
+    return notified
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+@method_decorator(never_cache, name="dispatch")
+class AlertsPricedView(View):
+    """The engine handing over the prices of the assets rules name.
+
+    **The one endpoint here whose body is an answer rather than a trigger.**
+    `AlertsRepricedView` names a page and the numbers are read from the Redis
+    both projects share; an asset's price is not there. It lives in the engine's
+    *primary* cache, which the website has no client for - so the price arrives
+    in the body, and the signature over that body is the only thing making it
+    trustworthy. See `notifications/DESIGN.md`.
+
+    The caller is the engine's periodic huey task, which reads which assets to
+    price from `lvra` - published by `population.publish_assets`.
+    """
+
+    def post(self, request, *args, **kwargs):
+        """Evaluate every `asa_price` rule these prices touch.
+
+        :return: :class:`django.http.JsonResponse`
+        """
+        if not signature_ok(request):
+            return JsonResponse({"error": "Bad signature."}, status=403)
+
+        try:
+            body = json.loads(request.body or "{}")
+        except ValueError:
+            return JsonResponse({"error": "Malformed body."}, status=400)
+
+        prices = body.get("prices")
+        if not isinstance(prices, dict):
+            return JsonResponse({"error": "No prices sent."}, status=400)
+
+        # **Keys arrive as strings and the rules store integers.** JSON has no
+        # integer keys, so a body that round-trips through `json.dumps` comes
+        # back with `"31566704"` - and `prices.get(rule.asset_id)` would then
+        # miss every asset silently, which reads exactly like "nothing moved".
+        readings = {}
+        for key, value in prices.items():
+            try:
+                readings[int(key)] = None if value is None else float(value)
+            except (TypeError, ValueError):
+                logger.warning("alerts: unusable price for asset %r", key)
+
+        fired = evaluate_prices(readings)
+        notified = _notify_all(fired, "/")
+        return JsonResponse(
+            {
+                "ok": True,
+                "assets": len(readings),
+                "fired": len(fired),
+                "notified": notified,
+            }
         )
