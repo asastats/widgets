@@ -65,6 +65,85 @@ def _asset_key(key):
         return key
 
 
+def _bundle(held):
+    """Return one asset's share of a payload, in the shape the carry stores.
+
+    **Tolerant of the shape this replaced**, because a reader mid-resync when
+    the code changes has a session holding the old one: until 2026-09-21 the
+    carry was `{asset id: value}` and nothing else, so a bare number here is a
+    value with no amount and no positions rather than a corrupt entry. Treating
+    it as one would strand that reader's backlog until their session expired.
+
+    :param held: a carried bundle, a bare carried value, or None for a new one
+    :type held: dict or float or None
+    :return: dict
+    """
+    if isinstance(held, dict):
+        return {
+            "value": held.get("value"),
+            "amount": held.get("amount"),
+            "positions": list(held.get("positions") or ()),
+        }
+    return {"value": held, "amount": None, "positions": []}
+
+
+def _fragments(bundles):
+    """Return how many out-of-band elements `bundles` would put on the wire.
+
+    The unit the budget is spent in, and it counts elements rather than assets
+    because that is what the browser pays for: htmx locates each by id and
+    replaces it, and every replacement invalidates layout.
+
+    A position costs two when it carries an amount and one when it does not,
+    matching the template - `positionvalue` always, `positionamount` only
+    `{% if position.amount %}`.
+
+    :param bundles: {asset key: bundle}, as `_bundle` shapes them
+    :type bundles: dict
+    :return: int
+    """
+    total = 0
+    for held in bundles.values():
+        total += held.get("value") is not None
+        total += held.get("amount") is not None
+        for position in held.get("positions") or ():
+            total += 2 if position.get("amount") else 1
+    return total
+
+
+def _rebuilt(payload, bundles):
+    """Return `payload` carrying only what `bundles` holds.
+
+    The inverse of the split: the fragment template reads `payload.values`,
+    `payload.amounts` and `positions`, so the per-asset grouping the budget is
+    spent in has to be taken apart again before it is rendered.
+
+    :param payload: what the pass published, as `_payload` decoded it
+    :type payload: dict
+    :param bundles: {asset key: bundle} to send
+    :type bundles: dict
+    :return: dict
+    """
+    return dict(
+        payload,
+        values={
+            key: held["value"]
+            for key, held in bundles.items()
+            if held.get("value") is not None
+        },
+        amounts={
+            key: held["amount"]
+            for key, held in bundles.items()
+            if held.get("amount") is not None
+        },
+        positions=[
+            position
+            for held in bundles.values()
+            for position in held.get("positions") or ()
+        ],
+    )
+
+
 def _named_positions(payload):
     """Return the published positions, each carrying the id its row was given.
 
@@ -534,7 +613,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         return f"liverefresh:carry:{self.bundle}"
 
     def _chunked(self, payload):
-        """Return `payload` with at most `MAX_FRAGMENTS` values, and whether any.
+        """Return `payload` trimmed to `MAX_FRAGMENTS` fragments, and whether any.
 
         **The engine sends everything after a re-read, and that is deliberate.**
         A reader polling every three seconds against blocks arriving every 2.7
@@ -548,23 +627,38 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         MB document, every time the account is struck. The reader's browser, not
         the engine, is what that overwhelms.
 
-        So the values are queued and released `MAX_FRAGMENTS` at a time. Nothing
+        So the payload is queued and released `MAX_FRAGMENTS` at a time. Nothing
         is dropped: what does not fit stays in the session and goes out on the
-        polls that follow, newest value winning if the same asset moves again
+        polls that follow, newest figure winning if the same asset moves again
         mid-resync. A resync of nine hundred holdings finishes in about half a
         minute of polling instead of arriving as one unusable lump.
 
         **Only large payloads are touched.** An ordinary block's diff is a
-        handful of values and passes through whole, which is every page but this
-        kind of one.
+        handful of figures and passes through whole, which is every page but
+        this kind of one.
+
+        **The budget is fragments, not assets, and that is the correction.**
+        Until 2026-09-21 this counted `values` alone, because when it was
+        written a changed asset *was* one fragment. `11f5e9f` then began
+        publishing `positions` - the rows inside a row - and `amounts` beside
+        them, and neither passed through here at all. A wide account's full
+        payload went out as a hundred capped values plus every amount and every
+        position uncapped: measured on production at 46.5 kB and on the order of
+        a thousand out-of-band swaps, every three seconds, into a fifty-thousand
+        element page. That is the load that made a reader turn JavaScript off,
+        and the cap it slipped past is the one already here for exactly it.
+
+        **Grouped by asset, so a row and its interior always move together.**
+        Deferring a value while sending the positions beneath it would leave a
+        row whose parts disagree about money - the fault `11f5e9f` was written
+        to close. Each asset is admitted with everything it owns or waits with
+        it, and an asset alone over budget still goes, or a single fat holding
+        would block the queue behind it forever.
 
         :param payload: what the pass published, as `_payload` decoded it
         :type payload: dict
         :return: two-tuple of (payload, bool)
         """
-        values = payload.get("values") or {}
-        carry = self.request.session.get(self._carry_key()) or {}
-
         # **Integer keys out, string keys in the session.** The values map is
         # keyed by asset id and `_payload` decodes it with `strict_map_key=False`
         # to keep those integers - the fragments are addressed by them. A session
@@ -572,12 +666,29 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # comes back as `"31566704"` and has to be turned back before it can
         # merge with, or be ordered against, the `31566704` a later payload
         # brings.
-        merged = {_asset_key(key): value for key, value in carry.items()}
-        merged.update(values)
+        carry = self.request.session.get(self._carry_key()) or {}
+        merged = {_asset_key(key): _bundle(held) for key, held in carry.items()}
 
-        if len(merged) <= MAX_FRAGMENTS:
+        # What this block brings, overlaying the backlog per field: an asset
+        # whose value moved again mid-resync supersedes the carried value, but
+        # must not erase an amount or a position still waiting behind it.
+        fresh = []
+        for field, brought in (
+            ("value", (payload.get("values") or {}).items()),
+            ("amount", (payload.get("amounts") or {}).items()),
+        ):
+            for key, figure in brought:
+                key = _asset_key(key)
+                merged.setdefault(key, _bundle(None))[field] = figure
+                fresh.append(key)
+        for position in payload.get("positions") or ():
+            key = _asset_key(position.get("asset"))
+            merged.setdefault(key, _bundle(None))["positions"].append(position)
+            fresh.append(key)
+
+        if _fragments(merged) <= MAX_FRAGMENTS:
             self.request.session.pop(self._carry_key(), None)
-            return dict(payload, values=merged), bool(merged)
+            return _rebuilt(payload, merged), bool(merged)
 
         # **What moved this block goes first, and the backlog fills the rest.**
         # Ordering the whole queue by asset id would make a holding the reader
@@ -585,17 +696,34 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # not - which is the complaint this whole mechanism is answering, not a
         # detail of it. A transfer a reader made themselves has to show up on
         # the next poll.
-        fresh = [key for key in values if key in merged]
-        behind = sorted(
-            (key for key in merged if key not in values),
+        seen, ordered = set(), []
+        for key in fresh:
+            if key not in seen:
+                seen.add(key)
+                ordered.append(key)
+        ordered += sorted(
+            (key for key in merged if key not in seen),
             key=lambda key: (isinstance(key, str), key),
         )
-        ordered = fresh + behind
-        going = {key: merged[key] for key in ordered[:MAX_FRAGMENTS]}
-        self.request.session[self._carry_key()] = {
-            str(key): merged[key] for key in ordered[MAX_FRAGMENTS:]
-        }
-        return dict(payload, values=going), True
+
+        # **The first asset that does not fit closes the poll**, rather than
+        # being stepped over to top the budget up with cheaper ones behind it.
+        # Skipping it would be free here and starve it indefinitely: a holding
+        # with thirty positions would be passed by on every poll that had a
+        # handful of ordinary values to spend the remainder on, and would be the
+        # one row on the page that never came right.
+        going, waiting, spent, full = {}, {}, 0, False
+        for key in ordered:
+            held = merged[key]
+            cost = _fragments({key: held})
+            if full or (going and spent + cost > MAX_FRAGMENTS):
+                full = True
+                waiting[str(key)] = held
+                continue
+            going[key] = held
+            spent += cost
+        self.request.session[self._carry_key()] = waiting
+        return _rebuilt(payload, going), True
 
     def _last_total(self):
         """Return the total this reader was last shown, or None."""

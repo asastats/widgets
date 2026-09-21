@@ -1635,6 +1635,210 @@ class TestLiveRefreshChunksALargeResync:
         assert _asset_key(None) is None
 
 
+class TestLiveRefreshCountsEveryFragmentAgainstTheBudget:
+    """**The cap was here and three quarters of the payload walked past it.**
+
+    Until 2026-09-21 `_chunked` counted `values` alone, which was right when it
+    was written: a changed asset was one fragment. `11f5e9f` then began
+    publishing `amounts` and `positions` - the rows inside a row - and neither
+    went through the budget at all.
+
+    What a wide account's full payload actually sent was a hundred capped values
+    plus every amount and every position uncapped. Measured on production on
+    2026-09-21: 46.5 kB in one response, on the order of a thousand out-of-band
+    swaps, every three seconds, into a fifty-thousand element page. The reader
+    turned JavaScript off, which is the strongest report this feature has had.
+
+    See `post-deploy/FINDING-poll-cost-on-heavy-pages.md`.
+    """
+
+    @staticmethod
+    def _packed(assets, positions_each=0, total=5.0, with_amounts=True):
+        """One asset per id, each optionally owning `positions_each` rows."""
+        payload = {
+            "total": total,
+            "values": {1000 + i: float(i) for i in range(assets)},
+        }
+        if with_amounts:
+            payload["amounts"] = {1000 + i: [i, 6] for i in range(assets)}
+        payload["positions"] = [
+            {
+                "asset": 1000 + i,
+                "value": float(i),
+                "amount": 10,
+                "decimals": 6,
+                "fields": {"type": "Balance", "name": f"v{j}"},
+                "links": [],
+            }
+            for i in range(assets)
+            for j in range(positions_each)
+        ]
+        return msgpack.packb(payload)
+
+    @staticmethod
+    def _rendered(mocker, view, raw):
+        client = mocker.MagicMock()
+        client.get.return_value = raw
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        rendered = mocker.patch.object(
+            LiveRefreshView, "render_to_response", return_value=HttpResponse()
+        )
+        view.get(view.request)
+        return rendered.call_args.args[0]
+
+    @staticmethod
+    def _emitted(context):
+        """How many out-of-band elements the template would produce.
+
+        Counted the way the fragment emits them: one per value, one per amount,
+        one per position and a second for a position that carries an amount.
+        """
+        payload = context["payload"]
+        return (
+            len(payload.get("values") or {})
+            + len(payload.get("amounts") or {})
+            + sum(
+                2 if position.get("amount") else 1
+                for position in context.get("positions") or ()
+            )
+        )
+
+    def test_liverefresh_positions_and_amounts_are_capped_too(self, mocker):
+        """The regression itself, stated in the unit the browser pays in."""
+        from utils.constants.core import LIVEREFRESH_MAX_FRAGMENTS
+
+        view = _view(mocker, session={})
+        context = self._rendered(mocker, view, self._packed(259, positions_each=2))
+
+        assert self._emitted(context) <= LIVEREFRESH_MAX_FRAGMENTS
+
+    def test_liverefresh_the_uncapped_payload_really_was_that_large(self, mocker):
+        """**The counter-test, so the one above cannot pass vacuously.**
+
+        259 assets each owning two positions that carry an amount is 259 values
+        + 259 amounts + 518 position elements = 1,036 - which is what production
+        was sending. A cap that did nothing would let all of it through.
+        """
+        from utils.constants.core import LIVEREFRESH_MAX_FRAGMENTS
+
+        view = _view(mocker, session={})
+        context = self._rendered(mocker, view, self._packed(259, positions_each=2))
+
+        owed = view.request.session["liverefresh:carry:HASH"]
+        assert owed, "nothing was deferred, so nothing was capped"
+        assert 1036 - self._emitted(context) > 0
+        assert LIVEREFRESH_MAX_FRAGMENTS == 100
+
+    def test_liverefresh_a_row_and_its_positions_never_split(self, mocker):
+        """**The reason the budget is spent per asset rather than per fragment.**
+
+        Sending a position while deferring the value above it - or the reverse -
+        leaves a row whose parts disagree about money, which is the fault
+        `11f5e9f` was written to close. An asset is admitted with everything it
+        owns or waits with all of it.
+        """
+        view = _view(mocker, session={})
+        context = self._rendered(mocker, view, self._packed(80, positions_each=3))
+
+        payload = context["payload"]
+        sent = set(payload["values"])
+        assert sent  # something went, or this proves nothing
+        assert set(payload["amounts"]) == sent
+        assert {position["asset"] for position in context["positions"]} == sent
+
+    def test_liverefresh_nothing_is_dropped_when_positions_are_carried(self, mocker):
+        """The claim the whole mechanism rests on, now that the queue holds more
+        than values: a capped poll owes the rest and pays it off."""
+        view = _view(mocker, session={})
+
+        context = self._rendered(mocker, view, self._packed(259, positions_each=2))
+        seen = set(context["payload"]["values"])
+        positions = len(context["positions"])
+
+        for _ in range(20):
+            if not view.request.session.get("liverefresh:carry:HASH"):
+                break
+            context = self._rendered(mocker, view, self._packed(0))
+            seen.update(context["payload"]["values"])
+            positions += len(context["positions"])
+
+        assert seen == {1000 + i for i in range(259)}
+        assert positions == 259 * 2
+        assert not view.request.session.get("liverefresh:carry:HASH")
+
+    def test_liverefresh_a_fat_asset_is_not_stepped_over_forever(self, mocker):
+        """**Starvation, which filling the budget greedily would cause.**
+
+        One holding with more positions than the whole budget can never fit
+        beside anything. If the loop skipped it to top up with cheaper assets
+        behind it, it would be skipped again on every poll that had any - and
+        would be the one row on the page that never came right. So the first
+        asset that does not fit closes the poll.
+        """
+        packed = msgpack.packb(
+            {
+                "total": 5.0,
+                "values": {1: 1.0, 2: 2.0},
+                "amounts": {1: [1, 0], 2: [2, 0]},
+                "positions": [
+                    {
+                        "asset": 1,
+                        "value": 1.0,
+                        "amount": 1,
+                        "decimals": 0,
+                        "fields": {"name": f"p{i}"},
+                        "links": [],
+                    }
+                    for i in range(400)
+                ],
+            }
+        )
+        view = _view(mocker, session={})
+
+        # Asset 2 is cheap and asset 1 is far over budget. Asset 1 arrives first
+        # and must not be passed over for it.
+        context = self._rendered(mocker, view, packed)
+        assert set(context["payload"]["values"]) == {1}
+        assert len(context["positions"]) == 400
+
+    def test_liverefresh_an_old_shaped_carry_is_still_paid_off(self, mocker):
+        """**A reader mid-resync across the deploy.**
+
+        The carry used to be `{asset id: value}` and is now a bundle per asset.
+        A session written by the old code has to keep draining, or that reader's
+        backlog sits in their session until it expires with the page never
+        coming right - and nothing on the page would say so.
+        """
+        view = _view(mocker, session={})
+        view.request.session["liverefresh:carry:HASH"] = {"31566704": 12.5}
+
+        context = self._rendered(mocker, view, self._packed(0))
+
+        assert context["payload"]["values"] == {31566704: 12.5}
+        assert not view.request.session.get("liverefresh:carry:HASH")
+
+    def test_liverefresh_a_zero_value_is_sent_and_not_mistaken_for_absent(
+        self, mocker
+    ):
+        """**Zero is a real published figure**, and the one that matters most: it
+        is how the pass says a holding went away, since a fragment cannot delete
+        a row. Splitting the payload on `is not None` rather than on truthiness
+        is what keeps it - `if held["value"]` would silently drop every row that
+        just went to zero, leaving the stale figure on the page.
+        """
+        packed = msgpack.packb(
+            {"total": 5.0, "values": {1: 0.0}, "amounts": {1: [0, 6]}}
+        )
+        view = _view(mocker, session={})
+
+        context = self._rendered(mocker, view, packed)
+
+        assert context["payload"]["values"] == {1: 0.0}
+        assert context["payload"]["amounts"] == {1: [0, 6]}
+
+
 class TestLiveRefreshReloadCooldown:
     """Bounding how often the poll may order a page reload.
 
