@@ -1,0 +1,96 @@
+{% comment %} The rule list and the form, swapped in place by htmx.
+
+   Its own partial rather than part of the modal, because every mutation
+   re-renders exactly this: create and delete both answer with the list their
+   change produced, so the browser never has to draw a rule itself. A JSON
+   endpoint would need a second renderer in JavaScript for markup the server
+   already knows how to make.
+{% endcomment %}
+<div id="id-alerts-panel" class="alerts-panel">
+
+  {% if form.non_field_errors or form.subject.errors %}
+  <p class="alerts-error" role="alert">
+    {{ form.subject.errors.0|default:form.non_field_errors.0 }}
+  </p>
+  {% endif %}
+
+  <ul class="alerts-list">
+    {% for rule in rules %}
+    <li class="alerts-rule">
+      <span class="alerts-rule-text">{{ rule }}</span>
+      <button type="button" class="alerts-remove"
+              hx-post="{% url 'alerts_rule_delete' address rule.pk %}"
+              hx-target="#id-alerts-panel"
+              hx-swap="outerHTML"
+              aria-label="Remove this alert">&times;</button>
+    </li>
+    {% empty %}
+    <li class="alerts-empty">No alerts yet.</li>
+    {% endfor %}
+  </ul>
+
+  {% comment %} The remainder, not the total: the view does the arithmetic so
+     this does not, and so there is only one place to get it wrong. {% endcomment %}
+  <p class="alerts-left">
+    {{ rules_left }} of {{ rules_allowed }} left
+  </p>
+
+  {% if rules_left %}
+  <form class="alerts-form"
+        hx-post="{% url 'alerts_rules' address %}"
+        hx-target="#id-alerts-panel"
+        hx-swap="outerHTML">
+    {% csrf_token %}
+
+    <label class="alerts-field">
+      <span>Watch</span>
+      <select name="subject" class="alerts-subject">
+        {% for value, label in subjects %}
+        <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    {% comment %} Shown only for the two subjects that name an asset.
+       `alerts.js` toggles it; it is rendered either way so switching subject
+       needs no request. {% endcomment %}
+    <label class="alerts-field alerts-asset-field" hidden>
+      <span>Asset ID</span>
+      <input type="number" name="asset_id" min="0" inputmode="numeric">
+    </label>
+
+    <label class="alerts-field">
+      <span>When it</span>
+      <select name="direction">
+        {% for value, label in directions %}
+        <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="alerts-field">
+      <span>Threshold</span>
+      <input type="text" name="threshold" inputmode="decimal" required>
+    </label>
+
+    {% comment %} A short list rather than a free number: the honest period
+       depends on how often the thing is sampled, and a reader typing one has no
+       way to know whether it means anything for their asset. {% endcomment %}
+    <label class="alerts-field alerts-window-field" hidden>
+      <span>Over</span>
+      <select name="window_seconds">
+        {% for value, label in windows %}
+        <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <button type="submit" class="alerts-save">Add alert</button>
+  </form>
+  {% else %}
+  <p class="alerts-full">
+    That is all {{ rules_allowed }} of your alerts.
+    <a href="{% url 'subscriptions' %}" class="link">Upgrade for more</a>.
+  </p>
+  {% endif %}
+</div>

@@ -1,0 +1,72 @@
+"""Testing module for :py:mod:`widgets.inhouse.alerts.urls` module."""
+
+import re
+
+from widgets.inhouse.alerts import urls
+
+
+class TestInhouseAlertsUrls:
+    """Testing class for the widget's URL configuration.
+
+    **Nothing here calls `reverse()`, and that is not an oversight.** Reversing
+    forces the whole URLconf to load, which pulls in `core/views.py` and
+    `utils.charts` - and `widgets/inhouse/historic/tests/conftest.py` installs a
+    *fake* `utils.charts` into `sys.modules` at import time so the widget suite
+    can run standalone. A `reverse()` here passes alone and fails the moment the
+    suite is run whole, with an ImportError from a module this widget never
+    touches. Every other widget's url test inspects the patterns instead; this
+    one learned why.
+    """
+
+    def test_inhouse_alerts_urls_patterns_count(self):
+        assert len(urls.urlpatterns) == 5
+
+    def test_inhouse_alerts_urls_are_named(self):
+        assert [pattern.name for pattern in urls.urlpatterns] == [
+            "alerts_subscribe",
+            "alerts_unsubscribe",
+            "alerts_rule_delete",
+            "alerts_rules",
+            "alerts",
+        ]
+
+    def test_inhouse_alerts_urls_point_at_their_views(self):
+        assert [
+            pattern.lookup_str.rsplit(".", 1)[-1] for pattern in urls.urlpatterns
+        ] == [
+            "AlertsSubscribeView",
+            "AlertsUnsubscribeView",
+            "AlertsRuleDeleteView",
+            "AlertsRulesView",
+            "AlertsView",
+        ]
+
+    def test_inhouse_alerts_urls_put_the_longest_first(self):
+        """**Order decides correctness here.** The bare page pattern would
+        swallow `<page>/rules` and `<page>/rules/<pk>/delete` if it came first,
+        the way the Dust Sweep urls note about its own JSON endpoint."""
+        names = [pattern.name for pattern in urls.urlpatterns]
+
+        assert names.index("alerts_rule_delete") < names.index("alerts_rules")
+        assert names.index("alerts_rules") < names.index("alerts")
+
+    def test_inhouse_alerts_urls_match_an_address_and_a_bundle(self):
+        pattern = re.compile(
+            str(next(p for p in urls.urlpatterns if p.name == "alerts").pattern)
+        )
+
+        assert pattern.match("A" * 58)  # an address
+        assert pattern.match("A" * 40)  # a bundle hash
+        assert not pattern.match("A" * 39)
+
+    def test_inhouse_alerts_urls_subscribe_carries_no_page(self):
+        """A browser subscribes once for the whole site, not per address. A page
+        in the path would imply otherwise and give three ways to say one thing.
+        """
+        pattern = str(
+            next(
+                p for p in urls.urlpatterns if p.name == "alerts_subscribe"
+            ).pattern
+        )
+
+        assert "58" not in pattern and "40" not in pattern

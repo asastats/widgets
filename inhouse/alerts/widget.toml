@@ -1,0 +1,50 @@
+id = "alerts"
+name = "Alerts"
+version = "0.1.0"
+
+# Ours, so there is nobody to pay out.
+origin = "inhouse"
+
+# **`public`, which here means "holds no engine privilege"** - the manifest
+# validator allows only this or `engine-backed`, and rejects `public` alongside
+# any declared endpoint.
+#
+# That is the right answer and it is worth saying why, because a feature about
+# live prices sounds engine-backed. A sweep asks the engine to decide something
+# and renders the answer. This stores a rule the reader wrote, and the rule is
+# then evaluated *by* the engine's own loops - the live pass for the subjects
+# riding on a page's numbers, and a per-asset pass for `asa_price`. The browser
+# half never calls the engine; it reads and writes rows in this deployment's own
+# database.
+#
+# See `notifications/DESIGN.md` for why that is two evaluators rather than one.
+capability = "public"
+revenue_account = ""
+
+# None. Everything the control needs - which assets this page shows, what the
+# reader already watches - is host context or this widget's own table.
+engine_endpoints = []
+
+# Host-injected context.
+#
+# `portfolio:bundle` is what a portfolio rule is *about*: "my total" means the
+# total of the page the reader is looking at, so the rule stores the bundle it
+# was created from. `profile:permission` is the rule allowance - see `tiers.py`,
+# which bands counts rather than addresses and must not be confused with the
+# liverefresh bands.
+data = ["portfolio:bundle", "profile:permission"]
+
+# No external host: the browser talks only to us.
+hosts = []
+
+# **Not "swap".** `test_widgets_constants_lists_every_swap_router_it_discovers`
+# globs for `category = "swap"`, so naming it that would offer alerts as a
+# default router on the settings page. Same reasoning as Dust Sweep's.
+category = "tools"
+
+# 0 = any authenticated profile may load the widget; what a tier buys is how
+# many rules may be kept, which `tiers.py` bands and the view enforces. The
+# manifest gate is deliberately not the rule gate: a reader at a tier with zero
+# rules still sees the control, as a link to subscriptions rather than a dead
+# button - the shape the fold sizes and the typeface picker already use.
+required_permission = 0

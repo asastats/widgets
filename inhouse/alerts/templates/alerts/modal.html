@@ -1,0 +1,100 @@
+{% comment %} The alerts modal, fetched when the control is pressed.
+
+   Anatomy follows the Dust Sweep modal, which follows the swap modal: a native
+   <dialog>, a fixed head and foot around a scrolling panel. That is the design
+   the rest of the site is moving onto, so this copies it rather than inventing
+   a second language.
+
+   What is deliberately *not* copied is the class names. Alerts are not a sweep,
+   and borrowing `.dustsweep-*` would tie this to rules that will be changed for
+   sweep reasons.
+
+   Fetched rather than shipped with the page: the rule list is per-reader and
+   changes as it is edited, so loading it when the modal opens is smaller and
+   fresher than rendering it into the partial that carries the button.
+{% endcomment %}
+<dialog id="alerts-modal" class="alerts-modal">
+  <div class="alerts-shell">
+    <div class="alerts-head">
+      <h2 class="alerts-title">Alerts</h2>
+      <span class="alerts-head-spacer"></span>
+      <button type="button" class="alerts-close id-alerts-close"
+              aria-label="Close">&times;</button>
+    </div>
+
+    {% if alerts_entitled %}
+      {% include "alerts/_panel.html" %}
+    {% else %}
+    <div class="alerts-panel">
+      <p>Alerts are available from the <span class="text-primary">Asastatser</span> tier.</p>
+      <p><a href="{% url 'subscriptions' %}" class="link">See the plans</a></p>
+    </div>
+    {% endif %}
+
+    {% comment %} Whether alerts can actually reach this browser.
+
+       All three are rendered and hidden; `alerts.js` reveals the one that
+       applies. The copy lives here because copy is edited here - the script
+       only decides which sentence is true.
+
+       **It decides that by asking the browser, not by reading its name.** iOS
+       Safari exposes `PushManager` only to a site installed on the Home Screen,
+       so its absence is the same signal there as in any browser that cannot do
+       push at all. The user agent is consulted afterwards and only to choose
+       between these, because "add this to your Home Screen" is something a
+       reader can act on and "this browser cannot" is not.
+    {% endcomment %}
+    <div class="alerts-support">
+      <p data-support="ios-install" class="alerts-warning" hidden>
+        <strong>On iPhone and iPad, alerts only arrive from the Home Screen.</strong>
+        Tap Share, then <em>Add to Home Screen</em>, and open {{ WEBSITE_NAME }}
+        from there. Rules you save now will be waiting.
+      </p>
+      <p data-support="ios-old" class="alerts-warning" hidden>
+        <strong>This iOS is too old for web alerts.</strong>
+        They need iOS 16.4 or later. Rules you save now will be kept, and will
+        start arriving once the device is updated.
+      </p>
+      <p data-support="unsupported" class="alerts-warning" hidden>
+        <strong>This browser cannot receive web alerts.</strong>
+        Rules you save now are kept on your account, so they will be here when
+        you open {{ WEBSITE_NAME }} in a browser that can.
+      </p>
+    </div>
+
+    {% comment %} Turning it on, which has to be a press.
+
+       A browser blocks or ignores a permission prompt that was not tied to a
+       user gesture, so this cannot be done on load however convenient that
+       would be. It is also the right shape for the reader: nothing asks until
+       they ask for it.
+    {% endcomment %}
+    {% if alerts_entitled %}
+    <div class="alerts-enable" data-vapid-key="{{ vapid_public_key }}"
+         data-subscribe-url="{% url 'alerts_subscribe' %}"
+         data-unsubscribe-url="{% url 'alerts_unsubscribe' %}"
+         data-worker-url="{% url 'alerts_service_worker' %}">
+      {% if push_configured %}
+      <button type="button" class="alerts-enable-btn id-alerts-enable">
+        {% if subscribed_browsers %}This browser is on{% else %}Notify this browser{% endif %}
+      </button>
+      <span class="alerts-enable-state" role="status"></span>
+      {% else %}
+      <p class="alerts-warning">
+        <strong>This deployment cannot send notifications.</strong>
+        Rules are saved and will be delivered once it is configured.
+      </p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="alerts-foot">
+      {% comment %} Said here rather than discovered later. Nothing evaluates a
+         rule yet, and a modal that takes one without saying so is a promise the
+         product does not keep. Remove this line with step 5. {% endcomment %}
+      <p class="alerts-note">
+        Alerts are being built: rules are saved, but nothing is sent yet.
+      </p>
+    </div>
+  </div>
+</dialog>

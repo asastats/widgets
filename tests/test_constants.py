@@ -16,6 +16,7 @@ class TestWidgetsConstants:
             "swapcore",
             "dustsweep",
             "liverefresh",
+            "alerts",
         ]
 
     def test_widgets_constants_lists_every_widget_it_discovers(self):
