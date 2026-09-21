@@ -20,8 +20,17 @@ sphinx:
   configuration: docs/conf.py
   # You can configure Sphinx to use a different builder, for instance use the dirhtml builder for simpler URLs
   # builder: "dirhtml"
-  # Fail on all warnings to avoid broken references
-  # fail_on_warning: true
+  # Fail on all warnings to avoid broken references.
+  #
+  # Turned on 2026-09-22, once the build was clean. It had carried one warning
+  # for a long time - `autodoc: failed to import 'urls'` - and that single line
+  # cost the entire URL configuration page. A warning nobody has to act on is a
+  # page nobody notices is missing.
+  #
+  # **What this does not catch:** a module or a runbook that was never added to
+  # `widgets.rst` or `runbooks.rst`. An absent page raises nothing at all. That
+  # is why the runbooks toctree is a glob rather than a list.
+  fail_on_warning: true
 
 # Optionally build your docs in additional formats such as PDF and ePub
 # formats:

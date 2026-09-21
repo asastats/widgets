@@ -4,6 +4,24 @@ django-cors-headers>=4.9
 channels[daphne]>=4.3.2
 django-htmx>=1.27.0
 django-template-partials>=25.3
+# **Imported by widget code and undeclared until 2026-09-22.** All three are
+# imported lazily - inside the function that needs them - which is why nothing
+# had noticed: the docs build never reaches them, and a test run in the frontend
+# checkout borrows the host's copies. Installed on their own, the widgets that
+# use them raise ImportError at the first request that matters.
+#
+# Pinned to match the host's `website/requirements/base.txt`, so the two cannot
+# resolve to different majors in one process.
+#
+# `msgpack` reads the live payloads (`liverefresh/views.py`,
+# `alerts/evaluate.py`). The host does not declare it either, relying on a
+# transitive - which is worth not copying: a direct import is a direct
+# dependency.
+msgpack>=1.2
+# `pywebpush` sends the alerts, and brings `py_vapid` with it.
+pywebpush>=2.0.0
+# `py-algorand-sdk` builds the Dust Sweep corpus fixtures.
+py-algorand-sdk>=2.12.0
 ## tests requirements
 pytest>=9.0.3
 pytest-cov>=7.1.0

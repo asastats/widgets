@@ -7,6 +7,113 @@
   :show-inheritance:
 
 
+.. The alerts directives below are the only ones addressed as
+   ``widgets.inhouse.alerts.*`` rather than flat ``inhouse.*``, and they have to
+   be. This is the one widget that defines Django models, and the app registry
+   knows them by the path INSTALLED_APPS named - ``widgets``. Imported flat, the
+   same file is executed a second time under a second module name, and
+   ``ModelBase`` rejects the class: "doesn't declare an explicit app_label and
+   isn't in an application in INSTALLED_APPS".
+
+:mod:`widgets.inhouse.alerts` -- Alerts widget package
+--------------------------------------------------------
+
+.. automodule:: widgets.inhouse.alerts
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.alerts.evaluate` -- Alerts widget's rule evaluation module
+----------------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.alerts.evaluate
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.alerts.forms` -- Alerts widget's forms module
+---------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.alerts.forms
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.alerts.manifest` -- Alerts widget's manifest module
+---------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.alerts.manifest
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.alerts.models` -- Alerts widget's rule store module
+---------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.alerts.models
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.alerts.population` -- Alerts widget's engine population module
+--------------------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.alerts.population
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.alerts.push` -- Alerts widget's web push delivery module
+--------------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.alerts.push
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.alerts.tiers` -- Alerts widget's per-tier allowance module
+----------------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.alerts.tiers
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.alerts.urls` -- Alerts widget's URL configurations module
+---------------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.alerts.urls
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.alerts.views` -- Alerts widget's views module
+---------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.alerts.views
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.alerts.tests` -- Alerts widget's unit-tests package
+---------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.alerts.tests
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
 :mod:`widgets.inhouse.asastats` -- ASA Stats swap widget package (inherits swapcore)
 ------------------------------------------------------------------------------------
 
@@ -335,6 +442,69 @@
 ----------------------------------------------------------------------------
 
 .. automodule:: inhouse.hogswap.tests
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.liverefresh` -- Real-time refresh widget package
+------------------------------------------------------------------------
+
+.. automodule:: inhouse.liverefresh
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.liverefresh.allowance` -- Real-time refresh widget's allowance module
+---------------------------------------------------------------------------------------------
+
+.. automodule:: inhouse.liverefresh.allowance
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.liverefresh.manifest` -- Real-time refresh widget's manifest module
+-------------------------------------------------------------------------------------------
+
+.. automodule:: inhouse.liverefresh.manifest
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.liverefresh.urls` -- Real-time refresh widget's URL configurations module
+-------------------------------------------------------------------------------------------------
+
+.. automodule:: inhouse.liverefresh.urls
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.liverefresh.views` -- Real-time refresh widget's views module
+-------------------------------------------------------------------------------------
+
+.. automodule:: inhouse.liverefresh.views
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.liverefresh.warmset` -- Real-time refresh widget's warm set module
+------------------------------------------------------------------------------------------
+
+.. automodule:: inhouse.liverefresh.warmset
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.liverefresh.tests` -- Real-time refresh widget's unit-tests package
+-------------------------------------------------------------------------------------------
+
+.. automodule:: inhouse.liverefresh.tests
   :members:
   :undoc-members:
   :show-inheritance:

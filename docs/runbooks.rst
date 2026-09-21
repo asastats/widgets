@@ -16,11 +16,14 @@ A runbook is short and covers, in order: **Configuration** (host settings the wi
 reads), **Operations** (procedures the administrator runs), and **Links**. Anything
 generic belongs in :doc:`development` or :doc:`widget_contract` instead.
 
+.. Globbed rather than listed. The list here had drifted to five of seven -
+   ``alerts`` and ``liverefresh`` shipped runbooks that were never published,
+   and every build still succeeded, because an unlisted document is silent
+   rather than an error. With a glob, adding ``runbooks/<widget>.rst`` is the
+   whole step.
+
 .. toctree::
    :maxdepth: 1
+   :glob:
 
-   runbooks/asastats
-   runbooks/dustsweep
-   runbooks/folks
-   runbooks/haystack
-   runbooks/hogswap
+   runbooks/*

@@ -51,6 +51,12 @@ if not settings.configured:
         INSTALLED_APPS=[
             "django.contrib.auth",
             "django.contrib.contenttypes",
+            # **The app being documented, and it has to be installed now.**
+            # `alerts` is the first in-house widget to keep a table, and a
+            # Django model whose app is not installed raises at class-creation
+            # time - so importing any module that reaches `alerts.models`
+            # failed, which was every path into `widgets.urls`.
+            "widgets",
         ],
         DATABASES={
             "default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}
@@ -98,11 +104,37 @@ extensions = ["sphinx.ext.autodoc"]
 # Use Sphinx's native mocking to handle the rest of the external dependencies.
 autodoc_mock_imports = [
     "api",
+    # The host's main app, in the same category as the four beside it and
+    # missing from this list until 2026-09-22. A widget importing
+    # `core.models.Profile` made Django reject the model - it is neither
+    # mocked nor in this build's INSTALLED_APPS - which took `widgets.urls`
+    # down with it.
+    "core",
     "storage",
     "utils",
     "walletauth",
     "widgethost",
 ]
+
+# **Two host constants are computed with, not merely named.**
+#
+# Sphinx's own mock objects do not implement the numeric protocol, so a module
+# that does arithmetic on one at import time raises `TypeError` and takes the
+# whole importing chain down with it. `inhouse/liverefresh/warmset.py` has
+# `WARM_TTL = WARM_SECONDS * 4` at module scope, and that one line is why
+# `widgets.urls` - and with it the entire URL configuration page - went
+# undocumented behind a single warning.
+#
+# `MagicMock` does implement the numeric protocol, so these leaf modules get one
+# each. It is the same device already used for `widgethost.swap_views` above.
+#
+# **It has to be a stand-in rather than a real import.** This repository is
+# built standalone as well as inside the frontend checkout - there is no `utils`
+# package beside it in the former, so importing it crashes `conf.py` outright
+# and no documentation is produced at all. `setdefault` keeps the two builds
+# behaving identically rather than only one of them working.
+for _host_constants in ("utils.constants.core", "utils.constants.users"):
+    sys.modules.setdefault(_host_constants, MagicMock())
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
