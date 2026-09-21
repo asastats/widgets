@@ -78,6 +78,13 @@ class AlertsContextMixin:
             # stores rules; the modal says so rather than offering a button that
             # cannot work.
             "push_configured": push_configured(),
+            # Whether anything can reach this deployment to say a rule fired.
+            # Without the shared secret both receiving endpoints refuse every
+            # call, so no rule can fire however complete the code is - and the
+            # modal says so rather than promising what this site cannot do.
+            "alerts_live": bool(
+                getattr(settings, "ALERTS_WEBHOOK_SECRET", "")
+            ),
             "subscribed_browsers": PushSubscription.objects.filter(
                 user=user
             ).count(),

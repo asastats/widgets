@@ -147,8 +147,29 @@ class AlertRule(models.Model):
         """
         return self.subject in PERCENT_SUBJECTS
 
+    @property
+    def line(self):
+        """The number `crossed` compares a reading against.
+
+        **A percentage rule's threshold is unsigned and its reading is not.**
+        The reader stores "5" and means "5% down" or "5% up" depending on the
+        direction they picked, while the reading is a signed move - so a falling
+        rule has to compare against *minus* five. Without this, `down 5` would
+        fire the moment the move dropped below positive five, which is to say
+        almost always and for the wrong reason.
+
+        Every other subject compares against the threshold as stored: a total or
+        a price is already on the same scale the reader typed.
+
+        :return: float
+        """
+        threshold = float(self.threshold)
+        if self.needs_window and self.direction == Direction.DOWN:
+            return -threshold
+        return threshold
+
     def crossed(self, value):
-        """Whether `value` crosses this rule's threshold in its direction.
+        """Whether `value` crosses this rule's line in its direction.
 
         **A crossing, not a level.** Returning "is it past the threshold" would
         fire on every tick for as long as it stays there, which is the failure
@@ -163,7 +184,7 @@ class AlertRule(models.Model):
         if self.last_value is None:
             return False
         was, now = float(self.last_value), float(value)
-        line = float(self.threshold)
+        line = self.line
         if self.direction == Direction.UP:
             return was <= line < now
         return was >= line > now

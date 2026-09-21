@@ -225,3 +225,72 @@ class TestPushSubscriptionShape:
             "endpoint": "https://push.example/x",
             "keys": {"p256dh": "p", "auth": "a"},
         }
+
+
+@pytest.mark.django_db
+class TestAlertRuleLine:
+    """Testing class for :py:attr:`AlertRule.line`.
+
+    **A percentage rule's threshold is unsigned and its reading is not.** The
+    reader stores "5" and means five percent *down* or *up* depending on the
+    direction they picked, while the move is signed - so the comparison has to
+    happen against a signed line.
+    """
+
+    def _rule(self, reader, **overrides):
+        fields = {
+            "user": reader,
+            "subject": Subject.TOTAL_PERCENT,
+            "direction": Direction.DOWN,
+            "threshold": "5",
+            "window_seconds": 3600,
+        }
+        fields.update(overrides)
+        return AlertRule(**fields)
+
+    def test_alerts_models_a_falling_percentage_line_is_negative(self, reader):
+        assert self._rule(reader).line == -5.0
+
+    def test_alerts_models_a_rising_percentage_line_is_positive(self, reader):
+        assert self._rule(reader, direction=Direction.UP).line == 5.0
+
+    def test_alerts_models_a_value_rule_keeps_its_threshold(self, reader):
+        """Every other subject is already on the scale the reader typed: a total
+        or a price of 100 means 100 either way it is crossed."""
+        rule = self._rule(
+            reader, subject=Subject.TOTAL_VALUE, threshold="100", window_seconds=None
+        )
+
+        assert rule.line == 100.0
+
+    def test_alerts_models_a_falling_value_rule_is_not_negated(self, reader):
+        """The bug this property could introduce: negating a *total* threshold
+        would make "falls below 100 ALGO" mean "falls below -100 ALGO", which
+        nothing can ever cross."""
+        rule = self._rule(
+            reader,
+            subject=Subject.TOTAL_VALUE,
+            direction=Direction.DOWN,
+            threshold="100",
+            window_seconds=None,
+        )
+
+        assert rule.line == 100.0
+
+    def test_alerts_models_a_falling_percentage_crosses_on_a_fall(self, reader):
+        rule = self._rule(reader, last_value="0")
+
+        assert rule.crossed(-6.0) is True
+
+    def test_alerts_models_a_falling_percentage_ignores_a_small_fall(self, reader):
+        rule = self._rule(reader, last_value="0")
+
+        assert rule.crossed(-2.0) is False
+
+    def test_alerts_models_a_falling_percentage_ignores_a_rise(self, reader):
+        """**What the signed line prevents.** Against a positive five, a falling
+        rule fires whenever the move is below +5% - which is nearly always, and
+        a +10% gain would read as satisfying "falls below 5"."""
+        rule = self._rule(reader, last_value="0")
+
+        assert rule.crossed(10.0) is False

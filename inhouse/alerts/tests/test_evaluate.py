@@ -11,6 +11,7 @@ from widgets.inhouse.alerts.evaluate import (
     cooling_down,
     evaluate_page,
     evaluate_prices,
+    percent_move,
     payload_for,
     reading_for,
 )
@@ -165,13 +166,27 @@ class TestAlertsEvaluatePage:
 
     def test_alerts_evaluate_counts_what_it_cannot_answer(self, reader):
         """**Skipped loudly.** A rule that is stored, looks active and can never
-        fire is the worst thing this could produce silently."""
-        _rule(reader, subject=Subject.TOTAL_PERCENT, window_seconds=3600)
+        fire is the worst thing this could produce silently.
+
+        Only `asa_price` now: it is answered by the periodic task rather than
+        here, so being counted means "handled elsewhere" and not "dropped".
+        """
         _rule(reader, subject=Subject.ASA_PRICE, asset_id=1)
 
         fired, skipped = evaluate_page(PAGE, {"total": 90})
 
-        assert (fired, skipped) == ([], 2)
+        assert (fired, skipped) == ([], 1)
+
+    def test_alerts_evaluate_no_longer_skips_a_percentage_rule(self, reader, mocker):
+        """It is read rather than counted now - the history answers it."""
+        client = mocker.MagicMock()
+        client.zrevrangebyscore.return_value = []
+        _rule(reader, subject=Subject.TOTAL_PERCENT, window_seconds=3600)
+
+        fired, skipped = evaluate_page(PAGE, {"total": 90}, client=client)
+
+        assert (fired, skipped) == ([], 0)
+        assert client.zrevrangebyscore.called
 
     def test_alerts_evaluate_leaves_another_pages_rules_alone(self, reader):
         other = _rule(reader, address="OTHERPAGE", last_value="120")
@@ -348,3 +363,200 @@ class TestAlertsEvaluatePrices:
 
         with django_assert_num_queries(3):  # one select, two saves
             evaluate_prices({31566704: 0.5})
+
+
+@pytest.mark.django_db
+class TestAlertsEvaluatePercentMove:
+    """Testing class for reading a move out of the engine's totals history.
+
+    **The window is the whole subject.** Every other reading here is a number
+    published this block; this one is a comparison against a number from an hour
+    or a week ago, and getting the "ago" wrong is not visible in the alert the
+    reader receives.
+    """
+
+    def _client(self, mocker, members):
+        client = mocker.MagicMock()
+        client.zrevrangebyscore.return_value = members
+        return client
+
+    def test_alerts_evaluate_percent_move_computes_the_move(self, mocker):
+        client = self._client(mocker, [b"1000:100.0"])
+
+        assert percent_move(PAGE, 3600, 110.0, client=client) == pytest.approx(10.0)
+
+    def test_alerts_evaluate_percent_move_is_signed(self, mocker):
+        """A fall is a negative move, which is what `AlertRule.line` compares
+        against - the reader's threshold is unsigned and their direction is not.
+        """
+        client = self._client(mocker, [b"1000:100.0"])
+
+        assert percent_move(PAGE, 3600, 90.0, client=client) == pytest.approx(-10.0)
+
+    def test_alerts_evaluate_percent_move_asks_past_the_far_edge(self, mocker):
+        """**The read that makes the window mean what it says.** It asks for the
+        newest point *at or before* `now - window`, so the comparison is against
+        a total from a window ago rather than against the oldest one held.
+        """
+        client = self._client(mocker, [b"1000:100.0"])
+
+        percent_move(PAGE, 3600, 110.0, client=client, now=10_000)
+
+        args, kwargs = client.zrevrangebyscore.call_args
+        assert args[0] == f"lvth:{PAGE}"
+        assert args[1] == 10_000 - 3600
+        assert args[2] == "-inf"
+        assert kwargs == {"start": 0, "num": 1}
+
+    def test_alerts_evaluate_percent_move_refuses_a_history_that_is_too_short(
+        self, mocker
+    ):
+        """**The failure this subject waited for.**
+
+        No point older than the window means the question cannot be answered.
+        Answering it from the oldest point held would turn "down 5% in 24 hours"
+        into "down 5% since we started watching", and the notification would
+        look identical either way.
+        """
+        client = self._client(mocker, [])
+
+        assert percent_move(PAGE, 86400, 110.0, client=client) is None
+
+    def test_alerts_evaluate_percent_move_needs_a_window(self, mocker):
+        client = self._client(mocker, [b"1000:100.0"])
+
+        assert percent_move(PAGE, None, 110.0, client=client) is None
+        assert client.zrevrangebyscore.called is False
+
+    def test_alerts_evaluate_percent_move_needs_a_total(self, mocker):
+        client = self._client(mocker, [b"1000:100.0"])
+
+        assert percent_move(PAGE, 3600, None, client=client) is None
+
+    def test_alerts_evaluate_percent_move_refuses_to_divide_by_nothing(
+        self, mocker
+    ):
+        """A page that was worth nothing and is worth something has moved by an
+        undefined percentage, not by an infinite one."""
+        client = self._client(mocker, [b"1000:0.0"])
+
+        assert percent_move(PAGE, 3600, 110.0, client=client) is None
+
+    def test_alerts_evaluate_percent_move_survives_a_redis_that_is_away(
+        self, mocker
+    ):
+        client = mocker.MagicMock()
+        client.zrevrangebyscore.side_effect = OSError("no route to host")
+
+        assert percent_move(PAGE, 3600, 110.0, client=client) is None
+
+    def test_alerts_evaluate_percent_move_survives_an_unusable_point(self, mocker):
+        client = self._client(mocker, [b"1000:not-a-number"])
+
+        assert percent_move(PAGE, 3600, 110.0, client=client) is None
+
+    def test_alerts_evaluate_percent_move_accepts_a_decoded_member(self, mocker):
+        client = self._client(mocker, ["1000:100.0"])
+
+        assert percent_move(PAGE, 3600, 110.0, client=client) == pytest.approx(10.0)
+
+    def test_alerts_evaluate_percent_move_makes_its_own_client(self, mocker):
+        instance = mocker.patch("utils.clients.redis_instance")
+        instance.return_value.zrevrangebyscore.return_value = []
+
+        percent_move(PAGE, 3600, 110.0)
+
+        assert instance.called
+
+
+@pytest.mark.django_db
+class TestAlertsEvaluatePercentRules:
+    """Testing class for percentage rules end to end through `evaluate_page`."""
+
+    def _client(self, mocker, members):
+        client = mocker.MagicMock()
+        client.zrevrangebyscore.return_value = members
+        return client
+
+    def _percent_rule(self, reader, **overrides):
+        fields = {
+            "subject": Subject.TOTAL_PERCENT,
+            "window_seconds": 3600,
+            "threshold": "5",
+            "direction": Direction.DOWN,
+        }
+        fields.update(overrides)
+        return _rule(reader, **fields)
+
+    def test_alerts_evaluate_a_falling_rule_fires_on_a_fall(self, reader, mocker):
+        """**`down 5` means the move crossed *minus* five.** Compared against
+        positive five, a falling rule fires whenever the move is below +5%,
+        which is to say nearly always and for the wrong reason."""
+        self._percent_rule(reader, last_value="0")
+        client = self._client(mocker, [b"1000:100.0"])
+
+        fired, _ = evaluate_page(PAGE, {"total": 90.0}, client=client)
+
+        assert len(fired) == 1
+
+    def test_alerts_evaluate_a_falling_rule_ignores_a_small_fall(
+        self, reader, mocker
+    ):
+        self._percent_rule(reader, last_value="0")
+        client = self._client(mocker, [b"1000:100.0"])
+
+        fired, _ = evaluate_page(PAGE, {"total": 98.0}, client=client)
+
+        assert fired == []
+
+    def test_alerts_evaluate_a_falling_rule_ignores_a_rise(self, reader, mocker):
+        """The sign is the whole distinction: +10% is not a 5% fall."""
+        self._percent_rule(reader, last_value="0")
+        client = self._client(mocker, [b"1000:100.0"])
+
+        fired, _ = evaluate_page(PAGE, {"total": 110.0}, client=client)
+
+        assert fired == []
+
+    def test_alerts_evaluate_a_rising_rule_fires_on_a_rise(self, reader, mocker):
+        self._percent_rule(reader, direction=Direction.UP, last_value="0")
+        client = self._client(mocker, [b"1000:100.0"])
+
+        fired, _ = evaluate_page(PAGE, {"total": 110.0}, client=client)
+
+        assert len(fired) == 1
+
+    def test_alerts_evaluate_a_percent_rule_records_its_move(self, reader, mocker):
+        rule = self._percent_rule(reader, last_value="0")
+        client = self._client(mocker, [b"1000:100.0"])
+
+        evaluate_page(PAGE, {"total": 98.0}, client=client)
+
+        rule.refresh_from_db()
+        assert float(rule.last_value) == pytest.approx(-2.0)
+
+    def test_alerts_evaluate_a_percent_rule_is_silent_while_it_stays_past(
+        self, reader, mocker
+    ):
+        """It crossed on an earlier tick and has stayed there; a level test
+        would notify on every block for as long as the move held."""
+        self._percent_rule(reader, last_value="-6")
+        client = self._client(mocker, [b"1000:100.0"])
+
+        fired, _ = evaluate_page(PAGE, {"total": 93.0}, client=client)
+
+        assert fired == []
+
+    def test_alerts_evaluate_a_percent_rule_waits_out_its_window(
+        self, reader, mocker
+    ):
+        """**A 24-hour rule fires nothing for its first 24 hours**, and that is
+        the correct behaviour rather than a gap to paper over."""
+        rule = self._percent_rule(reader, window_seconds=86400, last_value="0")
+        client = self._client(mocker, [])
+
+        fired, skipped = evaluate_page(PAGE, {"total": 10.0}, client=client)
+
+        assert (fired, skipped) == ([], 0)
+        rule.refresh_from_db()
+        assert float(rule.last_value) == 0, "and it learns nothing from the tick"

@@ -83,6 +83,14 @@
         <option value="{{ value }}">{{ label }}</option>
         {% endfor %}
       </select>
+      {% comment %} Said before they choose, because the alternative is a reader
+         picking "7 days" and hearing nothing for a week with no way to tell that
+         from a broken feature. The period is honoured exactly - a move is
+         measured against a total from that long ago or it is not reported at
+         all - which is the whole reason for the wait. {% endcomment %}
+      <small class="alerts-window-note">
+        A new alert starts reporting once it has this much history.
+      </small>
     </label>
 
     <button type="submit" class="alerts-save">Add alert</button>

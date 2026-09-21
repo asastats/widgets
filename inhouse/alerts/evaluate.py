@@ -9,22 +9,28 @@ from the Redis both projects share.
 
 * `evaluate_page` answers "this page was re-priced". `total_value` and
   `asa_total` read the page's total and its per-asset values, which the pass
-  publishes on every block. They are exact.
+  publishes on every block. `total_percent` rides the same trigger but reads a
+  *second* number - the page's total one window ago - out of the history the
+  engine keeps at `lvth:{page}`.
 * `evaluate_prices` answers "these assets have a price now". `asa_price` is not
   per-reader at all - one question per asset however many people watch it - so
   it rides the engine's periodic task rather than any page's re-price.
 
-**One subject is still evaluated by neither**, and deliberately: `total_percent`
-needs a *series* of totals over a window, and nothing publishes a history.
-Evaluating it against `last_value` would silently redefine the window as "since
-we last looked", which is not what the reader chose.
+**The rule that makes `total_percent` honest is in `percent_move`:** it compares
+against the newest point *at or before* the window's far edge, and returns None
+when the history does not reach that far. A rule with a 24-hour window therefore
+fires nothing for its first 24 hours. The alternative - comparing against
+whatever the series happens to hold - silently turns "down 5% in 24 hours" into
+"down 5% since we started watching", and nothing in the notification would
+reveal it.
 
-It is **skipped loudly**: `SKIPPED` names it, a rule of that kind is counted,
-and the caller logs it. A rule that is stored, looks active and can never fire
-is the worst outcome this file could produce.
+What `SKIPPED` still names is **skipped loudly**: a rule of that kind is
+counted and the caller logs it. A rule that is stored, looks active and can
+never fire is the worst outcome this file could produce.
 """
 
 import logging
+import time
 
 from django.utils import timezone
 
@@ -37,17 +43,21 @@ logger = logging.getLogger(__name__)
 #: Kept as data rather than a comment so the count in `evaluate_page`'s return
 #: is honest and a caller can say how many rules went unexamined.
 #:
-#: **The two entries mean different things, and the log should not flatten
-#: them.** `asa_price` is answered elsewhere, by `evaluate_prices`; a rule of
-#: that kind counted here has not been dropped. `total_percent` is answered
-#: nowhere, and a rule of that kind never fires.
+#: A rule counted here **has not been dropped** - `asa_price` is per-asset and
+#: is answered by `evaluate_prices` on the engine's periodic task.
 SKIPPED = {
-    Subject.TOTAL_PERCENT: "needs a series of totals, which nothing publishes",
     Subject.ASA_PRICE: "is per-asset, and is answered by the periodic price task",
 }
 
+#: Where the engine keeps a page's totals over time: `lvth:{page}`.
+#:
+#: Named as a literal for the same reason `population` names `lvr` as one: the
+#: two projects share a Redis rather than a codebase, and the engine's
+#: `CACHE_KEY_LIVE_TOTALS_HISTORY` is the other half of this contract.
+HISTORY_KEY = "lvth"
 
-def reading_for(rule, total, values):
+
+def reading_for(rule, total, values, client=None, now=None):
     """Return what `rule` watches, from a published payload, or None.
 
     :param rule: the rule being evaluated
@@ -55,10 +65,19 @@ def reading_for(rule, total, values):
     :param total: the page's total, as the pass published it
     :param values: {asset id: value} for the page
     :type values: dict
+    :param client: an open Redis client, for the subjects that read a history
+    :param now: unix time, for tests
     :return: the current reading, or None when it cannot be taken
     """
     if rule.subject == Subject.TOTAL_VALUE:
         return total
+    if rule.subject == Subject.TOTAL_PERCENT:
+        # The one reading that is not in the payload: it needs two totals, and
+        # the payload carries one. See `percent_move` for why a short history
+        # answers None rather than answering over a shorter period.
+        return percent_move(
+            rule.address, rule.window_seconds, total, client=client, now=now
+        )
     if rule.subject == Subject.ASA_TOTAL:
         # **A missing asset is not a zero.** The pass publishes the holdings it
         # priced; an asset absent from this block's payload was not re-priced,
@@ -66,6 +85,84 @@ def reading_for(rule, total, values):
         # fire every "falls below" rule the reader has.
         return values.get(rule.asset_id)
     return None
+
+
+def percent_move(page, window_seconds, total, client=None, now=None):
+    """Return how far `total` has moved over the window, as a percentage.
+
+    **The window is honoured or the question is refused.** This returns None
+    unless the history actually reaches back past the window's far edge - it
+    compares against the newest point *at or before* `now - window_seconds`, and
+    if no such point exists it says so rather than answering with the oldest
+    point it happens to have.
+
+    That is the whole reason this subject waited: comparing against the previous
+    reading, or against whatever is in the series, quietly turns "down 5% in 24
+    hours" into "down 5% since we started watching". The reader would be told
+    about a move over a period they did not choose, and there would be nothing
+    in the notification to reveal it.
+
+    So a rule with a 24-hour window fires nothing for its first 24 hours, and
+    that is correct rather than a gap to paper over.
+
+    :param page: the bundle or address
+    :type page: str
+    :param window_seconds: the period the reader chose
+    :type window_seconds: int
+    :param total: the page's total now
+    :param client: an open Redis client, or None to make one
+    :param now: unix time, for tests
+    :return: the signed percentage move, or None when it cannot be taken
+    :rtype: float or None
+    """
+    from utils.clients import redis_instance  # noqa: PLC0415
+
+    if not window_seconds or total is None:
+        return None
+
+    edge = (time.time() if now is None else now) - window_seconds
+    try:
+        client = client or redis_instance()
+        # The newest point no younger than the far edge. `zrevrangebyscore` with
+        # a limit of one is the whole read - the series may hold two thousand
+        # points and exactly one of them answers this.
+        members = client.zrevrangebyscore(
+            f"{HISTORY_KEY}:{page}", edge, "-inf", start=0, num=1
+        )
+    except Exception as error:  # noqa: BLE001 - a webhook must not 500 on this
+        logger.warning("could not read the totals history: %s", error)
+        return None
+
+    if not members:
+        return None
+
+    then = _history_total(members[0])
+    if then is None:
+        return None
+    if then == 0:
+        # A page that was worth nothing and is worth something has moved by an
+        # undefined percentage, not by an infinite one.
+        return None
+    return (float(total) - then) / then * 100
+
+
+def _history_total(member):
+    """Return the total encoded in a history member, or None.
+
+    Members are `{bucket}:{total}`; the bucket is repeated inside the member so
+    that two workers writing the same five minutes leave one point rather than
+    two.
+
+    :param member: one member of the sorted set
+    :return: float or None
+    """
+    text = member.decode() if isinstance(member, bytes) else str(member)
+    _, _, total = text.partition(":")
+    try:
+        return float(total)
+    except ValueError:
+        logger.warning("unusable totals history member: %r", member)
+        return None
 
 
 def cooling_down(rule, now):
@@ -80,7 +177,7 @@ def cooling_down(rule, now):
     return (now - rule.last_fired_at).total_seconds() < rule.cooldown_seconds
 
 
-def evaluate_page(address, payload, now=None):
+def evaluate_page(address, payload, now=None, client=None, unix_now=None):
     """Return the rules on `address` that just crossed, and record what was seen.
 
     **Every rule's `last_value` is updated, including the ones that did not
@@ -98,6 +195,8 @@ def evaluate_page(address, payload, now=None):
     :param payload: what the pass published for it
     :type payload: dict
     :param now: the moment to evaluate at, for tests
+    :param client: an open Redis client, for the percentage history
+    :param unix_now: unix time, for tests
     :return: two-tuple of (rules that fired, how many were skipped)
     :rtype: tuple
     """
@@ -113,7 +212,7 @@ def evaluate_page(address, payload, now=None):
             skipped += 1
             continue
 
-        value = reading_for(rule, total, values)
+        value = reading_for(rule, total, values, client=client, now=unix_now)
         if value is None:
             continue
 

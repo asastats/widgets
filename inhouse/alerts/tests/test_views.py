@@ -960,3 +960,29 @@ class TestInhouseAlertsViewsPriced:
         from widgethost.enforcement import WidgetAccessMixin
 
         assert not issubclass(AlertsPricedView, WidgetAccessMixin)
+
+
+@pytest.mark.django_db
+class TestInhouseAlertsViewsLiveFlag:
+    """Testing class for the modal's "not switched on" notice."""
+
+    def _context(self, mocker):
+        view = AlertsView()
+        view.request = mocker.MagicMock(user=_reader(email="live@example.com"))
+        return view.alerts_context("B")
+
+    def test_inhouse_alerts_views_is_not_live_without_a_secret(
+        self, mocker, settings
+    ):
+        """**Without the shared secret both receiving endpoints refuse every
+        call**, so no rule can fire however complete the code is. A modal that
+        took rules without saying so would promise what the deployment cannot
+        do."""
+        settings.ALERTS_WEBHOOK_SECRET = ""
+
+        assert self._context(mocker)["alerts_live"] is False
+
+    def test_inhouse_alerts_views_is_live_with_a_secret(self, mocker, settings):
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+
+        assert self._context(mocker)["alerts_live"] is True

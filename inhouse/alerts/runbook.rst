@@ -10,23 +10,21 @@ State
 
 .. warning::
 
-   **Built end to end for three of the four subjects. Configuration turns it
-   on.**
+   **All four subjects are built. Configuration turns them on.**
 
-   ``total_value`` and ``asa_total`` ride the live pass: the widget publishes a
-   page into ``lvr``, the engine re-prices it and posts a signed trigger, and
-   ``AlertsRepricedView`` evaluates and sends. ``asa_price`` rides a periodic
-   huey task instead: the widget publishes asset ids into ``lvra``, the engine
-   prices them every five minutes, and ``AlertsPricedView`` evaluates.
+   ``total_value``, ``asa_total`` and ``total_percent`` ride the live pass: the
+   widget publishes a page into ``lvr``, the engine re-prices it and posts a
+   signed trigger, and ``AlertsRepricedView`` evaluates and sends.
+   ``asa_price`` rides a periodic huey task instead: the widget publishes asset
+   ids into ``lvra``, the engine prices them every five minutes, and
+   ``AlertsPricedView`` evaluates.
 
    It stays silent until ``ALERTS_WEBHOOK_SECRET`` is set **in both projects'**
    ``.env`` and ``ALERTS_WEBHOOK_URL`` in the engine's. An unset URL makes no
    call; a URL with no secret is refused by the receiver and logged by the
-   sender. ``post-deploy/RUN-alerts-by-hand.md`` is the procedure - and price
-   alerts additionally need the **huey consumer**, not just the transmitter.
-
-   ``total_percent`` is stored, counted as skipped, and never fires - see
-   `Build order`_ step 7.
+   sender. The modal says so, keyed on that secret. ``post-deploy/
+   RUN-alerts-by-hand.md`` is the procedure - and price alerts additionally
+   need the **huey consumer**, not just the transmitter.
 
 Design
 ======
@@ -163,11 +161,15 @@ harmless.
    ``ALERTS_WEBHOOK_SECRET`` - see ``post-deploy/RUN-alerts-by-hand.md``.
 7. **The per-asset evaluator** for ``asa_price``: done - ``engine/core/tasks.py``
    every five minutes over ``lvra``, and ``evaluate_prices`` here.
-8. **``total_percent``**, which this did *not* unblock. It needs a series of
-   totals over a window and nothing publishes a history; evaluating it against
-   the last reading would redefine the window as "since we last looked". It is
-   the one subject still stored, counted as skipped and never fired, and the
-   only reason the modal keeps its "being built" line.
+8. **``total_percent``**, which the price task did *not* unblock - it needed a
+   history rather than a fresher reading. Done: the engine keeps a page's totals
+   at ``lvth:{page}`` and ``percent_move`` reads them.
+
+   **The one thing to know before changing it:** the comparison is against the
+   newest point *at or before* the window's far edge, and returns None when no
+   such point exists. A 24-hour rule reports nothing for its first 24 hours.
+   Relaxing that to "the oldest point we have" would make every percentage alert
+   subtly wrong in a way no notification reveals.
 
 Traps waiting in the later steps
 ================================

@@ -29,6 +29,7 @@ function panel(subject) {
         </label>
         <label class="alerts-field alerts-window-field" hidden>
           <select name="window_seconds"><option value="3600">1 hour</option></select>
+          <small class="alerts-window-note">warm-up</small>
         </label>
       </form>
     </div>`;
@@ -641,5 +642,27 @@ describe("the edges of the enable flow", () => {
     document.body.innerHTML = '<button class="id-alerts-enable">x</button>';
 
     expect(() => document.querySelector(".id-alerts-enable").click()).not.toThrow();
+  });
+});
+
+describe("the period warm-up note", () => {
+  /**
+   * The note explains that a percentage rule reports nothing until it has a
+   * total from a whole window ago. It is revealed and hidden with the period
+   * selector because it lives *inside* that label - if a refactor moved it out,
+   * it would sit under every subject explaining a control that is not there.
+   */
+  test("it is hidden with the period selector", () => {
+    alerts.syncFields(panel("total_value"));
+
+    expect(windowField().hidden).toBe(true);
+    expect(windowField().querySelector(".alerts-window-note")).not.toBeNull();
+  });
+
+  test("it is revealed with the period selector", () => {
+    alerts.syncFields(panel("total_percent"));
+
+    expect(windowField().hidden).toBe(false);
+    expect(windowField().querySelector(".alerts-window-note")).not.toBeNull();
   });
 });

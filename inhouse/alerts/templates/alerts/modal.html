@@ -88,15 +88,23 @@
     </div>
     {% endif %}
 
+    {% comment %} All four subjects are built now, so this is no longer a note
+       about unfinished work - it is a note about *this deployment*. Without a
+       shared secret the receiving endpoints refuse every call, so nothing can
+       fire however complete the code is, and a modal that took rules without
+       saying so would be making a promise the deployment does not keep.
+
+       Keyed on the secret because that is the half this project can be sure
+       about. A configured engine that has stopped calling looks identical from
+       here, which is what the log lines in RUN-alerts-by-hand.md are for.
+       {% endcomment %}
+    {% if not alerts_live %}
     <div class="alerts-foot">
-      {% comment %} Said here rather than discovered later. A modal that takes a
-         rule without saying nothing sends it is a promise the product does not
-         keep. The website's half is complete - the page is published into `lvr`
-         and `AlertsRepricedView` evaluates it - so this line comes out when the
-         engine starts calling that endpoint, and not before. {% endcomment %}
       <p class="alerts-note">
-        Alerts are being built: rules are saved, but nothing is sent yet.
+        Alerts are not switched on for this site yet: rules are saved, but
+        nothing is sent.
       </p>
     </div>
+    {% endif %}
   </div>
 </dialog>
