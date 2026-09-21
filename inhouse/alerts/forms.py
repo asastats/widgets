@@ -21,6 +21,7 @@ from .models import (
     Direction,
     Subject,
 )
+from .population import publish_page
 from .tiers import rules_allowed
 
 #: Windows a percentage rule may be measured over.
@@ -152,7 +153,7 @@ class AlertRuleForm(forms.Form):
 
         :return: :class:`AlertRule`
         """
-        return AlertRule.objects.create(
+        rule = AlertRule.objects.create(
             user=self.user,
             subject=self.cleaned_data["subject"],
             direction=self.cleaned_data["direction"],
@@ -161,3 +162,10 @@ class AlertRuleForm(forms.Form):
             window_seconds=self.cleaned_data.get("window_seconds"),
             address=self.address,
         )
+        # **After the row exists, never before.** `publish_page` asks the
+        # database what it should publish, so telling the engine first would
+        # publish the state that has not happened yet - and it returns None
+        # rather than raising when Redis is away, because a rule the reader has
+        # written must be stored whatever the engine can currently hear.
+        publish_page(self.address)
+        return rule

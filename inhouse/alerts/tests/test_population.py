@@ -1,0 +1,156 @@
+"""Testing module for :py:mod:`widgets.inhouse.alerts.population` module."""
+
+import pytest
+from django.contrib.auth import get_user_model
+
+from widgets.inhouse.alerts.models import AlertRule, Direction, Subject
+from widgets.inhouse.alerts.population import (
+    RULES_KEY,
+    publish_page,
+    published_pages,
+)
+
+
+@pytest.fixture
+def reader(db):
+    """Return a user to hang rules on."""
+    return get_user_model().objects.create_user(
+        username="pop@example.com", email="pop@example.com", password="x"
+    )
+
+
+def _rule(reader, address="BUNDLE", active=True):
+    """Store one rule naming `address`."""
+    return AlertRule.objects.create(
+        user=reader,
+        subject=Subject.TOTAL_VALUE,
+        direction=Direction.DOWN,
+        threshold="100",
+        address=address,
+        active=active,
+    )
+
+
+@pytest.mark.django_db
+class TestAlertsPopulationPublish:
+    """Testing class for keeping `lvr` in step with the rules."""
+
+    def test_alerts_population_adds_a_page_that_has_a_rule(self, reader, mocker):
+        client = mocker.MagicMock()
+        _rule(reader)
+
+        assert publish_page("BUNDLE", client) is True
+        key, mapping = client.zadd.call_args.args
+        assert key == RULES_KEY
+        assert list(mapping) == ["BUNDLE"]
+
+    def test_alerts_population_removes_a_page_with_no_rules(
+        self, reader, mocker
+    ):
+        client = mocker.MagicMock()
+
+        assert publish_page("BUNDLE", client) is False
+        client.zrem.assert_called_once_with(RULES_KEY, "BUNDLE")
+
+    def test_alerts_population_keeps_a_page_another_rule_still_names(
+        self, reader, mocker
+    ):
+        """**The reason it is recomputed rather than counted down.** Two rules
+        on one page, one deleted: the page must stay, and an incrementing
+        membership would have to be told that."""
+        client = mocker.MagicMock()
+        kept = _rule(reader)
+        _rule(reader).delete()
+
+        assert publish_page(kept.address, client) is True
+        assert client.zrem.called is False
+
+    def test_alerts_population_ignores_an_inactive_rule(self, reader, mocker):
+        """Deactivating is how a reader keeps a rule without spending a slot, so
+        it must not keep the page being re-priced either."""
+        client = mocker.MagicMock()
+        _rule(reader, active=False)
+
+        assert publish_page("BUNDLE", client) is False
+
+    def test_alerts_population_scores_with_a_time_that_never_expires_it(
+        self, reader, mocker
+    ):
+        """**Not heartbeat-scored, unlike the three sets beside it.** The score
+        is for whoever reads the set by hand; nothing ages a page out of it,
+        because an alert has to outlive the tab that made it.
+        """
+        client = mocker.MagicMock()
+        _rule(reader)
+
+        publish_page("BUNDLE", client)
+
+        _, mapping = client.zadd.call_args.args
+        assert isinstance(mapping["BUNDLE"], int)
+
+    def test_alerts_population_ignores_an_empty_address(self, mocker):
+        client = mocker.MagicMock()
+
+        assert publish_page("", client) is None
+        assert client.zadd.called is False
+        assert client.zrem.called is False
+
+    def test_alerts_population_survives_a_redis_that_is_away(
+        self, reader, mocker
+    ):
+        """**A rule the reader has written must be stored** whatever the engine
+        can currently hear. The next write repairs the set."""
+        client = mocker.MagicMock()
+        client.zadd.side_effect = OSError("no route to host")
+        _rule(reader)
+
+        assert publish_page("BUNDLE", client) is None
+
+    def test_alerts_population_says_so_in_the_log(self, reader, mocker, caplog):
+        client = mocker.MagicMock()
+        client.zadd.side_effect = OSError("no route to host")
+        _rule(reader)
+
+        publish_page("BUNDLE", client)
+
+        assert "could not publish the alert population" in caplog.text
+
+    def test_alerts_population_makes_its_own_client_when_given_none(
+        self, reader, mocker
+    ):
+        instance = mocker.patch(
+            "widgets.inhouse.alerts.population.redis_instance"
+        )
+        _rule(reader)
+
+        publish_page("BUNDLE")
+
+        assert instance.called
+
+
+@pytest.mark.django_db
+class TestAlertsPopulationRead:
+    """Testing class for reading the set back."""
+
+    def test_alerts_population_lists_the_published_pages(self, mocker):
+        client = mocker.MagicMock()
+        client.zrange.return_value = [b"ONE", b"TWO"]
+
+        assert published_pages(client) == ("ONE", "TWO")
+
+    def test_alerts_population_handles_a_client_that_decodes(self, mocker):
+        """Some clients are configured with `decode_responses`, and the members
+        arrive as `str`. Both shapes have to read the same."""
+        client = mocker.MagicMock()
+        client.zrange.return_value = ["ONE"]
+
+        assert published_pages(client) == ("ONE",)
+
+    def test_alerts_population_returns_nothing_when_redis_is_away(self, mocker):
+        """It answers the question "which pages are published"; when it cannot
+        be asked, an empty answer is honest and a raise is not - this is a
+        debugging aid, not a code path anything depends on."""
+        client = mocker.MagicMock()
+        client.zrange.side_effect = OSError("no route to host")
+
+        assert published_pages(client) == ()

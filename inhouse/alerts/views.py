@@ -25,6 +25,7 @@ from widgethost.enforcement import WidgetAccessMixin
 
 from .forms import WINDOW_CHOICES, AlertRuleForm
 from .manifest import MANIFEST
+from .population import publish_page
 from .push import push_configured
 from .models import AlertRule, Direction, PushSubscription, Subject
 from .tiers import rules_allowed
@@ -202,7 +203,15 @@ class AlertsRuleDeleteView(WidgetAccessMixin, AlertsContextMixin, View):
         rule = get_object_or_404(
             AlertRule, pk=self.kwargs["pk"], user=request.user
         )
+        address = rule.address
         rule.delete()
+        # **The page's own address, not this view's bundle.** A rule stores the
+        # page it was made from, and a reader may be deleting it from somewhere
+        # else entirely - the modal lists every rule they keep, not just the
+        # ones belonging to the page they happen to be on. Publishing
+        # `self.bundle` here would leave the real page in `lvr` with no rules
+        # and take one out that still has some.
+        publish_page(address)
         context = self.alerts_context(self.bundle)
         context["form"] = AlertRuleForm(user=request.user, address=self.bundle)
         return HttpResponse(
