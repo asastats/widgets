@@ -722,6 +722,29 @@ describe("where the toolbar ends up", () => {
     );
   });
 
+  test("it is revealed once it is in place", () => {
+    // **The jump a reader saw.** The partial lands near the top of the page and
+    // the button belongs in the action row, so it is moved - and a move after
+    // paint is a visible hop. It arrives `hidden` and this is what takes that
+    // off, so the first sight of it is already in the right row.
+    document.body.innerHTML =
+      '<div id="top"><div id="id-alerts" hidden></div></div>' +
+      '<span id="id-dustsweep-slot"></span>';
+
+    alerts.placeToolbar();
+
+    expect(document.getElementById("id-alerts").hidden).toBe(false);
+  });
+
+  test("a page with no slot still shows the button", () => {
+    // Hidden-and-never-revealed is worse than the wrong row: the reader would
+    // have no way to reach their alerts at all.
+    document.body.innerHTML = '<div id="top"><div id="id-alerts" hidden></div></div>';
+
+    expect(alerts.placeToolbar()).toBe(false);
+    expect(document.getElementById("id-alerts").hidden).toBe(false);
+  });
+
   test("a second call leaves it where it is", () => {
     // The partial arrives by swap and every swap calls this, so it runs many
     // times per page. Moving an element that is already in place would be a
@@ -1019,5 +1042,115 @@ describe("the price of the asset a reader picked", () => {
     const root = picked("0.50", "");
 
     expect(alerts.showCurrent(root)).toBe("");
+  });
+});
+
+
+describe("the price of an asset the server chose", () => {
+  /** A panel whose asset is already chosen, as editing renders it. */
+  function bound(id) {
+    const root = panel("asa_price");
+    root.querySelector(".alerts-asset-id").value = id;
+    root
+      .querySelector(".alerts-asset-search")
+      .setAttribute("hx-get", "/widgets/swap/assets");
+    return root;
+  }
+
+  /** One result row, as `swap/_assets.html` renders it. */
+  function results(id, price) {
+    return (
+      '<ul class="swap-rows id-swap-asset-options">' +
+      '<li class="swap-row id-swap-asset-option" data-id="' + id + '"' +
+      ' data-unit="USDC" data-usdc-price="' + price + '"></li></ul>'
+    );
+  }
+
+  /** Let the fetch chain settle: a response, its `text()`, and two `then`s. */
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  afterEach(() => {
+    delete global.fetch;
+  });
+
+  test("it is looked up when only the id is on the page", async () => {
+    // **The gap a reader met on the two paths that matter most.** Editing a
+    // rule, and a form that came back rejected, both render the asset already
+    // chosen - and the price lived only in the search results, so those two
+    // showed no reference at all.
+    const root = bound("31566704");
+    global.fetch = jest.fn(() =>
+      Promise.resolve({ ok: true, text: () => Promise.resolve(results("31566704", "0.25")) })
+    );
+
+    expect(alerts.resolveAsset(root)).toBe(true);
+    await flush();
+
+    expect(global.fetch.mock.calls[0][0]).toBe("/widgets/swap/assets?q=31566704");
+    expect(root.querySelector(".alerts-now").getAttribute("data-asset-usd")).toBe(
+      "0.25"
+    );
+  });
+
+  test("a price already on the page is not asked for again", () => {
+    // It would be a request per swap for an answer the reader's own pick just
+    // put there.
+    const root = bound("31566704");
+    root.querySelector(".alerts-now").setAttribute("data-asset-usd", "0.25");
+    global.fetch = jest.fn();
+
+    expect(alerts.resolveAsset(root)).toBe(false);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test("no asset chosen asks nothing", () => {
+    const root = bound("");
+    global.fetch = jest.fn();
+
+    expect(alerts.resolveAsset(root)).toBe(false);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test("only an exact id match is taken", async () => {
+    // The endpoint ranks by name and unit as well as by id, so a query for one
+    // asset can return several. Taking the first would hang another asset's
+    // price off this rule - a reference figure that is confidently wrong.
+    const root = bound("31566704");
+    global.fetch = jest.fn(() =>
+      Promise.resolve({ ok: true, text: () => Promise.resolve(results("999", "7.5")) })
+    );
+
+    alerts.resolveAsset(root);
+    await flush();
+
+    expect(root.querySelector(".alerts-now").getAttribute("data-asset-usd")).toBe(
+      null
+    );
+  });
+
+  test("a failed lookup says nothing", async () => {
+    // A reference figure is an aid. A modal reporting its absence would be
+    // worse than one that shows nothing.
+    const root = bound("31566704");
+    global.fetch = jest.fn(() => Promise.reject(new Error("offline")));
+
+    expect(alerts.resolveAsset(root)).toBe(true);
+    await flush();
+
+    expect(root.querySelector(".alerts-now").textContent).toBe("");
+  });
+
+  test("a refused lookup says nothing either", async () => {
+    const root = bound("31566704");
+    global.fetch = jest.fn(() =>
+      Promise.resolve({ ok: false, text: () => Promise.resolve("") })
+    );
+
+    alerts.resolveAsset(root);
+    await flush();
+
+    expect(root.querySelector(".alerts-now").getAttribute("data-asset-usd")).toBe(
+      null
+    );
   });
 });

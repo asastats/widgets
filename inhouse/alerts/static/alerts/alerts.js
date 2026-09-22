@@ -275,6 +275,7 @@
     if (swapped.querySelector("#alerts-modal")) {
       openModal(swapped);
       syncCount(swapped.querySelector(".alerts-panel"));
+      resolveAsset(swapped.querySelector(".alerts-panel") || swapped);
       return true;
     }
     // A create or a delete replaces the panel by `outerHTML`, which leaves
@@ -291,6 +292,7 @@
       syncFields(panel);
       syncCount(panel);
       showCurrent(panel);
+      resolveAsset(panel);
       return true;
     }
     return false;
@@ -448,14 +450,26 @@
    * The same slot the sweep uses, and appended after it, so the order is stable
    * rather than a race between two scripts.
    *
+   * **It is revealed here, and rendered hidden.** Moving something the browser
+   * has already painted is a visible jump: the button appeared in a strip above
+   * the heading and then hopped down into the action row on every page load.
+   * The partial marks it `hidden` and this is what takes that off, so the first
+   * time a reader sees the button it is already in place.
+   *
+   * Revealed even when there is nothing to move - a page with no slot, or a
+   * second call after an htmx swap - because a toolbar that stays hidden is
+   * worse than one in the wrong row.
+   *
    * @returns {boolean} whether the toolbar was moved.
    */
   function placeToolbar() {
     var toolbar = document.getElementById("id-alerts");
+    if (!toolbar) return false;
     var slot = document.getElementById("id-dustsweep-slot");
-    if (!toolbar || !slot || slot === toolbar.parentNode) return false;
-    slot.appendChild(toolbar);
-    return true;
+    var moved = !!slot && slot !== toolbar.parentNode;
+    if (moved) slot.appendChild(toolbar);
+    toolbar.hidden = false;
+    return moved;
   }
 
   /**
@@ -468,10 +482,13 @@
    * rather than no asset.
    *
    * @param {Element} row - the clicked result row.
+   * @param {Element} [field] - the field to record it in, when `row` is not in
+   *   the document. `resolveAsset` looks a row up off-page rather than putting
+   *   a result nobody searched for into the picker.
    * @returns {boolean} whether an asset was recorded.
    */
-  function chooseAsset(row) {
-    var field = row.closest(".alerts-asset-field");
+  function chooseAsset(row, field) {
+    field = field || (row.closest && row.closest(".alerts-asset-field"));
     if (!field) return false;
     var hidden = field.querySelector(".alerts-asset-id");
     var button = field.querySelector(".alerts-assetbtn");
@@ -499,6 +516,67 @@
     // The asset is now on the button, so the picker has done its job.
     togglePicker(field, false);
     showCurrent(field.closest(".alerts-panel") || document);
+    return true;
+  }
+
+  /**
+   * Look up the price of an asset the *server* chose, not the reader.
+   *
+   * **The reference price had one source and it was the search results.** A
+   * row carries `data-usdc-price`, so picking an asset out of the picker gave
+   * `showCurrent` something to show - and the two paths where the asset
+   * arrives already chosen gave it nothing: editing an existing rule, and a
+   * form that came back rejected. Exactly the two moments a reader is looking
+   * at a threshold they are trying to adjust.
+   *
+   * The id is all a bound form carries, so this asks the same endpoint the
+   * picker asks, by id. Reusing `swap_assets` rather than adding an endpoint
+   * is what keeps this widget's `capability = "public"` and its empty
+   * `engine_endpoints` honest - the picker already calls it, and every reader
+   * who may keep an alert may search.
+   *
+   * Silent on every failure. A reference figure is an aid; a modal that
+   * reports its absence would be worse than one that shows nothing.
+   *
+   * @param {Element} root - the panel.
+   * @returns {boolean} whether a lookup was started.
+   */
+  function resolveAsset(root) {
+    var field = root && root.querySelector(".alerts-asset-field");
+    if (!field) return false;
+    var hidden = field.querySelector(".alerts-asset-id");
+    var note = root.querySelector(".alerts-now");
+    if (!hidden || !hidden.value || !note) return false;
+    // Already known - the reader picked it a moment ago, and asking again
+    // would be a request per swap for an answer already on the page.
+    if (note.getAttribute("data-asset-usd")) return false;
+
+    var search = field.querySelector(".alerts-asset-search");
+    var url = search && search.getAttribute("hx-get");
+    if (!url || typeof fetch !== "function") return false;
+
+    var wanted = hidden.value;
+    fetch(url + "?q=" + encodeURIComponent(wanted), {
+      headers: { "HX-Request": "true" },
+      credentials: "same-origin",
+    })
+      .then(function (response) {
+        return response.ok ? response.text() : "";
+      })
+      .then(function (html) {
+        if (!html) return;
+        // Parsed off-page: the results container belongs to the picker, and
+        // filling it here would show the reader a search they did not run.
+        var holder = document.createElement("div");
+        holder.innerHTML = html;
+        var row = holder.querySelector(
+          '.id-swap-asset-option[data-id="' + wanted + '"]'
+        );
+        // **Only an exact id match.** The endpoint ranks by name and unit too,
+        // so a loose match would hang another asset's price off this rule.
+        if (row) chooseAsset(row, field);
+      })
+      .catch(function () {});
     return true;
   }
 
@@ -570,6 +648,7 @@
     chooseAsset: chooseAsset,
     chooseUnit: chooseUnit,
     showCurrent: showCurrent,
+    resolveAsset: resolveAsset,
     togglePicker: togglePicker,
     openModal: openModal,
     syncFields: syncFields,
@@ -585,6 +664,7 @@
       chooseAsset: chooseAsset,
       chooseUnit: chooseUnit,
       showCurrent: showCurrent,
+      resolveAsset: resolveAsset,
       togglePicker: togglePicker,
       openModal: openModal,
       supportState: supportState,
