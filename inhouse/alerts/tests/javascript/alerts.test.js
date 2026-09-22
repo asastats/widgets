@@ -1154,3 +1154,360 @@ describe("the price of an asset the server chose", () => {
     );
   });
 });
+
+
+describe("the branches a reader reaches by clicking", () => {
+  /** Click an element the way a reader does, through the delegated handler. */
+  function click(element) {
+    element.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  }
+
+  test("clicking a result row chooses that asset", () => {
+    // The handler is delegated from the document and **scoped to this
+    // widget's own results**: the swap window renders identical rows from the
+    // same endpoint and has its own handler, so an unscoped selector would
+    // make one picker answer for the other.
+    const root = panel("asa_price");
+    root.querySelector(".alerts-asset-results").innerHTML =
+      '<ul class="swap-rows id-swap-asset-options">' +
+      '<li class="swap-row id-swap-asset-option" data-id="31566704"' +
+      ' data-unit="USDC" data-usdc-price="0.25"></li></ul>';
+
+    click(document.querySelector(".id-swap-asset-option"));
+
+    expect(document.querySelector(".alerts-asset-id").value).toBe("31566704");
+  });
+
+  test("clicking the asset button opens its picker", () => {
+    const root = panel("asa_price");
+
+    click(root.querySelector(".id-alerts-assetbtn"));
+
+    expect(root.querySelector(".alerts-picker").hidden).toBe(false);
+    expect(
+      root.querySelector(".alerts-assetbtn").getAttribute("aria-expanded")
+    ).toBe("true");
+  });
+
+  test("clicking it again closes it", () => {
+    const root = panel("asa_price");
+    const button = root.querySelector(".id-alerts-assetbtn");
+
+    click(button);
+    click(button);
+
+    expect(root.querySelector(".alerts-picker").hidden).toBe(true);
+  });
+});
+
+describe("what the swap handler ignores", () => {
+  test("a swap of something else is not ours", () => {
+    // Every htmx swap on the page reaches this, including ones from widgets
+    // that know nothing about alerts. Acting on them would be the mirror of
+    // the bug that made the modal never open.
+    document.body.innerHTML = '<div id="elsewhere"><p>unrelated</p></div>';
+    const swapped = document.getElementById("elsewhere");
+
+    expect(
+      alerts.handleSwap({ detail: { ctx: { target: swapped } }, target: swapped })
+    ).toBe(false);
+  });
+});
+
+describe("the current value with nothing to read it from", () => {
+  test("a form with no subject shows nothing", () => {
+    // A panel rendered without the subject select is not a state the server
+    // produces, but this runs on every swap and on every unit change - it has
+    // to survive markup it did not expect rather than throw inside a handler.
+    const root = panel("asa_price");
+    const note = root.querySelector(".alerts-now");
+    note.textContent = "Now 4.00 ALGO";
+    root.querySelector(".alerts-subject").remove();
+
+    expect(alerts.showCurrent(root)).toBe("");
+    expect(note.textContent).toBe("");
+  });
+});
+
+
+describe("markup these handlers did not expect", () => {
+  /**
+   * **Why every one of these has a test.**
+   *
+   * Each is a guard or an `||` fallback, and all of them run against markup
+   * the server renders - so the temptation is to call them unreachable and
+   * move on. They are not: this widget's own panel is re-rendered by htmx
+   * mid-edit, the toolbar is a *different* partial that may arrive later or
+   * not at all, and both are read by handlers bound to the document. A guard
+   * that has never once been executed is a guard nobody knows the behaviour
+   * of, and the failures it prevents are silent ones - a picker that does not
+   * open, a count that stops updating.
+   */
+
+  /** A panel with the asset field but nothing else the handlers look for. */
+  function bare(html) {
+    document.body.innerHTML = html;
+    return document.querySelector(".alerts-panel") || document.body;
+  }
+
+  describe("handleSwap", () => {
+    test("an event carrying nothing swappable is not ours", () => {
+      expect(alerts.handleSwap({ detail: {}, target: null })).toBe(false);
+    });
+
+    test("a swapped node that cannot be queried is not ours", () => {
+      // A text node reaches this the moment anything swaps one in.
+      expect(
+        alerts.handleSwap({ detail: {}, target: document.createTextNode("x") })
+      ).toBe(false);
+    });
+
+    test("a detached panel is used when the document has none", () => {
+      // `outerHTML` swaps leave `ctx.target` detached, so the live panel is
+      // looked up in the document - and on the run where the swap *removed*
+      // the panel there is nothing to find, leaving the detached one as the
+      // only thing to sync against.
+      const detached = document.createElement("div");
+      detached.className = "alerts-panel";
+      detached.setAttribute("data-rules-kept", "2");
+      detached.setAttribute("data-rules-left", "3");
+      document.body.innerHTML = "";
+
+      expect(
+        alerts.handleSwap({ detail: { ctx: { target: detached } }, target: detached })
+      ).toBe(true);
+    });
+  });
+
+  describe("chooseUnit", () => {
+    test("a button outside a threshold field records nothing", () => {
+      bare('<div class="alerts-panel"><button class="id-alerts-unit"></button></div>');
+
+      expect(alerts.chooseUnit(document.querySelector(".id-alerts-unit"))).toBe(
+        false
+      );
+    });
+
+    test("a field with no hidden input records nothing", () => {
+      bare(
+        '<div class="alerts-panel"><label class="alerts-threshold-field">' +
+          '<button class="id-alerts-unit" data-unit="usd"></button></label></div>'
+      );
+
+      expect(alerts.chooseUnit(document.querySelector(".id-alerts-unit"))).toBe(
+        false
+      );
+    });
+
+    test("a button with no unit means ALGO", () => {
+      // The default the form itself falls back to, so the two cannot disagree.
+      bare(
+        '<div class="alerts-panel"><label class="alerts-threshold-field">' +
+          '<button class="id-alerts-unit"></button>' +
+          '<input class="alerts-unit-value" value="usd"></label></div>'
+      );
+
+      alerts.chooseUnit(document.querySelector(".id-alerts-unit"));
+
+      expect(document.querySelector(".alerts-unit-value").value).toBe("algo");
+    });
+
+    test("a field outside any panel still updates", () => {
+      // The reference line is looked up from the panel, and there is not
+      // always one - the document is the fallback root.
+      document.body.innerHTML =
+        '<label class="alerts-threshold-field">' +
+        '<button class="id-alerts-unit" data-unit="usd"></button>' +
+        '<input class="alerts-unit-value" value="algo"></label>';
+
+      expect(
+        alerts.chooseUnit(document.querySelector(".id-alerts-unit"))
+      ).toBe(true);
+      expect(document.querySelector(".alerts-unit-value").value).toBe("usd");
+    });
+  });
+
+  describe("showCurrent", () => {
+    test("no unit control means the threshold is in ALGO", () => {
+      const root = panel("total_value");
+      root.querySelector(".alerts-unit-value").remove();
+
+      expect(alerts.showCurrent(root)).toBe("Now 1000.00 ALGO");
+    });
+  });
+
+  describe("syncCount", () => {
+    /** The toolbar as `_swap_entry.html` renders it, parts optional. */
+    function toolbar(inner) {
+      const bar = document.createElement("div");
+      bar.id = "id-alerts";
+      bar.innerHTML = inner;
+      document.body.appendChild(bar);
+      return bar;
+    }
+
+    /** A panel carrying the two counts the toolbar copies. */
+    function counted(kept, left) {
+      const node = document.createElement("div");
+      node.className = "alerts-panel";
+      node.setAttribute("data-rules-kept", kept);
+      node.setAttribute("data-rules-left", left);
+      return node;
+    }
+
+    test("a toolbar with no badge still takes the allowance", () => {
+      // The badge is absent for a reader who keeps none, in older markup and
+      // in the upgrade variant - and the allowance still has to land.
+      document.body.innerHTML = "";
+      const bar = toolbar("<button class=\"alerts-open\"></button>");
+
+      expect(alerts.syncCount(counted("1", "4"))).toBe(true);
+      expect(bar.getAttribute("data-rules-left")).toBe("4");
+    });
+
+    test("a toolbar with no button still takes the allowance", () => {
+      document.body.innerHTML = "";
+      const bar = toolbar('<span class="alerts-count"></span>');
+
+      expect(alerts.syncCount(counted("1", "4"))).toBe(true);
+      expect(bar.querySelector(".alerts-count").textContent).toBe("1");
+    });
+  });
+
+  describe("chooseAsset", () => {
+    /** A field missing whichever part the test is about. */
+    function field(inner) {
+      document.body.innerHTML = '<div class="alerts-asset-field">' + inner + "</div>";
+      return document.querySelector(".alerts-asset-field");
+    }
+
+    /** A result row with only the attributes named. */
+    function row(attributes) {
+      const node = document.createElement("li");
+      node.className = "id-swap-asset-option";
+      Object.keys(attributes).forEach((name) =>
+        node.setAttribute(name, attributes[name])
+      );
+      return node;
+    }
+
+    test("a field with no hidden input records nothing", () => {
+      const target = field('<button class="alerts-assetbtn"></button>');
+
+      expect(alerts.chooseAsset(row({ "data-id": "1" }), target)).toBe(false);
+    });
+
+    test("a field with no button records nothing", () => {
+      const target = field('<input class="alerts-asset-id">');
+
+      expect(alerts.chooseAsset(row({ "data-id": "1" }), target)).toBe(false);
+    });
+
+    test("a row with no id, no unit and no icon is still taken", () => {
+      // **Every part of a result row is optional to this function.** The row
+      // comes from another widget's template, so anything read out of it has
+      // to survive that template changing - and the one thing that must not
+      // happen is an exception inside a click handler.
+      const target = field(
+        '<input class="alerts-asset-id" value="7">' +
+          '<button class="alerts-assetbtn"></button>'
+      );
+
+      expect(alerts.chooseAsset(row({}), target)).toBe(true);
+      expect(document.querySelector(".alerts-asset-id").value).toBe("");
+    });
+
+    test("a button with no label or icon is still usable", () => {
+      const target = field(
+        '<input class="alerts-asset-id">' +
+          '<button class="alerts-assetbtn"></button>' +
+          '<div class="alerts-picker"></div>'
+      );
+
+      expect(
+        alerts.chooseAsset(
+          row({ "data-id": "31566704", "data-unit": "USDC" }),
+          target
+        )
+      ).toBe(true);
+    });
+
+    test("a field outside any panel and with no reference line", () => {
+      // Both fallbacks at once: no `.alerts-panel` ancestor, so the document
+      // is the root, and no `.alerts-now` in it to write the price onto.
+      const target = field(
+        '<input class="alerts-asset-id">' +
+          '<button class="alerts-assetbtn">' +
+          '<span class="alerts-assetbtn-text"></span>' +
+          '<img class="alerts-assetbtn-icon"></button>'
+      );
+
+      expect(
+        alerts.chooseAsset(
+          row({ "data-id": "1", "data-usdc-price": "0.25" }),
+          target
+        )
+      ).toBe(true);
+    });
+  });
+
+  describe("resolveAsset", () => {
+    test("a search box with no endpoint asks nothing", () => {
+      const root = panel("asa_price");
+      root.querySelector(".alerts-asset-id").value = "31566704";
+      root.querySelector(".alerts-asset-search").removeAttribute("hx-get");
+
+      expect(alerts.resolveAsset(root)).toBe(false);
+    });
+  });
+
+  describe("togglePicker", () => {
+    test("no field at all is not an error", () => {
+      expect(alerts.togglePicker(null, true)).toBe(false);
+    });
+
+    test("a field with no picker is not an error", () => {
+      document.body.innerHTML =
+        '<div class="alerts-asset-field"><button class="alerts-assetbtn"></button></div>';
+
+      expect(
+        alerts.togglePicker(document.querySelector(".alerts-asset-field"), true)
+      ).toBe(false);
+    });
+
+    test("a picker with no search box still opens", () => {
+      // Opening focuses the search, and the focus is a convenience rather than
+      // the feature - a picker that refused to open without one would be the
+      // convenience breaking the thing it decorates.
+      document.body.innerHTML =
+        '<div class="alerts-asset-field">' +
+        '<button class="alerts-assetbtn"></button>' +
+        '<div class="alerts-picker" hidden></div></div>';
+
+      expect(
+        alerts.togglePicker(document.querySelector(".alerts-asset-field"), true)
+      ).toBe(true);
+      expect(document.querySelector(".alerts-picker").hidden).toBe(false);
+    });
+  });
+
+  describe("the delegated click handler", () => {
+    test("a click on something with no ancestors is ignored", () => {
+      // `document` is the target when a click is dispatched on it directly,
+      // and it has no `closest` - so the guard is what stops a TypeError
+      // being thrown inside a handler bound to every click on the page.
+      expect(() =>
+        document.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+      ).not.toThrow();
+    });
+
+    test("clicking a unit button records that unit", () => {
+      const root = panel("total_value");
+      const usd = root.querySelectorAll(".id-alerts-unit")[1];
+
+      usd.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+      expect(root.querySelector(".alerts-unit-value").value).toBe("usd");
+    });
+  });
+});

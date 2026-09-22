@@ -11,11 +11,70 @@ on:
   workflow_dispatch:
 
 jobs:
-  testing:
-    # Runs JavaScript tests only.
-    # Python tests for the widgets module are handled by the
-    # parent "frontend" repo's CI/CD via submodule integration.
+  # Runs JavaScript tests only.
+  # Python tests for the widgets module are handled by the
+  # parent "frontend" repo's CI/CD via submodule integration.
+  #
+  # **A matrix, because this was four copies of the same three steps** and two
+  # widgets with real jest suites - dustsweep and liverefresh - were simply
+  # absent from it. Three steps per widget is how that happens: the cost of
+  # adding one is high enough to put off, and nothing fails when it is put off.
+  #
+  # **Discovered rather than listed**, for the same reason one step further on:
+  # a list is a thing to forget. A widget is in CI when it declares a `test`
+  # script, which is the same condition that makes it runnable at all - so
+  # `folks`, `haystack` and `hogswap`, which carry a `package.json` for
+  # `esbuild` alone to bundle a vendor SDK, stay out without anyone deciding to
+  # leave them out. The frontend repo runs this same discovery against the
+  # submodule, and neither list can drift from the other because neither is a
+  # list.
+  discover:
     runs-on: ubuntu-latest
+    outputs:
+      widgets: ${{ steps.find.outputs.widgets }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Find widgets that declare a test script
+        id: find
+        run: |
+          widgets=$(node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const root = "inhouse";
+            const names = fs
+              .readdirSync(root)
+              .filter((name) => {
+                const manifest = path.join(root, name, "package.json");
+                if (!fs.existsSync(manifest)) return false;
+                const data = JSON.parse(fs.readFileSync(manifest, "utf8"));
+                return Boolean(data.scripts && data.scripts.test);
+              })
+              .sort();
+            if (!names.length) {
+              console.error("no widget declares a test script");
+              process.exit(1);
+            }
+            console.log(JSON.stringify(names));
+          ')
+          echo "found: $widgets"
+          echo "widgets=$widgets" >> "$GITHUB_OUTPUT"
+
+  testing:
+    runs-on: ubuntu-latest
+    needs: discover
+
+    strategy:
+      # Every widget is reported, rather than the run stopping at the first
+      # failure: "which of them broke" is the question a red build has to
+      # answer, and with fail-fast the answer is "at least one".
+      fail-fast: false
+      matrix:
+        widget: ${{ fromJSON(needs.discover.outputs.widgets) }}
+
+    name: ${{ matrix.widget }} JavaScript
 
     steps:
       - name: Checkout code
@@ -26,40 +85,29 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
-          cache-dependency-path: "inhouse/historic/package-lock.json"
+          # Per widget, because each keeps its own lockfile. A single shared
+          # path would key every job's cache on one widget's dependencies and
+          # restore the wrong tree for the other four.
+          cache-dependency-path: "inhouse/${{ matrix.widget }}/package-lock.json"
 
-      - name: Install dependencies (historic)
-        run: |
-          cd inhouse/historic
-          npm install
+      - name: Install dependencies
+        working-directory: inhouse/${{ matrix.widget }}
+        # `npm ci` rather than `npm install`: the lockfile is committed, and
+        # this is the one place that should fail when it has drifted from
+        # `package.json` rather than quietly resolving something else.
+        run: npm ci
 
-      - name: Run historic Javascript tests with coverage
-        run: |
-          cd inhouse/historic
-          npm run test # Ensure this npm script generates coverage!
+      - name: Run ${{ matrix.widget }} JavaScript tests with coverage
+        working-directory: inhouse/${{ matrix.widget }}
+        # Each widget's `jest` block sets `collectCoverage` and a threshold, so
+        # coverage is produced and enforced by the config rather than by a flag
+        # somebody has to remember here.
+        run: npm run test
 
-      - name: Upload historic coverage to Codecov
+      - name: Upload ${{ matrix.widget }} coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          directory: inhouse/historic/tests/javascript/coverage
-          flags: historic-javascript
-          name: historic-coverage
-
-      - name: Install dependencies (swapcore)
-        run: |
-          cd inhouse/swapcore
-          npm install
-
-      - name: Run swapcore Javascript tests with coverage
-        run: |
-          cd inhouse/swapcore
-          npm run test
-
-      - name: Upload swapcore coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          directory: inhouse/swapcore/tests/javascript/coverage
-          flags: swapcore-javascript
-          name: swapcore-coverage
+          directory: inhouse/${{ matrix.widget }}/tests/javascript/coverage
+          flags: ${{ matrix.widget }}-javascript
+          name: ${{ matrix.widget }}-coverage

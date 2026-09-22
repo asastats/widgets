@@ -16,7 +16,15 @@
       "jest-localstorage-mock",
       "<rootDir>/tests/javascript/test_helpers.js"
     ],
-    "testEnvironment": "jsdom"
+    "testEnvironment": "jsdom",
+    "coverageThreshold": {
+      "global": {
+        "statements": 100,
+        "branches": 100,
+        "functions": 100,
+        "lines": 100
+      }
+    }
   },
   "scripts": {
     "test": "jest",
