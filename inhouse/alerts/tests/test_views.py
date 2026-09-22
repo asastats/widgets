@@ -67,12 +67,13 @@ class TestInhouseAlertsViewsGate:
     """Testing class for how each view resolves its page and gates."""
 
     @pytest.mark.parametrize(
-        "view_class", [AlertsView, AlertsRulesView, AlertsRuleDeleteView]
+        "view_class",
+        [AlertsView, AlertsRulesView, AlertsRuleDeleteView, AlertsRuleEditView],
     )
     def test_inhouse_alerts_views_test_func_resolves_and_gates(
         self, mocker, view_class
     ):
-        """**All three, because all three take a page in the URL.** A view that
+        """**All four, because all four take a page in the URL.** A view that
         skipped the resolver would accept whatever was in the path, and the
         manifest gate is what bands the widget by address count.
         """
@@ -168,6 +169,41 @@ class TestInhouseAlertsViewsDelete:
     ownership check - the second shape is one forgotten line away from letting
     anybody delete anybody's alerts.
     """
+
+    @pytest.mark.parametrize(
+        ("subject", "republished"),
+        [
+            (Subject.ASA_PRICE, True),
+            (Subject.ASA_PRICE_PERCENT, True),
+            (Subject.ASA_TOTAL, False),
+            (Subject.TOTAL_VALUE, False),
+        ],
+    )
+    def test_inhouse_alerts_views_delete_republishes_a_priced_asset(
+        self, mocker, subject, republished
+    ):
+        """**Recomputed, not decremented**, and only when it can have changed.
+
+        The asset may still be named by somebody else's rule, so
+        `publish_assets` asks the database - but asking at all is only worth a
+        query when the deleted rule was one the price task cared about. Both
+        priced subjects count; `asa_total` names an asset and does not.
+        """
+        reader = _reader(email=f"delete-{subject}@example.com")
+        rule = _rule(reader, subject=subject, asset_id=31566704)
+        view = AlertsRuleDeleteView()
+        view.kwargs = {"pk": rule.pk}
+        view.bundle = "B"
+        view.request = mocker.MagicMock(user=reader)
+        mocker.patch(
+            "widgets.inhouse.alerts.views.render_to_string", return_value=""
+        )
+        mocker.patch("widgets.inhouse.alerts.views.publish_page")
+        publish = mocker.patch("widgets.inhouse.alerts.views.publish_assets")
+
+        view.post(view.request)
+
+        assert publish.called is republished
 
     def test_inhouse_alerts_views_delete_removes_the_readers_own_rule(
         self, mocker
@@ -1259,6 +1295,73 @@ class TestInhouseAlertsViewsEdit:
             threshold="100",
             address=self.PAGE,
         )
+
+    @pytest.mark.parametrize(
+        "subject", [Subject.ASA_PRICE, Subject.ASA_PRICE_PERCENT]
+    )
+    def test_inhouse_alerts_views_edit_republishes_the_asset_set(
+        self, mocker, subject
+    ):
+        """**An edit can add the first price rule for an asset.**
+
+        `lvra` is what puts an asset in front of the periodic price task, and
+        `publish_assets` recomputes it from the database rather than adjusting
+        it - so the edit has to say when the answer may have changed.
+
+        Both priced subjects, because `asa_price_percent` needs it *more*: its
+        `lvah` series exists only because the price task writes to it, so an
+        asset missing from `lvra` means every reading refused, for ever,
+        silently.
+        """
+        reader = _reader(email=f"edit-assets-{subject}@example.com")
+        rule = self._rule_for(reader)
+        publish = mocker.patch(
+            "widgets.inhouse.alerts.views.publish_assets"
+        )
+        mocker.patch("widgets.inhouse.alerts.views.publish_page")
+        mocker.patch("widgets.inhouse.alerts.forms.publish_assets")
+        mocker.patch("widgets.inhouse.alerts.forms.publish_page")
+        view = self._view(
+            reader,
+            rule,
+            data={
+                "subject": subject,
+                "direction": Direction.DOWN,
+                "threshold": "1",
+                "asset_id": "31566704",
+                "window_seconds": "3600",
+            },
+        )
+
+        view.post(view.request)
+
+        assert publish.called is True
+
+    def test_inhouse_alerts_views_edit_leaves_the_asset_set_alone_otherwise(
+        self, mocker
+    ):
+        """A total rule edited into another total rule names no asset, and
+        recomputing the set would be a query for an answer that cannot have
+        changed."""
+        reader = _reader(email="edit-noassets@example.com")
+        rule = self._rule_for(reader)
+        publish = mocker.patch("widgets.inhouse.alerts.views.publish_assets")
+        mocker.patch("widgets.inhouse.alerts.views.publish_page")
+        mocker.patch("widgets.inhouse.alerts.forms.publish_assets")
+        mocker.patch("widgets.inhouse.alerts.forms.publish_page")
+        view = self._view(
+            reader,
+            rule,
+            data={
+                "subject": Subject.TOTAL_VALUE,
+                "direction": Direction.DOWN,
+                "threshold": "250",
+            },
+        )
+
+        view.post(view.request)
+
+        assert publish.called is False
 
     def test_inhouse_alerts_views_edit_loads_the_rule_into_the_form(self, mocker):
         reader = _reader(email="edit-load@example.com")

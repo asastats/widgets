@@ -1,5 +1,6 @@
 """Configuration module for historic widget unit tests package."""
 
+import importlib
 import sys
 import types
 from collections import namedtuple
@@ -38,6 +39,40 @@ django.setup()
 
 
 def make_fake_module(name, attrs=None, is_package=True):
+    """Stand `name` up as a stub module, unless the host really provides it.
+
+    **The guard is the whole point, and it was missing.** These stubs exist for
+    the standalone widgets repo, where there is no host to import from - the
+    same reason as the `settings.configured` check above. Installed
+    unconditionally they also replace the *real* modules when the suite runs
+    inside the frontend, and `sys.modules` is process-wide: every later test in
+    that run sees the stub.
+
+    The failure that produced this is worth recording, because nothing about it
+    points here. A stub has no `__file__`, so an import of a name it does not
+    carry fails with ``cannot import name … (unknown location)`` - and
+    `utils.charts` and `utils.constants.charts` are both pulled in by
+    `core/views.py` and `core_extras`, which is to say by *any* test in any
+    widget that reverses a URL or renders a template. Those tests pass alone and
+    fail in a whole-suite run, with an ImportError naming a module the widget
+    under test never heard of.
+
+    Import rather than `find_spec`: a host module may exist and still not load,
+    and a stub is the right answer in both cases.
+
+    :param name: the dotted module path to provide
+    :type name: str
+    :param attrs: what the stub should carry
+    :type attrs: dict
+    :param is_package: whether submodules may be imported from it
+    :type is_package: bool
+    :return: the real module when the host has one, else the stub
+    """
+    try:
+        return importlib.import_module(name)
+    except ImportError:
+        pass
+
     mod = types.ModuleType(name)
     if is_package:
         mod.__path__ = []  # make it a package

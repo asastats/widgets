@@ -27,10 +27,17 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import TemplateView, View
 from widgethost.enforcement import WidgetAccessMixin
 
+from .display import describe
 from .evaluate import evaluate_page, evaluate_prices, payload_for
 from .forms import UNIT_CHOICES, WINDOW_CHOICES, AlertRuleForm
 from .manifest import MANIFEST
-from .models import AlertRule, Direction, PushSubscription, Subject
+from .models import (
+    PRICED_SUBJECTS,
+    AlertRule,
+    Direction,
+    PushSubscription,
+    Subject,
+)
 from .population import publish_assets, publish_page
 from .push import notify, push_configured
 from .tiers import more_rules_available, rules_allowed
@@ -71,6 +78,13 @@ class AlertsContextMixin:
                 "-created_at"
             )
         )
+        # **Described here rather than in the template.** `describe` resolves a
+        # single-address bundle back to its address, which is a cache read - and
+        # a template filter doing that would hide a round trip per row behind
+        # `{{ rule }}`. Attached to the instances the template already has, so
+        # the list stays one query.
+        for rule in rules:
+            rule.description = describe(rule)
         return {
             "address": address,
             "rules": rules,
@@ -273,7 +287,7 @@ class AlertsRuleEditView(WidgetAccessMixin, AlertsContextMixin, View):
         :return: :class:`django.http.HttpResponse`
         """
         rule = self._rule(request)
-        was_price_rule = rule.subject == Subject.ASA_PRICE
+        was_price_rule = rule.subject in PRICED_SUBJECTS
         form = AlertRuleForm(
             request.POST, user=request.user, address=self.bundle, instance=rule
         )
@@ -282,7 +296,7 @@ class AlertsRuleEditView(WidgetAccessMixin, AlertsContextMixin, View):
             # The page it names cannot change - the modal is opened from one -
             # but the assets can: an edit may add the first price rule for an
             # asset, or remove the last.
-            if was_price_rule or form.cleaned_data["subject"] == Subject.ASA_PRICE:
+            if was_price_rule or form.cleaned_data["subject"] in PRICED_SUBJECTS:
                 publish_assets()
             publish_page(rule.address)
             status = 200
@@ -340,7 +354,7 @@ class AlertsRuleDeleteView(WidgetAccessMixin, AlertsContextMixin, View):
             AlertRule, pk=self.kwargs["pk"], user=request.user
         )
         address = rule.address
-        was_price_rule = rule.subject == Subject.ASA_PRICE
+        was_price_rule = rule.subject in PRICED_SUBJECTS
         rule.delete()
         # **The page's own address, not this view's bundle.** A rule stores the
         # page it was made from, and a reader may be deleting it from somewhere
@@ -579,7 +593,7 @@ def _notify_all(fired, url):
             rule.user,
             {
                 "title": "ASA Stats",
-                "body": str(rule),
+                "body": describe(rule),
                 # Per rule, so two alerts on one page replace neither. A shared
                 # tag would silently collapse them into the last one.
                 "tag": f"alert-{rule.pk}",

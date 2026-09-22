@@ -10,14 +10,18 @@ from widgets.inhouse.alerts import urls
 class TestInhouseAlertsUrls:
     """Testing class for the widget's URL configuration.
 
-    **Nothing here calls `reverse()`, and that is not an oversight.** Reversing
-    forces the whole URLconf to load, which pulls in `core/views.py` and
-    `utils.charts` - and `widgets/inhouse/historic/tests/conftest.py` installs a
-    *fake* `utils.charts` into `sys.modules` at import time so the widget suite
-    can run standalone. A `reverse()` here passes alone and fails the moment the
-    suite is run whole, with an ImportError from a module this widget never
-    touches. Every other widget's url test inspects the patterns instead; this
-    one learned why.
+    **Nothing here calls `reverse()`**, which is how every other widget's url
+    test is written: the patterns are what this module owns, and reversing pulls
+    the whole host URLconf in to assert the same thing.
+
+    It used to be load-bearing rather than a preference.
+    `widgets/inhouse/historic/tests/conftest.py` installed a *stub*
+    `utils.charts` into `sys.modules` at import time, which replaced the host's
+    real one for the whole run, so anything reaching `core/views.py` - a
+    `reverse()`, or rendering a template - passed alone and failed in a whole
+    suite run. That is fixed at its source now - the stubs stand in only for what
+    the host does not provide - so a `reverse()` here would work. It is still
+    not worth one.
     """
 
     def test_inhouse_alerts_urls_patterns_count(self):

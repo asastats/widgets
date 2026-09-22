@@ -1,5 +1,6 @@
 """Testing module for :py:mod:`widgets.inhouse.alerts.evaluate` module."""
 
+import logging
 from datetime import timedelta
 
 import pytest
@@ -381,6 +382,67 @@ class TestAlertsEvaluatePrices:
 
         with django_assert_num_queries(3):  # one select, two saves
             evaluate_prices({31566704: 0.5})
+
+
+@pytest.mark.django_db
+class TestAlertsEvaluatePricesHeld:
+    """Testing class for a price rule whose reader has no browser on.
+
+    **Held, not spent.** Firing it would advance `last_value` past the
+    threshold, so the next evaluation would see no crossing - the alert would be
+    gone rather than waiting, and the modal promises three times over that rules
+    saved now will be there when a browser is turned on.
+    """
+
+    @pytest.fixture
+    def silent(self, db):
+        """A reader with rules and no subscription."""
+        return get_user_model().objects.create_user(
+            username="silent@example.com",
+            email="silent@example.com",
+            password="x",
+        )
+
+    def _price_rule(self, user, **overrides):
+        fields = {
+            "user": user,
+            "subject": Subject.ASA_PRICE,
+            "direction": Direction.DOWN,
+            "threshold": "1",
+            "asset_id": 31566704,
+            "last_value": "2",
+        }
+        fields.update(overrides)
+        return AlertRule.objects.create(**fields)
+
+    def test_alerts_evaluate_prices_holds_a_rule_with_nowhere_to_go(self, silent):
+        rule = self._price_rule(silent)
+
+        assert evaluate_prices({31566704: 0.5}) == []
+        rule.refresh_from_db()
+        assert float(rule.last_value) == 2, "the crossing must still be waiting"
+        assert rule.last_fired_at is None
+
+    def test_alerts_evaluate_prices_says_how_many_were_held(self, silent, caplog):
+        """**"My alert never fired" is the question this answers.** Held rules
+        are counted and logged rather than skipped quietly, so the log can tell
+        "nobody was listening" from "it never crossed"."""
+        self._price_rule(silent)
+        self._price_rule(silent, asset_id=386192725)
+
+        with caplog.at_level(logging.INFO):
+            evaluate_prices({31566704: 0.5, 386192725: 0.5})
+
+        assert "2 price rule(s) held" in caplog.text
+
+    def test_alerts_evaluate_prices_still_answers_a_reader_who_can_hear(
+        self, silent, reader
+    ):
+        """One held rule must not cost another reader their notification."""
+        self._price_rule(silent)
+        self._price_rule(reader)
+
+        assert len(evaluate_prices({31566704: 0.5})) == 1
 
 
 @pytest.mark.django_db

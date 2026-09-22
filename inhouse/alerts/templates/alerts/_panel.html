@@ -43,7 +43,7 @@
   <ul class="alerts-list">
     {% for rule in rules %}
     <li class="alerts-rule{% if editing and editing.pk == rule.pk %} alerts-rule-editing{% endif %}">
-      <span class="alerts-rule-text">{{ rule }}</span>
+      <span class="alerts-rule-text">{{ rule.description }}</span>
       {# Loads this rule into the form below. A GET, because it changes #}
       {# nothing until the reader saves.                                #}
       <button type="button" class="alerts-edit"

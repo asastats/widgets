@@ -24,6 +24,15 @@
   :show-inheritance:
 
 
+:mod:`widgets.inhouse.alerts.display` -- Alerts widget's rule presentation module
+----------------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.alerts.display
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
 :mod:`widgets.inhouse.alerts.evaluate` -- Alerts widget's rule evaluation module
 ----------------------------------------------------------------------------------
 

@@ -17,6 +17,7 @@ from django import forms
 from .models import (
     ASSET_SUBJECTS,
     PERCENT_SUBJECTS,
+    PRICED_SUBJECTS,
     AlertRule,
     Direction,
     Subject,
@@ -269,9 +270,15 @@ class AlertRuleForm(forms.Form):
         # rather than raising when Redis is away, because a rule the reader has
         # written must be stored whatever the engine can currently hear.
         publish_page(self.address)
-        # The asset set only changes for a price rule, and it is the *only*
-        # thing that puts an asset in front of the periodic task - an
+        # The asset set only changes for a *priced* subject, and this is the
+        # only thing that puts an asset in front of the periodic task - an
         # `asa_total` rule names an asset too and is answered by the live pass.
-        if rule.subject == Subject.ASA_PRICE:
+        #
+        # `PRICED_SUBJECTS` rather than `ASA_PRICE`: `asa_price_percent` needs
+        # the asset priced as well, and more urgently, because its series only
+        # exists because the price task writes to it. An asset missing from
+        # `lvra` means an empty `lvah`, which means every reading refused -
+        # silently, and looking exactly like a rule that has not crossed yet.
+        if rule.subject in PRICED_SUBJECTS:
             publish_assets()
         return rule

@@ -214,6 +214,60 @@ class TestAlertRuleFormSave:
 
         assert form.save().address == "BUNDLEHASH"
 
+    @pytest.mark.parametrize(
+        "subject", [Subject.ASA_PRICE, Subject.ASA_PRICE_PERCENT]
+    )
+    def test_alerts_forms_publish_the_asset_for_a_priced_subject(
+        self, mocker, subject
+    ):
+        """**`lvra` is the only thing that puts an asset in front of the price
+        task**, so a stored rule the engine was never told about is a rule that
+        cannot fire.
+
+        Both priced subjects. `asa_price_percent` needs it more than
+        `asa_price` does: a level rule reads the price out of the webhook body,
+        while a percentage rule reads a *series* that exists only because the
+        task writes to it. An asset missing from `lvra` leaves `lvah` empty and
+        every reading refused, for ever, with nothing in a log to say so.
+        """
+        publish = mocker.patch("widgets.inhouse.alerts.forms.publish_assets")
+        mocker.patch("widgets.inhouse.alerts.forms.publish_page")
+        form = AlertRuleForm(
+            _post(subject=subject, threshold="5", window_seconds="3600"),
+            user=_reader(),
+            address="BUNDLEHASH",
+        )
+        assert form.is_valid(), form.errors
+
+        form.save()
+
+        publish.assert_called_once_with()
+
+    @pytest.mark.parametrize(
+        "subject", [Subject.TOTAL_VALUE, Subject.TOTAL_PERCENT, Subject.ASA_TOTAL]
+    )
+    def test_alerts_forms_publish_no_asset_for_the_rest(self, mocker, subject):
+        """`asa_total` names an asset too and must *not* appear: it is answered
+        by the live pass out of what it already published, so publishing it
+        would make the price task fetch a price nobody asked for."""
+        publish = mocker.patch("widgets.inhouse.alerts.forms.publish_assets")
+        mocker.patch("widgets.inhouse.alerts.forms.publish_page")
+        form = AlertRuleForm(
+            _post(
+                subject=subject,
+                threshold="5",
+                window_seconds="3600",
+                asset_id="393537671",
+            ),
+            user=_reader(),
+            address="BUNDLEHASH",
+        )
+        assert form.is_valid(), form.errors
+
+        form.save()
+
+        assert publish.called is False
+
     def test_alerts_forms_leave_last_value_unset(self):
         """**A rule arms on its first reading rather than firing on it.**
 
