@@ -6,7 +6,9 @@ import pytest
 from django.contrib.auth import get_user_model
 
 from widgets.inhouse.alerts.display import (
+    asset_label,
     describe,
+    disclosure,
     format_percent,
     format_price,
     format_value,
@@ -36,6 +38,8 @@ def _rule(reader, **overrides):
         "threshold": "100",
         "address": BUNDLE,
     }
+    if overrides.get("subject") in {Subject.ASA_AMOUNT}:
+        fields["direction"] = Direction.UP
     fields.update(overrides)
     return AlertRule.objects.create(**fields)
 
@@ -217,3 +221,115 @@ class TestAlertsDisplayDescribe:
         rule = _rule(reader, subject=Subject.ASA_TOTAL, asset_id=1, threshold="7")
 
         assert describe(rule).endswith("falls below 7.00 ALGO")
+
+
+class TestAlertsDisplayDisclosure:
+    """Testing class for telling a reader what a price is worth trusting.
+
+    **The decision this implements**, taken 2026-09-22: disclose rather than
+    refuse or suppress. A price from shallow pools moves several percent on one
+    swap and back, so a rule watching it fires on noise that reads exactly like
+    news - and the alternatives both make us pick a liquidity threshold on the
+    reader's behalf, with a rule that stops firing and never says why.
+    """
+
+    def test_alerts_display_discloses_the_depth_in_algo(self):
+        """ALGO, because "pools hold 4,000,000 units" says nothing without
+        knowing what a unit is worth."""
+        assert disclosure(340.0) == "pools hold ~340.00 ALGO"
+
+    def test_alerts_display_says_nothing_about_an_unknown_depth(self):
+        """**A missing measurement is not a small one.**
+
+        The engine sends no depth for an asset it could not price, and an older
+        engine sends none at all. Printing "0 ALGO" there would read as a
+        finding - the worst possible one, since a reader would take it as
+        proof the asset is untradeable.
+        """
+        assert disclosure(None) == ""
+
+    def test_alerts_display_says_nothing_about_a_zero_depth(self):
+        assert disclosure(0) == ""
+
+    def test_alerts_display_discloses_a_deep_pool_too(self):
+        """**Said either way, which is what makes it threshold-free.** For a
+        deep asset the figure reassures; for a thin one it warns. Choosing when
+        to speak would be choosing the threshold we decided not to pick."""
+        assert disclosure(1_250_000.0) == "pools hold ~1250000.00 ALGO"
+
+
+@pytest.mark.django_db
+class TestAlertsDisplayTheAssetAndItsCurrency:
+    """Testing class for naming the asset and the reader's own currency."""
+
+    def test_alerts_display_names_the_asset_by_its_unit(self, reader):
+        """**"an asset 31566704" is not what a reader recognises.** They chose
+        "USDC" out of a picker that showed them that word, so that is what the
+        notification says."""
+        rule = _rule(
+            reader,
+            subject=Subject.ASA_TOTAL,
+            asset_id=31566704,
+            asset_unit="USDC",
+        )
+
+        assert asset_label(rule) == "USDC"
+        assert describe(rule).startswith("What my holding of an asset is worth USDC")
+
+    def test_alerts_display_falls_back_to_the_id(self, reader):
+        """A rule written before the unit was stored still has to describe
+        itself - and a client that sends no unit must not produce a blank."""
+        rule = _rule(reader, subject=Subject.ASA_TOTAL, asset_id=31566704)
+
+        assert asset_label(rule) == "31566704"
+
+    def test_alerts_display_ignores_a_blank_unit(self, reader):
+        rule = _rule(
+            reader, subject=Subject.ASA_TOTAL, asset_id=31566704, asset_unit="  "
+        )
+
+        assert asset_label(rule) == "31566704"
+
+    def test_alerts_display_names_a_usd_threshold_in_usd(self, reader, mocker):
+        """**The reader's own currency**, because that is what it is compared
+        in now. It used to be converted to ALGO at creation and shown back as
+        an ALGO figure they never typed."""
+        _resolves(mocker, ADDRESS)
+        rule = _rule(reader, threshold_unit="usd")
+
+        assert describe(rule).endswith("falls below 100.00 USD")
+
+    def test_alerts_display_names_a_usd_price_in_usd(self, reader):
+        rule = _rule(
+            reader,
+            subject=Subject.ASA_PRICE,
+            asset_id=1,
+            threshold="0.5",
+            threshold_unit="usd",
+        )
+
+        assert describe(rule).endswith("falls below 0.5 USD")
+
+    def test_alerts_display_describes_an_amount_in_the_assets_own_units(
+        self, reader
+    ):
+        """**No currency at all.** A count of the asset is not money, so the
+        figure is followed by the asset rather than by ALGO or USD."""
+        rule = _rule(
+            reader,
+            subject=Subject.ASA_AMOUNT,
+            asset_id=31566704,
+            asset_unit="ASASTATS",
+            threshold="1000",
+        )
+
+        assert describe(rule) == (
+            "How much of an asset I hold ASASTATS rises above 1000 ASASTATS"
+        )
+
+    def test_alerts_display_describes_an_amount_with_no_unit_stored(self, reader):
+        rule = _rule(
+            reader, subject=Subject.ASA_AMOUNT, asset_id=7, threshold="1000"
+        )
+
+        assert describe(rule).endswith("rises above 1000 7")

@@ -285,10 +285,19 @@ class TestAlertRuleFormSave:
 class TestAlertRuleFormUnits:
     """Testing class for the threshold's unit.
 
-    **Everything is stored in ALGO**, because ALGO is what the engine compares
-    against: `unit_price` answers "amount of ALGO for one asset" and the pass
-    publishes the page total in ALGO. The reader may say which unit they are
-    typing in; the row does not change meaning.
+    **Stored as typed, in the currency the reader chose.** It used to be
+    converted to ALGO here, at the rate on the day the rule was written, and
+    the choice discarded - so "$500" became a fixed ALGO figure that fired at
+    some other dollar amount once ALGO had moved. The conversion happens on the
+    *reading* now; see `evaluate.in_rule_currency`.
+
+    **The conversion was also backwards, and this class is where that hid.**
+    The old test supplied `algo_usd="0.25"` meaning ALGO's price in dollars,
+    and `100 / 0.25 = 400 ALGO` is right for that reading. But what
+    `alerts_context` actually passes is `priceusdc`, which is ALGO **per USD** -
+    about 4 - so production divided by 4 and stored 25 ALGO for a $100
+    threshold, sixteen times too small. The code was right for the number its
+    test invented and wrong for the number it was given.
     """
 
     def _form(self, **overrides):
@@ -306,21 +315,39 @@ class TestAlertRuleFormUnits:
         assert form.is_valid(), form.errors
         assert form.cleaned_data["threshold"] == Decimal("100")
 
-    def test_alerts_forms_usd_is_converted(self):
-        """100 USD at $0.25 an ALGO is 400 ALGO."""
-        form = self._form(threshold_unit="usd", algo_usd="0.25")
-
-        assert form.is_valid(), form.errors
-        assert form.cleaned_data["threshold"] == Decimal("400")
-
-    def test_alerts_forms_usd_without_a_rate_is_refused(self):
-        """**Refused rather than stored unconverted.** A dollar figure kept as
-        though it were ALGO is off by whatever an ALGO costs, silently, and the
-        rule would fire at a number the reader never chose."""
+    def test_alerts_forms_usd_is_stored_as_typed(self):
+        """**Not converted.** The reader typed 100 dollars and the row holds
+        100 dollars; what varies is the rate a reading is divided by, which is
+        read at evaluation rather than frozen here."""
         form = self._form(threshold_unit="usd")
 
-        assert form.is_valid() is False
-        assert "not available" in str(form.errors["threshold"])
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["threshold"] == Decimal("100")
+        assert form.cleaned_data["threshold_unit"] == "usd"
+
+    def test_alerts_forms_usd_needs_no_rate_now(self):
+        """**The refusal went with the conversion.** A USD threshold used to be
+        rejected when no rate had been rendered into the form, because there
+        was nothing to convert with. Nothing is converted here any more, so a
+        panel rendered before the engine had published a price still takes the
+        rule."""
+        form = self._form(threshold_unit="usd")
+
+        assert form.is_valid(), form.errors
+
+    def test_alerts_forms_an_amount_has_no_currency(self):
+        """**A count of the asset is not money.** "I hold more than 1,000
+        ASASTATS" is true whatever an ASASTATS is worth, so a stale posted unit
+        must not make the row claim otherwise."""
+        form = self._form(
+            subject=Subject.ASA_AMOUNT,
+            asset_id="31566704",
+            threshold="1000",
+            threshold_unit="usd",
+        )
+
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["threshold_unit"] == "algo"
 
     def test_alerts_forms_a_missing_unit_means_algo(self):
         """An older cached panel posts no unit, and has to keep meaning what it
@@ -339,14 +366,25 @@ class TestAlertRuleFormUnits:
             window_seconds=3600,
             threshold="5",
             threshold_unit="usd",
-            algo_usd="0.25",
         )
 
         assert form.is_valid(), form.errors
         assert form.cleaned_data["threshold"] == Decimal("5")
         assert form.cleaned_data["threshold_unit"] == "algo"
 
-    def test_alerts_forms_the_rate_comes_from_the_form(self):
-        """Posted back rather than fetched again at save, so the number the
-        reader was shown is the number they are held to."""
-        assert "algo_usd" in AlertRuleForm(user=_reader()).fields
+    def test_alerts_forms_the_unit_travels_with_the_asset(self):
+        """**The picker knows the unit and the notification cannot ask.**
+
+        The alert is built server-side, in the webhook path, where this widget
+        has no asset lookup at all - so "USDC" is posted with the id and stored,
+        or every notification says "an asset 31566704" for ever.
+        """
+        form = self._form(
+            subject=Subject.ASA_TOTAL,
+            asset_id="31566704",
+            asset_unit="USDC",
+        )
+
+        assert form.is_valid(), form.errors
+        assert form.save().asset_unit == "USDC"
+

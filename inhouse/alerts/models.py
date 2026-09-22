@@ -32,7 +32,8 @@ class Subject(models.TextChoices):
 
     ASA_PRICE = "asa_price", "Asset price"
     ASA_PRICE_PERCENT = "asa_price_percent", "Asset price, percentage move"
-    ASA_TOTAL = "asa_total", "My holding of an asset"
+    ASA_AMOUNT = "asa_amount", "How much of an asset I hold"
+    ASA_TOTAL = "asa_total", "What my holding of an asset is worth"
     TOTAL_VALUE = "total_value", "Portfolio total"
     TOTAL_PERCENT = "total_percent", "Portfolio total, percentage move"
 
@@ -46,7 +47,33 @@ class Direction(models.TextChoices):
 
 #: Subjects that name a single asset, and so require `asset_id`.
 ASSET_SUBJECTS = frozenset(
-    {Subject.ASA_PRICE, Subject.ASA_PRICE_PERCENT, Subject.ASA_TOTAL}
+    {
+        Subject.ASA_PRICE,
+        Subject.ASA_PRICE_PERCENT,
+        Subject.ASA_AMOUNT,
+        Subject.ASA_TOTAL,
+    }
+)
+
+#: Subjects whose threshold is a quantity of the asset rather than money.
+#:
+#: **`asa_amount` is the one subject with no currency.** "I hold more than
+#: 1,000 ASASTATS" is true whatever an ASASTATS is worth, which is the whole
+#: point of it: a reader waiting for an allocation wants to know it arrived,
+#: not what it was worth when it did. So the ALGO/USD control is hidden for it
+#: exactly as it is for a percentage.
+AMOUNT_SUBJECTS = frozenset({Subject.ASA_AMOUNT})
+
+#: Subjects a reader may denominate in ALGO or in USD.
+#:
+#: Everything that is money and not a proportion. A percentage has no currency
+#: and an amount is a count of the asset itself.
+CURRENCY_SUBJECTS = frozenset(
+    {
+        Subject.ASA_PRICE,
+        Subject.ASA_TOTAL,
+        Subject.TOTAL_VALUE,
+    }
 )
 
 #: Subjects the per-asset evaluator answers, and so the assets the engine's
@@ -102,10 +129,39 @@ class AlertRule(models.Model):
     # either mandatory at the database level would mean two tables for what is
     # one concept to the reader.
     asset_id = models.BigIntegerField(null=True, blank=True)
+
+    #: The asset's unit name as the reader picked it, for the sentence.
+    #:
+    #: **Denormalised deliberately.** The notification is built server-side, in
+    #: the webhook path, where this widget has no asset lookup at all - it is
+    #: `capability = "public"` with no engine endpoints, so it cannot ask. The
+    #: picker already knows the unit; storing what the reader saw is cheaper
+    #: than acquiring the ability to look it up, and it is also the more honest
+    #: label: it is the asset they chose, by the name it had when they chose it.
+    #:
+    #: Blank when a rule was made before this existed, or by a client that did
+    #: not send it; `display` falls back to the id.
+    asset_unit = models.CharField(max_length=32, blank=True, default="")
+
     address = models.CharField(max_length=128, blank=True, default="")
 
     direction = models.CharField(max_length=4, choices=Direction.choices)
     threshold = models.DecimalField(max_digits=30, decimal_places=10)
+
+    #: What the threshold is denominated in: "algo" or "usd".
+    #:
+    #: **Stored rather than converted away, and that was a defect.** A USD
+    #: threshold used to be turned into ALGO at the rate on the day the rule was
+    #: written, and the choice discarded - so "tell me above $500" became a
+    #: fixed ALGO figure and, once ALGO had moved, fired at a dollar amount the
+    #: reader never picked. The conversion now happens on the *reading*, every
+    #: time it is taken, so a rule denominated in dollars stays denominated in
+    #: dollars.
+    #:
+    #: A percentage has no currency and an amount is a count of the asset, so
+    #: both store "algo" and never consult it. See `CURRENCY_SUBJECTS`.
+    threshold_unit = models.CharField(max_length=4, default="algo")
+
     window_seconds = models.PositiveIntegerField(null=True, blank=True)
 
     active = models.BooleanField(default=True)
@@ -156,6 +212,14 @@ class AlertRule(models.Model):
         :return: Boolean
         """
         return self.subject in ASSET_SUBJECTS
+
+    @property
+    def needs_currency(self):
+        """Whether this subject's threshold is money the reader may denominate.
+
+        :return: Boolean
+        """
+        return self.subject in CURRENCY_SUBJECTS
 
     @property
     def needs_window(self):

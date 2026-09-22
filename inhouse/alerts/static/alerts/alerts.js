@@ -12,10 +12,24 @@
   "use strict";
 
   /** Subjects that name a single asset, mirroring `models.ASSET_SUBJECTS`. */
-  var ASSET_SUBJECTS = ["asa_price", "asa_price_percent", "asa_total"];
+  var ASSET_SUBJECTS = [
+    "asa_price",
+    "asa_price_percent",
+    "asa_amount",
+    "asa_total",
+  ];
 
   /** Subjects expressed as a percentage, mirroring `models.PERCENT_SUBJECTS`. */
   var PERCENT_SUBJECTS = ["total_percent", "asa_price_percent"];
+
+  /**
+   * Subjects with no currency, mirroring `models.CURRENCY_SUBJECTS` inverted.
+   *
+   * A percentage is a proportion and an amount is a count of the asset itself:
+   * "I hold more than 1,000 ASASTATS" is true whatever an ASASTATS is worth.
+   * Neither has an ALGO/USD choice to make.
+   */
+  var UNITLESS_SUBJECTS = PERCENT_SUBJECTS.concat(["asa_amount"]);
 
   /**
    * Show the fields this subject needs and hide the rest.
@@ -39,7 +53,7 @@
     if (window_) window_.hidden = PERCENT_SUBJECTS.indexOf(chosen) === -1;
     // A percentage is not a currency, so the unit control has nothing to say.
     var units = form.querySelector(".alerts-units");
-    if (units) units.hidden = PERCENT_SUBJECTS.indexOf(chosen) !== -1;
+    if (units) units.hidden = UNITLESS_SUBJECTS.indexOf(chosen) !== -1;
     showCurrent(root);
     return true;
   }
@@ -363,7 +377,12 @@
     var unitField = form.querySelector(".alerts-unit-value");
     var chosen = unitField ? unitField.value : "algo";
     var total = parseFloat(note.getAttribute("data-current-total"));
-    var rate = parseFloat(note.getAttribute("data-algo-usd"));
+    // **ALGO per USD**, which is what `priceusdc` holds - about 4 when ALGO
+    // is $0.25. So an ALGO figure is *divided* by it to reach dollars. This
+    // read it as ALGO's dollar price and multiplied, which was wrong by the
+    // square of the rate; `address.js` has always divided, and is the
+    // reference.
+    var rate = parseFloat(note.getAttribute("data-algo-per-usd"));
 
     var text = "";
     if (!subject) {
@@ -374,7 +393,7 @@
     if (subject.value === "total_value" && isFinite(total)) {
       text =
         chosen === "usd" && isFinite(rate)
-          ? "Now $" + (total * rate).toFixed(2)
+          ? "Now $" + (total / rate).toFixed(2)
           : "Now " + total.toFixed(2) + " ALGO";
     } else if (subject.value === "asa_price") {
       // **Derived, because the two sides speak different currencies.** The
@@ -387,7 +406,7 @@
         text =
           chosen === "usd"
             ? "Now $" + trim(assetUsd)
-            : "Now " + trim(assetUsd / rate) + " ALGO";
+            : "Now " + trim(assetUsd * rate) + " ALGO";
       }
     }
     // `asa_total` is the value of *this reader's holding*, which is not the
@@ -495,6 +514,11 @@
     if (!hidden || !button) return false;
 
     hidden.value = row.getAttribute("data-id") || "";
+    // **The unit travels with the id.** The notification is built server-side,
+    // where this widget has no asset lookup, so "USDC" has to be stored when
+    // the reader picks it or the alert says "an asset 31566704" for ever.
+    var unit = field.querySelector(".alerts-asset-unit");
+    if (unit) unit.value = row.getAttribute("data-unit") || "";
     var text = button.querySelector(".alerts-assetbtn-text");
     if (text) {
       text.textContent =

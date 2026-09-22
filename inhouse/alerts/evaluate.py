@@ -38,7 +38,13 @@ from django.utils import timezone
 
 from django.db.models import Exists, OuterRef
 
-from .models import PRICED_SUBJECTS, AlertRule, PushSubscription, Subject
+from .models import (
+    CURRENCY_SUBJECTS,
+    PRICED_SUBJECTS,
+    AlertRule,
+    PushSubscription,
+    Subject,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +96,48 @@ def _with_delivery(queryset):
     )
 
 
-def reading_for(rule, total, values, client=None, now=None):
+def in_rule_currency(rule, algo_figure, algo_per_usd):
+    """Return `algo_figure` in the currency the rule is denominated in.
+
+    **The conversion happens here, on the reading, every time it is taken.**
+    It used to happen once on the threshold, when the rule was written: a USD
+    threshold was turned into ALGO at that day's rate and the reader's choice
+    discarded, so "tell me above $500" became a fixed ALGO figure that fired at
+    some other dollar amount once ALGO had moved. Converting the reading keeps
+    a rule denominated in dollars denominated in dollars.
+
+    **No rate means no reading.** Refusing is the same rule `percent_move`
+    applies to a history that does not reach back far enough: a comparison that
+    cannot be made honestly is not made. Answering in ALGO against a threshold
+    the reader typed in dollars would be wrong by whatever an ALGO costs.
+
+    :param rule: the rule being evaluated
+    :type rule: :class:`widgets.inhouse.alerts.models.AlertRule`
+    **Divided, not multiplied, and that is the whole of it.** `algo_per_usd` is
+    how much ALGO one USD buys - about 4 when ALGO is $0.25 - which is what the
+    engine publishes as `priceusdc` and what the address page labels "ALGO/USD".
+    `account_totals` does `totalusdc = total / price_usdc` and `address.js`
+    divides to show a dollar figure; this has to agree with both. A name like
+    "the ALGO price" is how this widget converted it backwards three times.
+
+    :param algo_figure: the reading, in ALGO
+    :param algo_per_usd: how much ALGO one USD buys, or None
+    :return: the reading in the rule's own currency, or None
+    """
+    if algo_figure is None:
+        return None
+    if rule.subject not in CURRENCY_SUBJECTS or rule.threshold_unit != "usd":
+        return algo_figure
+    if not algo_per_usd:
+        logger.warning(
+            "alerts: rule %s is in USD and no ALGO/USD rate was published", rule.pk
+        )
+        return None
+    return float(algo_figure) / float(algo_per_usd)
+
+
+def reading_for(rule, total, values, client=None, now=None, amounts=None,
+                algo_per_usd=None):
     """Return what `rule` watches, from a published payload, or None.
 
     :param rule: the rule being evaluated
@@ -100,10 +147,13 @@ def reading_for(rule, total, values, client=None, now=None):
     :type values: dict
     :param client: an open Redis client, for the subjects that read a history
     :param now: unix time, for tests
+    :param amounts: {asset id: [amount, decimals]} for the page
+    :type amounts: dict
+    :param algo_per_usd: how much ALGO one USD buys, for a USD rule
     :return: the current reading, or None when it cannot be taken
     """
     if rule.subject == Subject.TOTAL_VALUE:
-        return total
+        return in_rule_currency(rule, total, algo_per_usd)
     if rule.subject == Subject.TOTAL_PERCENT:
         # The one reading that is not in the payload: it needs two totals, and
         # the payload carries one. See `percent_move` for why a short history
@@ -116,8 +166,41 @@ def reading_for(rule, total, values, client=None, now=None):
         # priced; an asset absent from this block's payload was not re-priced,
         # which is different from being worth nothing. Reading it as zero would
         # fire every "falls below" rule the reader has.
-        return values.get(rule.asset_id)
+        return in_rule_currency(rule, values.get(rule.asset_id), algo_per_usd)
+    if rule.subject == Subject.ASA_AMOUNT:
+        return holding_amount(amounts, rule.asset_id)
     return None
+
+
+def holding_amount(amounts, asset_id):
+    """Return how much of `asset_id` is held, in whole units, or None.
+
+    **The payload carries base units and the decimals to read them with**, as
+    `[amount, decimals]`, because an amount is meaningless without them - a
+    value is already in ALGO and an amount is in the asset's own scale. The
+    reader's threshold is in whole units, which is what they typed, so the
+    conversion happens here rather than being asked of them.
+
+    None for an asset the block did not mention, exactly as a value is. A
+    holding that did not change is not a holding of nothing - and for this
+    subject that matters more than for any other, because the reader is
+    waiting for it to change.
+
+    :param amounts: {asset id: [amount, decimals]} for the page
+    :type amounts: dict
+    :param asset_id: the asset the rule names
+    :type asset_id: int
+    :return: float or None
+    """
+    entry = (amounts or {}).get(asset_id)
+    if not entry:
+        return None
+    try:
+        amount, decimals = entry[0], entry[1]
+        return float(amount) / (10 ** int(decimals))
+    except (TypeError, ValueError, IndexError):
+        logger.warning("alerts: unusable amount for asset %s: %r", asset_id, entry)
+        return None
 
 
 def percent_move(page, window_seconds, total, client=None, now=None,
@@ -200,8 +283,36 @@ def _history_total(member):
         return None
 
 
+def _report_muted(muted):
+    """Log how many crossings the cooldown swallowed this pass.
+
+    **Silent until now, and it is the one number this decision needs.** The
+    cooldown is fifteen minutes for everybody, never measured, and the two
+    evaluators run at cadences three orders apart - the live pass every ~2.7 s,
+    the price task every five minutes - so one figure is doing two unrelated
+    jobs. Whether 900 seconds is right, wrong, or never binds at all is
+    answerable from a week of these lines and from nothing else.
+
+    :param muted: crossings suppressed this pass
+    :type muted: int
+    """
+    if muted:
+        logger.info("alerts: %s crossing(s) muted by a cooldown", muted)
+
+
 def cooling_down(rule, now):
     """Whether `rule` fired recently enough to stay quiet.
+
+    **A suppressed crossing is dropped, not deferred**, and that is a decision
+    rather than an accident. `last_value` advances whether or not the rule
+    fired, so a crossing inside the cooldown is consumed and the reader never
+    hears about it - not even late.
+
+    That is the right shape for a crossing model. An alert reports an *event*:
+    "fell below 100" was true when it was sent. Holding it back and delivering
+    it when the cooldown expired would put "rose above 100" in front of a
+    reader thirteen minutes after the fact, where it reads as the current state
+    and is not.
 
     :param rule: the rule being evaluated
     :param now: the moment being evaluated at
@@ -236,10 +347,17 @@ def evaluate_page(address, payload, now=None, client=None, unix_now=None):
     :rtype: tuple
     """
     now = now or timezone.now()
-    total = (payload or {}).get("total")
-    values = (payload or {}).get("values") or {}
+    payload = payload or {}
+    total = payload.get("total")
+    values = payload.get("values") or {}
+    # **Both already in the payload**, which is why two of the five subjects
+    # cost nothing: the pass publishes an amount per changed asset with the
+    # decimals to read it by, and `priceusdc` for the band across the top.
+    amounts = payload.get("amounts") or {}
+    # `priceusdc` is ALGO per USD, despite the name. See `in_rule_currency`.
+    algo_per_usd = payload.get("priceusdc")
 
-    fired, skipped, held = [], 0, 0
+    fired, skipped, held, muted = [], 0, 0, 0
     for rule in _with_delivery(
         AlertRule.objects.filter(address=address, active=True).select_related("user")
     ):
@@ -252,16 +370,33 @@ def evaluate_page(address, payload, now=None, client=None, unix_now=None):
             held += 1
             continue
 
-        value = reading_for(rule, total, values, client=client, now=unix_now)
+        value = reading_for(
+            rule,
+            total,
+            values,
+            client=client,
+            now=unix_now,
+            amounts=amounts,
+            algo_per_usd=algo_per_usd,
+        )
         if value is None:
             continue
 
-        if rule.crossed(value) and not cooling_down(rule, now):
-            rule.last_fired_at = now
-            fired.append(rule)
+        if rule.crossed(value):
+            if cooling_down(rule, now):
+                muted += 1
+                logger.info(
+                    "alerts: rule %s (%s) crossed inside its cooldown",
+                    rule.pk,
+                    rule.subject,
+                )
+            else:
+                rule.last_fired_at = now
+                fired.append(rule)
         rule.last_value = value
         rule.save(update_fields=["last_value", "last_fired_at", "updated_at"])
 
+    _report_muted(muted)
     if held:
         logger.info(
             "alerts: %s rule(s) on %s held - their reader has no browser on",
@@ -271,7 +406,8 @@ def evaluate_page(address, payload, now=None, client=None, unix_now=None):
     return fired, skipped
 
 
-def evaluate_prices(prices, now=None, client=None, unix_now=None):
+def evaluate_prices(prices, now=None, client=None, unix_now=None, depths=None,
+                    algo_per_usd=None):
     """Return the `asa_price` rules that just crossed, and record what was seen.
 
     The per-asset half, and the only evaluator here that is not per-page. It
@@ -292,14 +428,18 @@ def evaluate_prices(prices, now=None, client=None, unix_now=None):
     :param now: the moment to evaluate at, for tests
     :param client: an open Redis client, for `asa_price_percent`'s history read
     :param unix_now: unix time, for tests
+    :param depths: {asset id: pooled depth in ALGO}, attached to what fires
+    :type depths: dict
+    :param algo_per_usd: how much ALGO one USD buys, for a USD rule
     :return: the rules that fired
     :rtype: list
     """
     now = now or timezone.now()
+    depths = depths or {}
     if not prices:
         return []
 
-    fired, held = [], 0
+    fired, held, muted = [], 0, 0
     for rule in _with_delivery(
         AlertRule.objects.filter(
             subject__in=PRICED_SUBJECTS,
@@ -311,6 +451,11 @@ def evaluate_prices(prices, now=None, client=None, unix_now=None):
             held += 1
             continue
         value = prices.get(rule.asset_id)
+        # **Converted here rather than at creation.** An `asa_price` rule
+        # written in dollars stays in dollars; a percentage has no currency and
+        # is left alone. See `in_rule_currency`.
+        if rule.subject == Subject.ASA_PRICE:
+            value = in_rule_currency(rule, value, algo_per_usd)
         if rule.subject == Subject.ASA_PRICE_PERCENT:
             # **The same honesty rule as `total_percent`**, on the series the
             # price task keeps: compared against the newest point at or before
@@ -332,12 +477,25 @@ def evaluate_prices(prices, now=None, client=None, unix_now=None):
         if value is None:
             continue
 
-        if rule.crossed(value) and not cooling_down(rule, now):
+        if rule.crossed(value) and cooling_down(rule, now):
+            muted += 1
+            logger.info(
+                "alerts: rule %s (%s) crossed inside its cooldown",
+                rule.pk,
+                rule.subject,
+            )
+        elif rule.crossed(value):
             rule.last_fired_at = now
+            # **Attached at the moment it fires**, because depth is a property
+            # of the moment rather than of the rule: an asset that is deep
+            # today can be thin next month, so a rule cannot carry it. On the
+            # instance rather than in the row - it describes this firing.
+            rule.depth_algo = depths.get(rule.asset_id)
             fired.append(rule)
         rule.last_value = value
         rule.save(update_fields=["last_value", "last_fired_at", "updated_at"])
 
+    _report_muted(muted)
     if held:
         logger.info(
             "alerts: %s price rule(s) held - their reader has no browser on", held

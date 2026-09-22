@@ -263,7 +263,7 @@ class TestInhouseAlertsViewsModal:
         assert context["rules_kept"] == 1
         # The form's choices are server-rendered, so anything else the browser
         # posts was typed by hand - which `test_forms` relies on.
-        assert len(context["subjects"]) == 5
+        assert len(context["subjects"]) == 6
         assert len(context["windows"]) == 4
 
     def test_inhouse_alerts_views_modal_is_not_capped_with_room_left(self, mocker):
@@ -1033,6 +1033,70 @@ class TestInhouseAlertsViewsPriced:
         self._post(mocker, {"prices": {"1": 1.0}})
 
         assert notify.call_args.args[1]["url"] == "/"
+
+    def test_inhouse_alerts_views_priced_discloses_the_pool_depth(
+        self, db, mocker, settings
+    ):
+        """**The decision, end to end through the endpoint.**
+
+        The engine measures what the asset's pools hold at the moment it
+        prices, sends it beside the price, and the reader is told - rather than
+        the rule being refused at creation or suppressed without explanation.
+        """
+        reader = _reader(email="depth@example.com")
+        PushSubscription.objects.create(
+            user=reader, endpoint="https://push.example/d", p256dh="p", auth="a"
+        )
+        _rule(reader, subject=Subject.ASA_PRICE, asset_id=1, last_value="2")
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        notify = mocker.patch(
+            "widgets.inhouse.alerts.views.notify", return_value=1
+        )
+
+        self._post(mocker, {"prices": {"1": 0.5}, "depths": {"1": 340.0}})
+
+        assert "pools hold ~340.00 ALGO" in notify.call_args[0][1]["body"]
+
+    def test_inhouse_alerts_views_priced_without_depths_still_notifies(
+        self, db, mocker, settings
+    ):
+        """An engine that has not caught up sends no `depths`, and the two
+        repos sync separately - so the alert has to arrive with less said
+        rather than not arrive."""
+        reader = _reader(email="nodepth@example.com")
+        PushSubscription.objects.create(
+            user=reader, endpoint="https://push.example/n", p256dh="p", auth="a"
+        )
+        _rule(reader, subject=Subject.ASA_PRICE, asset_id=1, last_value="2")
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        notify = mocker.patch(
+            "widgets.inhouse.alerts.views.notify", return_value=1
+        )
+
+        self._post(mocker, {"prices": {"1": 0.5}})
+
+        body = notify.call_args[0][1]["body"]
+        assert "pools hold" not in body
+        assert "Asset price 1" in body
+
+    def test_inhouse_alerts_views_priced_ignores_an_unusable_depth(
+        self, db, mocker, settings
+    ):
+        """A depth that will not parse costs the reader a sentence, never the
+        alert."""
+        reader = _reader(email="baddepth@example.com")
+        PushSubscription.objects.create(
+            user=reader, endpoint="https://push.example/b", p256dh="p", auth="a"
+        )
+        _rule(reader, subject=Subject.ASA_PRICE, asset_id=1, last_value="2")
+        settings.ALERTS_WEBHOOK_SECRET = "s3"
+        mocker.patch("widgets.inhouse.alerts.views.notify", return_value=1)
+
+        response = self._post(
+            mocker, {"prices": {"1": 0.5}, "depths": {"1": "deep"}}
+        )
+
+        assert json.loads(response.content)["fired"] == 1
 
     def test_inhouse_alerts_views_priced_tags_each_rule_separately(
         self, reader_pro, mocker, settings

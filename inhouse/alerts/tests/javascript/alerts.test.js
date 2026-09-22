@@ -21,12 +21,14 @@ function panel(subject) {
         <select class="alerts-subject">
           <option value="asa_price">Asset price</option>
           <option value="asa_price_percent">Asset price, percentage move</option>
-          <option value="asa_total">My holding of an asset</option>
+          <option value="asa_amount">How much of an asset I hold</option>
+          <option value="asa_total">What my holding of an asset is worth</option>
           <option value="total_value">Portfolio total</option>
           <option value="total_percent">Portfolio total, percentage move</option>
         </select>
         <div class="alerts-field alerts-asset-field" hidden>
           <input type="hidden" name="asset_id" class="alerts-asset-id">
+          <input type="hidden" name="asset_unit" class="alerts-asset-unit">
           <button type="button" class="alerts-assetbtn id-alerts-assetbtn"
                   aria-expanded="false">
             <img class="alerts-assetbtn-icon" alt="" hidden>
@@ -48,7 +50,7 @@ function panel(subject) {
           <input type="hidden" name="threshold_unit" class="alerts-unit-value"
                  value="algo">
           <small class="alerts-now" data-current-total="1000"
-                 data-algo-usd="0.25"></small>
+                 data-algo-per-usd="4"></small>
         </label>
         <label class="alerts-field alerts-window-field" hidden>
           <select name="window_seconds"><option value="3600">1 hour</option></select>
@@ -1005,11 +1007,15 @@ describe("the current value shown beside the threshold", () => {
 
 describe("the price of the asset a reader picked", () => {
   /** A picked asset priced at $0.25, with ALGO at $0.25. */
-  function picked(assetUsd = "0.25", algoUsd = "0.25") {
+  function picked(assetUsd = "0.25", algoPerUsd = "4") {
     const root = panel("asa_price");
     const note = document.querySelector(".alerts-now");
     note.setAttribute("data-asset-usd", assetUsd);
-    note.setAttribute("data-algo-usd", algoUsd);
+    // **ALGO per USD**, the direction `priceusdc` actually holds - about 4 when
+    // ALGO is $0.25. The old helper passed 0.25 and named it `algoUsd`, which
+    // is how three conversions in this file came to run backwards while every
+    // test passed: at that rate the right and wrong answers coincide.
+    note.setAttribute("data-algo-per-usd", algoPerUsd);
     return root;
   }
 
@@ -1017,7 +1023,7 @@ describe("the price of the asset a reader picked", () => {
     // **The two sides speak different currencies.** The search row carries USD;
     // the threshold is stored in ALGO. Showing the USD figure beside an ALGO
     // threshold without dividing would be the most dangerous version of this.
-    const root = picked("0.50", "0.25");
+    const root = picked("0.50", "4");
 
     expect(alerts.showCurrent(root)).toBe("Now 2.00 ALGO");
   });
@@ -1033,7 +1039,7 @@ describe("the price of the asset a reader picked", () => {
   test("a small price keeps its significant digits", () => {
     // A threshold of 0.0000123 is an ordinary ASA price; `toFixed(2)` would
     // render it 0.00 and tell the reader the asset is worthless.
-    const root = picked("0.00000307", "0.25");
+    const root = picked("0.00000307", "4");
 
     expect(alerts.showCurrent(root)).toContain("0.00001228");
   });
@@ -1042,6 +1048,17 @@ describe("the price of the asset a reader picked", () => {
     const root = picked("0.50", "");
 
     expect(alerts.showCurrent(root)).toBe("");
+  });
+
+  test("the rate is ALGO per USD, not the other way round", () => {
+    // **The direction, pinned with numbers that cannot both be right.** An
+    // asset worth $2 where one dollar buys 4 ALGO is 8 ALGO, and the inverted
+    // conversion this file shipped would say 0.50. Every earlier test used a
+    // rate of 0.25, where dividing and multiplying by the reciprocal agree -
+    // which is exactly why none of them caught it.
+    const root = picked("2", "4");
+
+    expect(alerts.showCurrent(root)).toBe("Now 8.00 ALGO");
   });
 });
 
@@ -1397,6 +1414,21 @@ describe("markup these handlers did not expect", () => {
       expect(alerts.chooseAsset(row({ "data-id": "1" }), target)).toBe(false);
     });
 
+    test("a field with no unit input still records the asset", () => {
+      // The unit is what the notification names the asset by, and it is
+      // stored rather than looked up - but a panel rendered without the field
+      // must still produce a working rule. The sentence falls back to the id.
+      const target = field(
+        '<input class="alerts-asset-id">' +
+          '<button class="alerts-assetbtn"></button>'
+      );
+
+      expect(
+        alerts.chooseAsset(row({ "data-id": "7", "data-unit": "USDC" }), target)
+      ).toBe(true);
+      expect(document.querySelector(".alerts-asset-id").value).toBe("7");
+    });
+
     test("a field with no button records nothing", () => {
       const target = field('<input class="alerts-asset-id">');
 
@@ -1410,11 +1442,15 @@ describe("markup these handlers did not expect", () => {
       // happen is an exception inside a click handler.
       const target = field(
         '<input class="alerts-asset-id" value="7">' +
+          '<input class="alerts-asset-unit" value="USDC">' +
           '<button class="alerts-assetbtn"></button>'
       );
 
       expect(alerts.chooseAsset(row({}), target)).toBe(true);
       expect(document.querySelector(".alerts-asset-id").value).toBe("");
+      // The unit is cleared too rather than left describing the last asset -
+      // a name that outlived its id is worse than no name.
+      expect(document.querySelector(".alerts-asset-unit").value).toBe("");
     });
 
     test("a button with no label or icon is still usable", () => {

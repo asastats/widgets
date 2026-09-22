@@ -199,15 +199,19 @@
       </span>
       <input type="hidden" name="threshold_unit" class="alerts-unit-value"
              value="{{ form.threshold_unit.value|default:'algo' }}">
-      {# Posted back so the conversion uses the rate the reader was shown, #}
-      {# rather than one fetched again at save. #}
-      <input type="hidden" name="algo_usd" value="{{ algo_usd|default_if_none:'' }}">
+      {# **The unit the picker showed, posted with the id.** The notification #}
+      {# is built server-side where this widget has no asset lookup at all, so #}
+      {# "USDC" has to travel with the rule rather than be fetched later. The  #}
+      {# rate that used to ride here is gone: nothing converts a threshold at  #}
+      {# creation any more.                                                    #}
+      <input type="hidden" name="asset_unit" class="alerts-asset-unit"
+             value="{{ form.asset_unit.value|default_if_none:'' }}">
       {% comment %} What the figure is now, so a threshold has something to aim
          at. Absent when the page has never been re-priced. `alerts.js` fills it
          per subject and keeps it in the chosen unit. {% endcomment %}
       <small class="alerts-now"
              data-current-total="{{ current_total|default_if_none:'' }}"
-             data-algo-usd="{{ algo_usd|default_if_none:'' }}"></small>
+             data-algo-per-usd="{{ algo_per_usd|default_if_none:'' }}"></small>
     </label>
 
     {% comment %} A short list rather than a free number: the honest period

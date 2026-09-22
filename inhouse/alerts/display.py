@@ -23,7 +23,7 @@ the column's scale leaking into a sentence. The reader typed "100".
 import logging
 from decimal import Decimal, InvalidOperation
 
-from .models import PERCENT_SUBJECTS, Subject
+from .models import AMOUNT_SUBJECTS, PERCENT_SUBJECTS, Subject
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +192,50 @@ def _sole_address(address):
     return parts[0] if len(parts) == 1 else None
 
 
+def disclosure(depth_algo):
+    """Return what to tell a reader about the liquidity behind a price.
+
+    **Told rather than judged, and this is the decision.** A price from pools
+    holding a few hundred ALGO moves several percent on one ordinary swap and
+    back again, so a rule watching it fires on noise that reads - in a
+    notification - exactly like news. The alternatives were to refuse such a
+    rule or to suppress it silently; both make us pick a liquidity threshold on
+    the reader's behalf, and a rule that stops firing without saying why is the
+    same class of mistake as one that means something other than what it says.
+
+    **ALGO rather than units of the asset.** "Pools hold 4,000,000 units" says
+    nothing without knowing what a unit is worth.
+
+    Nothing is said when the depth is unknown. A missing measurement is not a
+    small one, and inventing "0 ALGO" would read as a finding.
+
+    :param depth_algo: what the asset's pools hold, valued in ALGO
+    :type depth_algo: float or None
+    :return: str
+    """
+    if not depth_algo:
+        return ""
+    return f"pools hold ~{format_value(depth_algo)} ALGO"
+
+
+def asset_label(rule):
+    """Return how to name the asset a rule watches.
+
+    **The unit the reader picked, falling back to the id.** "an asset
+    31566704" is what every notification said until the unit was stored, and
+    the id is not what a reader recognises - they chose "USDC" out of a picker
+    that showed them that word.
+
+    The fallback is not decoration: a rule written before the unit was stored,
+    or by a client that did not send one, still has to describe itself.
+
+    :param rule: the rule
+    :type rule: :class:`widgets.inhouse.alerts.models.AlertRule`
+    :return: str
+    """
+    return (rule.asset_unit or "").strip() or str(rule.asset_id)
+
+
 def describe(rule):
     """Return the sentence a reader is shown for `rule`.
 
@@ -202,17 +246,28 @@ def describe(rule):
     :type rule: :class:`widgets.inhouse.alerts.models.AlertRule`
     :return: str
     """
+    currency = "USD" if rule.threshold_unit == "usd" else "ALGO"
     if rule.subject in PERCENT_SUBJECTS:
         amount = format_percent(rule.threshold)
+    elif rule.subject in AMOUNT_SUBJECTS:
+        # **A count of the asset, in its own units.** No currency: "I hold more
+        # than 1,000 ASASTATS" is true whatever an ASASTATS is worth, which is
+        # the whole point of the subject.
+        amount = f"{format_price(rule.threshold)} {asset_label(rule)}".strip()
     elif rule.subject == Subject.ASA_PRICE:
-        amount = f"{format_price(rule.threshold)} ALGO"
+        amount = f"{format_price(rule.threshold)} {currency}"
     else:
-        # A total or a holding's value. Both are ALGO, as every threshold is
-        # stored - the ALGO/USD control converts on the way in, not on the way
-        # out, so there is no dollar figure here to show.
-        amount = f"{format_value(rule.threshold)} ALGO"
+        # **A total or a holding's value, named in the reader's own currency**,
+        # because that is what the rule is compared in now. It used to be
+        # converted to ALGO when the rule was written, so a dollar threshold
+        # was shown back as an ALGO figure the reader never typed.
+        #
+        # The final arm rather than a `CURRENCY_SUBJECTS` test: a subject that
+        # is neither a proportion nor a count nor a price is money by
+        # elimination, and testing for it left an `else` no subject could reach.
+        amount = f"{format_value(rule.threshold)} {currency}"
 
-    target = rule.asset_id if rule.needs_asset else page_label(rule.address)
+    target = asset_label(rule) if rule.needs_asset else page_label(rule.address)
     return (
         f"{rule.get_subject_display()} {target} "
         f"{rule.get_direction_display().lower()} {amount}"

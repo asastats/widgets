@@ -9,6 +9,8 @@ from django.utils import timezone
 
 from widgets.inhouse.alerts.evaluate import (
     SKIPPED,
+    holding_amount,
+    in_rule_currency,
     cooling_down,
     evaluate_page,
     evaluate_prices,
@@ -508,6 +510,44 @@ class TestAlertsEvaluatePricePercent:
 
         assert client.zrevrangebyscore.call_args[0][0] == "lvah:386192725"
 
+    def test_alerts_evaluate_prices_attaches_the_depth_that_fired(self, reader):
+        """Carried on the instance so the notification can disclose it.
+
+        Not stored: depth describes the firing rather than the rule, and an
+        asset that is deep today can be thin next month.
+        """
+        AlertRule.objects.create(
+            user=reader,
+            subject=Subject.ASA_PRICE,
+            direction=Direction.DOWN,
+            threshold="1",
+            asset_id=31566704,
+            last_value="2",
+        )
+
+        fired = evaluate_prices({31566704: 0.5}, depths={31566704: 340.0})
+
+        assert len(fired) == 1
+        assert fired[0].depth_algo == 340.0
+
+    def test_alerts_evaluate_prices_without_depths_still_fires(self, reader):
+        """**An engine that has not caught up sends none.** The two repos sync
+        separately, so a price rule must fire whether or not the disclosure is
+        available - the reader is told less, not nothing."""
+        AlertRule.objects.create(
+            user=reader,
+            subject=Subject.ASA_PRICE,
+            direction=Direction.DOWN,
+            threshold="1",
+            asset_id=31566704,
+            last_value="2",
+        )
+
+        fired = evaluate_prices({31566704: 0.5})
+
+        assert len(fired) == 1
+        assert fired[0].depth_algo is None
+
     def test_alerts_evaluate_price_percent_does_not_read_for_a_level_rule(
         self, reader, mocker
     ):
@@ -745,3 +785,215 @@ class TestAlertsEvaluatePercentRules:
         assert (fired, skipped) == ([], 0)
         rule.refresh_from_db()
         assert float(rule.last_value) == 0, "and it learns nothing from the tick"
+
+
+@pytest.mark.django_db
+class TestAlertsEvaluateCurrency:
+    """Testing class for reading a rule in the currency it was written in.
+
+    **The conversion moved from the threshold to the reading**, because a USD
+    threshold converted once at creation stops meaning dollars the moment ALGO
+    moves. And it is a *division*: `algo_per_usd` is how much ALGO one dollar
+    buys - about 4 when ALGO is $0.25 - which is what the engine publishes as
+    `priceusdc` and what `account_totals` divides a total by.
+    """
+
+    def _rule(self, reader, **overrides):
+        fields = {
+            "user": reader,
+            "subject": Subject.TOTAL_VALUE,
+            "direction": Direction.DOWN,
+            "threshold": "100",
+            "address": PAGE,
+        }
+        fields.update(overrides)
+        return AlertRule.objects.create(**fields)
+
+    def test_alerts_evaluate_an_algo_rule_is_left_alone(self, reader):
+        rule = self._rule(reader, threshold_unit="algo")
+
+        assert in_rule_currency(rule, 400.0, 4.0) == 400.0
+
+    def test_alerts_evaluate_a_usd_rule_is_divided_by_the_rate(self, reader):
+        """**Divided, not multiplied.** 400 ALGO where one dollar buys 4 ALGO
+        is $100. Multiplying would give 1,600 - which is what this widget did
+        in three places, because a rate named "algo_usd" reads as ALGO's price
+        and holds its reciprocal."""
+        rule = self._rule(reader, threshold_unit="usd")
+
+        assert in_rule_currency(rule, 400.0, 4.0) == 100.0
+
+    def test_alerts_evaluate_a_usd_rule_without_a_rate_reads_nothing(
+        self, reader, caplog
+    ):
+        """**Refused rather than answered in the wrong currency.** The same
+        rule `percent_move` applies to a history that does not reach back far
+        enough: a comparison that cannot be made honestly is not made."""
+        rule = self._rule(reader, threshold_unit="usd")
+
+        with caplog.at_level(logging.WARNING):
+            assert in_rule_currency(rule, 400.0, None) is None
+
+        assert "no ALGO/USD rate" in caplog.text
+
+    def test_alerts_evaluate_no_reading_stays_no_reading(self, reader):
+        rule = self._rule(reader, threshold_unit="usd")
+
+        assert in_rule_currency(rule, None, 4.0) is None
+
+    def test_alerts_evaluate_a_subject_without_a_currency_ignores_the_unit(
+        self, reader
+    ):
+        """A percentage is a proportion however the stale control was left."""
+        rule = self._rule(
+            reader,
+            subject=Subject.TOTAL_PERCENT,
+            window_seconds=3600,
+            threshold_unit="usd",
+        )
+
+        assert in_rule_currency(rule, -5.0, 4.0) == -5.0
+
+    def test_alerts_evaluate_a_usd_total_is_read_in_usd(self, reader):
+        """End to end through `reading_for`, from a payload as published."""
+        rule = self._rule(reader, threshold_unit="usd")
+
+        assert reading_for(rule, 400.0, {}, algo_per_usd=4.0) == 100.0
+
+
+@pytest.mark.django_db
+class TestAlertsEvaluateHoldingAmount:
+    """Testing class for how much of an asset a reader holds.
+
+    **The subject a reader waiting for an allocation wants.** It watches the
+    quantity rather than the worth, so it says nothing about price - "I hold
+    more than 1,000 ASASTATS" is true whatever an ASASTATS is worth.
+    """
+
+    def test_alerts_evaluate_amount_is_scaled_by_its_decimals(self):
+        """**The payload carries base units and the decimals to read them
+        with.** A value is already in ALGO; an amount is in the asset's own
+        scale and is meaningless without them."""
+        assert holding_amount({31566704: [1_500_000, 6]}, 31566704) == 1.5
+
+    def test_alerts_evaluate_an_asset_the_block_did_not_mention(self):
+        """**Absent is not zero**, and it matters most for this subject: the
+        reader is waiting for the number to change, so reading a quiet block as
+        "you hold nothing" would fire every "falls below" rule at once."""
+        assert holding_amount({1: [10, 0]}, 31566704) is None
+
+    def test_alerts_evaluate_no_amounts_at_all(self):
+        """An older engine publishes no `amounts`, and the rule waits rather
+        than firing on an imagined zero."""
+        assert holding_amount(None, 31566704) is None
+
+    def test_alerts_evaluate_an_unusable_amount_is_declined(self, caplog):
+        """Logged rather than raised: this runs inside a webhook that must not
+        500 because one asset's metadata was odd."""
+        with caplog.at_level(logging.WARNING):
+            assert holding_amount({1: ["what", "ever"]}, 1) is None
+
+        assert "unusable amount" in caplog.text
+
+    def test_alerts_evaluate_a_short_entry_is_declined(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            assert holding_amount({1: [10]}, 1) is None
+
+    def test_alerts_evaluate_amount_is_read_through_reading_for(self, reader):
+        rule = AlertRule.objects.create(
+            user=reader,
+            subject=Subject.ASA_AMOUNT,
+            direction=Direction.UP,
+            threshold="1000",
+            asset_id=31566704,
+            address=PAGE,
+        )
+
+        reading = reading_for(
+            rule, 0, {}, amounts={31566704: [1_500_000_000, 6]}
+        )
+
+        assert reading == 1500.0
+
+
+@pytest.mark.django_db
+class TestAlertsEvaluateMutedCrossings:
+    """Testing class for the crossings a cooldown swallows.
+
+    **The one number the cooldown decision needs.** Fifteen minutes is set for
+    everybody and has never been measured, and the two evaluators run at
+    cadences three orders apart - so whether it binds, and on which subjects,
+    is answerable from these lines and from nothing else.
+    """
+
+    def test_alerts_evaluate_a_muted_page_crossing_is_counted(
+        self, reader, caplog
+    ):
+        now = timezone.now()
+        _rule(
+            reader,
+            last_value="120",
+            last_fired_at=now - timedelta(seconds=60),
+        )
+
+        with caplog.at_level(logging.INFO):
+            fired, _ = evaluate_page(PAGE, {"total": 90}, now=now)
+
+        assert fired == []
+        assert "crossed inside its cooldown" in caplog.text
+        assert "1 crossing(s) muted" in caplog.text
+
+    def test_alerts_evaluate_a_muted_price_crossing_is_counted(
+        self, reader, caplog
+    ):
+        now = timezone.now()
+        AlertRule.objects.create(
+            user=reader,
+            subject=Subject.ASA_PRICE,
+            direction=Direction.DOWN,
+            threshold="1",
+            asset_id=31566704,
+            last_value="2",
+            last_fired_at=now - timedelta(seconds=60),
+        )
+
+        with caplog.at_level(logging.INFO):
+            assert evaluate_prices({31566704: 0.5}, now=now) == []
+
+        assert "1 crossing(s) muted" in caplog.text
+
+    def test_alerts_evaluate_says_nothing_when_nothing_was_muted(
+        self, reader, caplog
+    ):
+        """A quiet block must stay quiet in the log, or the line is noise
+        rather than a measurement."""
+        _rule(reader, last_value="120")
+
+        with caplog.at_level(logging.INFO):
+            evaluate_page(PAGE, {"total": 90})
+
+        assert "muted by a cooldown" not in caplog.text
+
+    def test_alerts_evaluate_a_muted_crossing_is_dropped_not_deferred(
+        self, reader
+    ):
+        """**Consumed, and that is the decision.**
+
+        `last_value` advances whether or not the rule fired, so the crossing is
+        gone - the reader is never told, not even late. An alert reports an
+        event that was true when it was sent; delivering it when the cooldown
+        expired would put stale news in front of a reader as though it were
+        current.
+        """
+        now = timezone.now()
+        rule = _rule(
+            reader,
+            last_value="120",
+            last_fired_at=now - timedelta(seconds=60),
+        )
+
+        evaluate_page(PAGE, {"total": 90}, now=now)
+
+        rule.refresh_from_db()
+        assert float(rule.last_value) == 90, "the crossing was not consumed"
+        assert evaluate_page(PAGE, {"total": 90}, now=now)[0] == []

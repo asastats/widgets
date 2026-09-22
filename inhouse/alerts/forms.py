@@ -16,6 +16,7 @@ from django import forms
 
 from .models import (
     ASSET_SUBJECTS,
+    CURRENCY_SUBJECTS,
     PERCENT_SUBJECTS,
     PRICED_SUBJECTS,
     AlertRule,
@@ -68,14 +69,13 @@ class AlertRuleForm(forms.Form):
     threshold_unit = forms.ChoiceField(
         choices=UNIT_CHOICES, required=False, initial="algo"
     )
-    #: What one ALGO was worth when the form was rendered, posted back with it.
+    #: The asset's unit name as the picker showed it, posted with the id.
     #:
-    #: **From the form rather than fetched again at save**, so the number the
-    #: reader saw is the number they are held to. Fetching a fresh rate here
-    #: would convert at a price they were never shown.
-    algo_usd = forms.DecimalField(
-        required=False, max_digits=30, decimal_places=10, min_value=0
-    )
+    #: **Stored rather than looked up**, because the notification is built in
+    #: the webhook path where this widget has no asset lookup at all. Optional,
+    #: so a client that does not send it still creates a working rule - the
+    #: sentence falls back to the id.
+    asset_unit = forms.CharField(required=False, max_length=32)
     window_seconds = forms.TypedChoiceField(
         choices=WINDOW_CHOICES, coerce=int, required=False
     )
@@ -155,43 +155,37 @@ class AlertRuleForm(forms.Form):
         else:
             cleaned["window_seconds"] = None
 
-        self._to_algo(cleaned)
+        self._settle_unit(cleaned)
         return cleaned
 
-    def _to_algo(self, cleaned):
-        """Convert a USD threshold into the ALGO the row stores.
+    def _settle_unit(self, cleaned):
+        """Record the currency the reader typed in, without converting.
 
-        **A percentage is not a currency**, so a percent subject is left alone
-        however the unit control was left - the template hides it there, and a
-        stale posted value must not turn "5%" into "5 ALGO worth of dollars".
+        **This used to convert, and that was the defect.** A USD threshold was
+        turned into ALGO at the rate on the day the rule was written and the
+        choice discarded - so "tell me above $500" became a fixed ALGO figure
+        which, once ALGO had moved, fired at a dollar amount the reader never
+        picked. The conversion now happens on the *reading*, every time one is
+        taken; see `evaluate.in_rule_currency`.
 
-        A USD threshold with no rate is refused rather than stored unconverted:
-        storing the dollar figure as though it were ALGO is off by whatever an
-        ALGO costs, silently, and the rule would fire at a number the reader
-        never chose.
+        It also converted the wrong way. `algo_usd` held what the engine calls
+        `priceusdc`, which is ALGO **per USD** - so a dollar threshold had to be
+        multiplied to reach ALGO and was divided instead, by a factor of about
+        four each way. Deleting the conversion removes the bug rather than
+        correcting it, which is the better of the two outcomes.
+
+        **Only money has a currency.** A percentage and an amount of an asset
+        are stored as "algo" and never consult it, so a stale posted value
+        cannot turn "5%" into five dollars' worth of anything.
 
         :param cleaned: the cleaned data, modified in place
         :type cleaned: dict
         """
         subject = cleaned.get("subject")
-        threshold = cleaned.get("threshold")
-        if not subject or threshold is None:
-            return
-        if subject in {s.value for s in PERCENT_SUBJECTS}:
+        if not subject or subject not in {s.value for s in CURRENCY_SUBJECTS}:
             cleaned["threshold_unit"] = "algo"
             return
-        if cleaned.get("threshold_unit") != "usd":
-            return
-
-        rate = cleaned.get("algo_usd")
-        if not rate:
-            self.add_error(
-                "threshold",
-                "The ALGO price is not available right now - enter the "
-                "threshold in ALGO.",
-            )
-            return
-        cleaned["threshold"] = threshold / rate
+        cleaned["threshold_unit"] = cleaned.get("threshold_unit") or "algo"
 
     def clean_subject(self):
         """Refuse a rule the reader's tier does not admit.
@@ -241,6 +235,8 @@ class AlertRuleForm(forms.Form):
             "direction": self.cleaned_data["direction"],
             "threshold": self.cleaned_data["threshold"],
             "asset_id": self.cleaned_data.get("asset_id"),
+            "asset_unit": self.cleaned_data.get("asset_unit") or "",
+            "threshold_unit": self.cleaned_data.get("threshold_unit") or "algo",
             "window_seconds": self.cleaned_data.get("window_seconds"),
             "address": self.address,
         }

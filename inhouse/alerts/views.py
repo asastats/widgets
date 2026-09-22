@@ -27,7 +27,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import TemplateView, View
 from widgethost.enforcement import WidgetAccessMixin
 
-from .display import describe
+from .display import describe, disclosure
 from .evaluate import evaluate_page, evaluate_prices, payload_for
 from .forms import UNIT_CHOICES, WINDOW_CHOICES, AlertRuleForm
 from .manifest import MANIFEST
@@ -125,10 +125,17 @@ class AlertsContextMixin:
             ).count(),
             # Both in ALGO, as every threshold is stored.
             "current_total": published.get("total"),
-            # ALGO's own price in USD. The form converts a USD threshold with
-            # it, and the template shows the dollar equivalent beside the ALGO
-            # one so a reader can see both without doing the arithmetic.
-            "algo_usd": published.get("priceusdc"),
+            # **ALGO per USD, not ALGO's price in USD.** `priceusdc` is how
+            # much ALGO one dollar buys - about 4 when ALGO is $0.25 - which is
+            # what the address page labels "ALGO/USD" and what
+            # `account_totals` divides a total by. It is carried under a name
+            # that says the direction, because calling it "algo_usd" is how
+            # this widget came to convert it backwards in three places.
+            #
+            # Nothing converts a threshold with it any more; it is here so the
+            # modal can show the reader what their figure is worth in the other
+            # currency.
+            "algo_per_usd": published.get("priceusdc"),
         }
 
 
@@ -578,6 +585,18 @@ class AlertsRepricedView(View):
         )
 
 
+def _body_for(rule):
+    """Return the notification body for a rule that has just fired.
+
+    :param rule: the rule, carrying `depth_algo` when the engine sent one
+    :type rule: :class:`widgets.inhouse.alerts.models.AlertRule`
+    :return: str
+    """
+    said = describe(rule)
+    depth = disclosure(getattr(rule, "depth_algo", None))
+    return f"{said} · {depth}" if depth else said
+
+
 def _notify_all(fired, url):
     """Send one notification per fired rule and return how many landed.
 
@@ -593,7 +612,14 @@ def _notify_all(fired, url):
             rule.user,
             {
                 "title": "ASA Stats",
-                "body": describe(rule),
+                # **The liquidity behind the price, where there is one to
+                # name.** A price from shallow pools moves several percent on
+                # one swap and back, so the reader is told what a trade could
+                # absorb and judges for themselves - see `display.disclosure`
+                # and `notifications/DESIGN.md`. Absent for every subject that
+                # is not an asset price, and absent when the engine did not
+                # send a depth.
+                "body": _body_for(rule),
                 # Per rule, so two alerts on one page replace neither. A shared
                 # tag would silently collapse them into the last one.
                 "tag": f"alert-{rule.pk}",
@@ -647,7 +673,25 @@ class AlertsPricedView(View):
             except (TypeError, ValueError):
                 logger.warning("alerts: unusable price for asset %r", key)
 
-        fired = evaluate_prices(readings)
+        # **Optional, because the two repos sync separately.** An engine that
+        # has not caught up sends no `depths` and every price rule still fires;
+        # the reader is told less, not nothing. Same reason it is a second map
+        # rather than a richer `prices`.
+        # **ALGO per USD, for a rule the reader wrote in dollars.** The page
+        # subjects read it from the payload; this call is the only one that
+        # would otherwise have no rate at all.
+        algo_per_usd = body.get("algo_per_usd")
+
+        depths = {}
+        for key, value in (body.get("depths") or {}).items():
+            try:
+                depths[int(key)] = float(value)
+            except (TypeError, ValueError):
+                logger.warning("alerts: unusable depth for asset %r", key)
+
+        fired = evaluate_prices(
+            readings, depths=depths, algo_per_usd=algo_per_usd
+        )
         notified = _notify_all(fired, "/")
         return JsonResponse(
             {

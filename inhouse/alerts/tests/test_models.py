@@ -294,3 +294,30 @@ class TestAlertRuleLine:
         rule = self._rule(reader, last_value="0")
 
         assert rule.crossed(10.0) is False
+
+
+@pytest.mark.django_db
+class TestAlertRuleNeedsCurrency:
+    """Testing class for which subjects a reader may denominate.
+
+    **Three of the six are money.** A percentage is a proportion and an amount
+    is a count of the asset itself, so neither has an ALGO/USD choice to make -
+    which is what the modal hides the control on, and what stops a stale posted
+    unit turning "5%" into five dollars of something.
+    """
+
+    @pytest.mark.parametrize(
+        ("subject", "expected"),
+        [
+            (Subject.TOTAL_VALUE, True),
+            (Subject.ASA_TOTAL, True),
+            (Subject.ASA_PRICE, True),
+            (Subject.ASA_AMOUNT, False),
+            (Subject.TOTAL_PERCENT, False),
+            (Subject.ASA_PRICE_PERCENT, False),
+        ],
+    )
+    def test_alerts_models_needs_currency(self, reader, subject, expected):
+        rule = AlertRule(user=reader, subject=subject)
+
+        assert rule.needs_currency is expected
