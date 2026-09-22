@@ -33,7 +33,7 @@ from .manifest import MANIFEST
 from .models import AlertRule, Direction, PushSubscription, Subject
 from .population import publish_assets, publish_page
 from .push import notify, push_configured
-from .tiers import rules_allowed
+from .tiers import more_rules_available, rules_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +77,15 @@ class AlertsContextMixin:
             "rules_allowed": allowed,
             "rules_kept": len(rules),
             "rules_left": max(0, allowed - len(rules)),
+            # **At the cap, and whether that cap can be raised.** Two separate
+            # questions: the first decides whether to explain the number, the
+            # second whether the explanation ends in a link. See
+            # `tiers.more_rules_available` for why the top tier gets prose
+            # instead of an upsell.
+            "rules_capped": allowed > 0 and len(rules) >= allowed,
+            "more_rules_available": more_rules_available(
+                getattr(profile, "permission", 0)
+            ),
             "alerts_entitled": allowed > 0,
             "subjects": Subject.choices,
             "directions": Direction.choices,
@@ -193,6 +202,101 @@ class AlertsRulesView(WidgetAccessMixin, AlertsContextMixin, View):
 
         :return: :class:`django.http.HttpResponse`
         """
+        return HttpResponse(
+            render_to_string("alerts/_panel.html", context, request=request),
+            status=status,
+        )
+
+    def test_func(self):
+        """Resolve the page and apply the manifest gate.
+
+        :return: Boolean
+        """
+        url_path = self.kwargs["page"].upper()
+        self.bundle, self.addresses = bundle_and_addresses_from_path(
+            url_path, force_bundle=True
+        )
+        return self.manifest_test_func(len(self.addresses.split(" ")))
+
+
+@method_decorator(never_cache, name="dispatch")
+class AlertsRuleEditView(WidgetAccessMixin, AlertsContextMixin, View):
+    """Load one of the reader's own rules into the form, or apply the change.
+
+    **Scoped to `request.user` in the lookup**, like the delete beside it: a
+    rule id is a guessable integer, and fetching by id then comparing owners is
+    one forgotten line away from letting anybody edit anybody's alerts.
+
+    `GET` re-renders the panel with the form bound to the rule; `POST` applies
+    it. Both answer with the panel, because that is what htmx swaps and what
+    every other mutation here returns.
+
+    :var manifest: this widget's parsed manifest
+    """
+
+    manifest = MANIFEST
+    bundle = None
+    addresses = None
+
+    def _rule(self, request):
+        return get_object_or_404(
+            AlertRule, pk=self.kwargs["pk"], user=request.user
+        )
+
+    def get(self, request, *args, **kwargs):
+        """Put the rule in the form so the reader can change it.
+
+        :return: :class:`django.http.HttpResponse`
+        """
+        rule = self._rule(request)
+        context = self.alerts_context(self.bundle)
+        context["form"] = AlertRuleForm(
+            initial={
+                "subject": rule.subject,
+                "direction": rule.direction,
+                "threshold": rule.threshold,
+                "asset_id": rule.asset_id,
+                "window_seconds": rule.window_seconds,
+            },
+            user=request.user,
+            address=self.bundle,
+            instance=rule,
+        )
+        context["editing"] = rule
+        return HttpResponse(
+            render_to_string("alerts/_panel.html", context, request=request)
+        )
+
+    def post(self, request, *args, **kwargs):
+        """Apply the change, or answer with what was wrong.
+
+        :return: :class:`django.http.HttpResponse`
+        """
+        rule = self._rule(request)
+        was_price_rule = rule.subject == Subject.ASA_PRICE
+        form = AlertRuleForm(
+            request.POST, user=request.user, address=self.bundle, instance=rule
+        )
+        if form.is_valid():
+            form.save()
+            # The page it names cannot change - the modal is opened from one -
+            # but the assets can: an edit may add the first price rule for an
+            # asset, or remove the last.
+            if was_price_rule or form.cleaned_data["subject"] == Subject.ASA_PRICE:
+                publish_assets()
+            publish_page(rule.address)
+            status = 200
+        else:
+            status = 422
+
+        context = self.alerts_context(self.bundle)
+        if form.is_valid():
+            context["form"] = AlertRuleForm(user=request.user, address=self.bundle)
+        else:
+            context["form"] = form
+            # Still editing: a rejected change must come back on the same rule
+            # rather than turning into a new one the reader did not ask for.
+            context["editing"] = rule
         return HttpResponse(
             render_to_string("alerts/_panel.html", context, request=request),
             status=status,

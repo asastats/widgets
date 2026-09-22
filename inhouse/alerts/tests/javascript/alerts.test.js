@@ -20,6 +20,7 @@ function panel(subject) {
       <form class="alerts-form">
         <select class="alerts-subject">
           <option value="asa_price">Asset price</option>
+          <option value="asa_price_percent">Asset price, percentage move</option>
           <option value="asa_total">My holding of an asset</option>
           <option value="total_value">Portfolio total</option>
           <option value="total_percent">Portfolio total, percentage move</option>
@@ -81,6 +82,20 @@ describe("which fields a subject needs", () => {
 
     expect(assetField().hidden).toBe(true);
     expect(windowField().hidden).toBe(true);
+  });
+
+  test("an asset percentage asks for both, and for no unit", () => {
+    // **The only subject that needs an asset *and* a window**, which is the
+    // combination neither of the two arrays alone would produce. It is also a
+    // percentage, so the ALGO/USD control has nothing to say: a "5" here means
+    // five per cent whichever button is lit, and leaving the control up would
+    // invite the reader to believe otherwise.
+    const root = panel("asa_price_percent");
+    alerts.syncFields(root);
+
+    expect(assetField().hidden).toBe(false);
+    expect(windowField().hidden).toBe(false);
+    expect(root.querySelector(".alerts-units").hidden).toBe(true);
   });
 
   test("a percentage move asks for a window and not an asset", () => {
@@ -938,11 +953,20 @@ describe("the current value shown beside the threshold", () => {
     expect(alerts.showCurrent(root)).toBe("");
   });
 
-  test("an asset subject shows nothing rather than the portfolio's figure", () => {
-    // **The wrong number is worse than none.** The page publishes its totals,
-    // not each asset's own price, so there is nothing here to show for an asset
-    // and borrowing the total would be a different statement entirely.
+  test("an asset subject shows nothing until an asset is picked", () => {
+    // The price arrives on the search row; before one is chosen there is none,
+    // and borrowing the portfolio total would be a different statement.
     const root = panel("asa_price");
+
+    expect(alerts.showCurrent(root)).toBe("");
+  });
+
+  test("a holding subject shows nothing even with a price to hand", () => {
+    // **`asa_total` is the value of this reader's holding**, which is not the
+    // asset's price and is not published to this modal. The wrong number is
+    // worse than none.
+    const root = panel("asa_total");
+    document.querySelector(".alerts-now").setAttribute("data-asset-usd", "0.25");
 
     expect(alerts.showCurrent(root)).toBe("");
   });
@@ -951,6 +975,48 @@ describe("the current value shown beside the threshold", () => {
     // Not zero, which would read as "your portfolio is worth nothing".
     const root = panel("total_value");
     note().setAttribute("data-current-total", "");
+
+    expect(alerts.showCurrent(root)).toBe("");
+  });
+});
+
+describe("the price of the asset a reader picked", () => {
+  /** A picked asset priced at $0.25, with ALGO at $0.25. */
+  function picked(assetUsd = "0.25", algoUsd = "0.25") {
+    const root = panel("asa_price");
+    const note = document.querySelector(".alerts-now");
+    note.setAttribute("data-asset-usd", assetUsd);
+    note.setAttribute("data-algo-usd", algoUsd);
+    return root;
+  }
+
+  test("it is converted into ALGO, which is what the threshold means", () => {
+    // **The two sides speak different currencies.** The search row carries USD;
+    // the threshold is stored in ALGO. Showing the USD figure beside an ALGO
+    // threshold without dividing would be the most dangerous version of this.
+    const root = picked("0.50", "0.25");
+
+    expect(alerts.showCurrent(root)).toBe("Now 2.00 ALGO");
+  });
+
+  test("choosing USD shows the price as it came", () => {
+    const root = picked("0.50", "0.25");
+
+    alerts.chooseUnit(document.querySelector('[data-unit="usd"]'));
+
+    expect(document.querySelector(".alerts-now").textContent).toBe("Now $0.5");
+  });
+
+  test("a small price keeps its significant digits", () => {
+    // A threshold of 0.0000123 is an ordinary ASA price; `toFixed(2)` would
+    // render it 0.00 and tell the reader the asset is worthless.
+    const root = picked("0.00000307", "0.25");
+
+    expect(alerts.showCurrent(root)).toContain("0.00001228");
+  });
+
+  test("no ALGO price means no conversion and nothing shown", () => {
+    const root = picked("0.50", "");
 
     expect(alerts.showCurrent(root)).toBe("");
   });

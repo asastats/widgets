@@ -75,6 +75,30 @@
          data-unsubscribe-url="{% url 'alerts_unsubscribe' %}"
          data-worker-url="{% url 'alerts_service_worker' %}">
       {% if push_configured %}
+      {% comment %} **Rules with nowhere to go, said out loud.**
+
+         A reader who never presses the button still gets a modal that looks
+         complete: the rules save, the page is published, the engine triggers
+         and evaluation runs. What they do not get is the alert - `notify`
+         finds no subscription and sends nothing.
+
+         They are held rather than spent - `evaluate_page` skips a rule whose
+         reader has no browser, so `last_value` stays put and the crossing is
+         still there when one is turned on. That is what makes the three
+         promises above ("will be waiting", "will start arriving") true.
+
+         So this is a warning rather than a hint, and it appears only once they
+         have something to lose - a reader with no rules yet is being invited,
+         not warned.
+      {% endcomment %}
+      {% if rules_kept and not subscribed_browsers %}
+      <p class="alerts-warning">
+        <strong>No browser is set to receive these.</strong>
+        {{ rules_kept }} alert{{ rules_kept|pluralize }} saved, and nothing to
+        send {{ rules_kept|pluralize:"it,them" }} to. They are held until a
+        browser is on, so nothing is lost - but nothing arrives either.
+      </p>
+      {% endif %}
       <button type="button" class="alerts-enable-btn id-alerts-enable">
         {% if subscribed_browsers %}This browser is on{% else %}Notify this browser{% endif %}
       </button>

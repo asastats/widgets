@@ -31,6 +31,7 @@ class Subject(models.TextChoices):
     """
 
     ASA_PRICE = "asa_price", "Asset price"
+    ASA_PRICE_PERCENT = "asa_price_percent", "Asset price, percentage move"
     ASA_TOTAL = "asa_total", "My holding of an asset"
     TOTAL_VALUE = "total_value", "Portfolio total"
     TOTAL_PERCENT = "total_percent", "Portfolio total, percentage move"
@@ -44,10 +45,23 @@ class Direction(models.TextChoices):
 
 
 #: Subjects that name a single asset, and so require `asset_id`.
-ASSET_SUBJECTS = frozenset({Subject.ASA_PRICE, Subject.ASA_TOTAL})
+ASSET_SUBJECTS = frozenset(
+    {Subject.ASA_PRICE, Subject.ASA_PRICE_PERCENT, Subject.ASA_TOTAL}
+)
+
+#: Subjects the per-asset evaluator answers, and so the assets the engine's
+#: price task must keep fresh.
+#:
+#: **Not every asset subject.** `ASA_TOTAL` is "my holding of this asset on this
+#: page", which the live pass already publishes - an asset named only by those
+#: rules must not make the price task fetch anything. These two are the ones
+#: that need a price nobody else asked for.
+PRICED_SUBJECTS = frozenset({Subject.ASA_PRICE, Subject.ASA_PRICE_PERCENT})
 
 #: Subjects expressed as a percentage move, and so require a window.
-PERCENT_SUBJECTS = frozenset({Subject.TOTAL_PERCENT})
+PERCENT_SUBJECTS = frozenset(
+    {Subject.TOTAL_PERCENT, Subject.ASA_PRICE_PERCENT}
+)
 
 #: How long a fired rule stays quiet, unless a tier says otherwise.
 #:
@@ -77,7 +91,11 @@ class AlertRule(models.Model):
         on_delete=models.CASCADE,
         related_name="alert_rules",
     )
-    subject = models.CharField(max_length=16, choices=Subject.choices)
+    # 32 rather than the 16 the first four subjects fitted in: `asa_price_percent`
+    # is 17, and a subject name is descriptive by design. The column is a choice
+    # field, so the width costs nothing and running out of it again would mean
+    # another migration for a name.
+    subject = models.CharField(max_length=32, choices=Subject.choices)
 
     # **Nullable, and validated per subject rather than per column.** A
     # portfolio rule names no asset and an asset rule names no bundle; making

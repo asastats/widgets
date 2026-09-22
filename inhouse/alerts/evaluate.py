@@ -12,11 +12,13 @@ from the Redis both projects share.
   publishes on every block. `total_percent` rides the same trigger but reads a
   *second* number - the page's total one window ago - out of the history the
   engine keeps at `lvth:{page}`.
-* `evaluate_prices` answers "these assets have a price now". `asa_price` is not
-  per-reader at all - one question per asset however many people watch it - so
-  it rides the engine's periodic task rather than any page's re-price.
+* `evaluate_prices` answers "these assets have a price now". `asa_price` and
+  `asa_price_percent` are not per-reader at all - one question per asset however
+  many people watch it - so they ride the engine's periodic task rather than any
+  page's re-price. The percentage one reads its second number from `lvah:{asset
+  id}`, which that same task writes as it prices.
 
-**The rule that makes `total_percent` honest is in `percent_move`:** it compares
+**The rule that makes both percentage subjects honest is in `percent_move`:** it compares
 against the newest point *at or before* the window's far edge, and returns None
 when the history does not reach that far. A rule with a 24-hour window therefore
 fires nothing for its first 24 hours. The alternative - comparing against
@@ -34,7 +36,9 @@ import time
 
 from django.utils import timezone
 
-from .models import AlertRule, Subject
+from django.db.models import Exists, OuterRef
+
+from .models import PRICED_SUBJECTS, AlertRule, PushSubscription, Subject
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +51,9 @@ logger = logging.getLogger(__name__)
 #: is answered by `evaluate_prices` on the engine's periodic task.
 SKIPPED = {
     Subject.ASA_PRICE: "is per-asset, and is answered by the periodic price task",
+    Subject.ASA_PRICE_PERCENT: (
+        "is per-asset, and is answered by the periodic price task"
+    ),
 }
 
 #: Where the engine keeps a page's totals over time: `lvth:{page}`.
@@ -55,6 +62,32 @@ SKIPPED = {
 #: two projects share a Redis rather than a codebase, and the engine's
 #: `CACHE_KEY_LIVE_TOTALS_HISTORY` is the other half of this contract.
 HISTORY_KEY = "lvth"
+
+#: Where the engine keeps an asset's prices over time: `lvah:{asset_id}`.
+#:
+#: Written by the periodic price task, which already has the prices - see the
+#: engine's `CACHE_KEY_LIVE_ASSET_HISTORY`.
+ASSET_HISTORY_KEY = "lvah"
+
+
+def _with_delivery(queryset):
+    """Annotate `queryset` with whether its reader has a browser to notify.
+
+    **A rule with nowhere to go is held, not spent.** Firing it would set
+    `last_fired_at` and advance `last_value` past the threshold, so the next
+    evaluation would see no crossing - the alert would be gone rather than
+    waiting, and the modal promises three times over that rules saved now will
+    be there when a browser is turned on.
+
+    Annotated rather than filtered so the held ones can be counted and logged:
+    "my alert never fired" is the question this answers.
+
+    :param queryset: rules being evaluated
+    :return: the same rules, carrying `deliverable`
+    """
+    return queryset.annotate(
+        deliverable=Exists(PushSubscription.objects.filter(user=OuterRef("user")))
+    )
 
 
 def reading_for(rule, total, values, client=None, now=None):
@@ -87,7 +120,8 @@ def reading_for(rule, total, values, client=None, now=None):
     return None
 
 
-def percent_move(page, window_seconds, total, client=None, now=None):
+def percent_move(page, window_seconds, total, client=None, now=None,
+                 prefix=HISTORY_KEY):
     """Return how far `total` has moved over the window, as a percentage.
 
     **The window is honoured or the question is refused.** This returns None
@@ -105,8 +139,9 @@ def percent_move(page, window_seconds, total, client=None, now=None):
     So a rule with a 24-hour window fires nothing for its first 24 hours, and
     that is correct rather than a gap to paper over.
 
-    :param page: the bundle or address
+    :param page: the bundle or address, or an asset id for the asset series
     :type page: str
+    :param prefix: which series to read - a page's totals or an asset's prices
     :param window_seconds: the period the reader chose
     :type window_seconds: int
     :param total: the page's total now
@@ -127,7 +162,7 @@ def percent_move(page, window_seconds, total, client=None, now=None):
         # a limit of one is the whole read - the series may hold two thousand
         # points and exactly one of them answers this.
         members = client.zrevrangebyscore(
-            f"{HISTORY_KEY}:{page}", edge, "-inf", start=0, num=1
+            f"{prefix}:{page}", edge, "-inf", start=0, num=1
         )
     except Exception as error:  # noqa: BLE001 - a webhook must not 500 on this
         logger.warning("could not read the totals history: %s", error)
@@ -204,12 +239,17 @@ def evaluate_page(address, payload, now=None, client=None, unix_now=None):
     total = (payload or {}).get("total")
     values = (payload or {}).get("values") or {}
 
-    fired, skipped = [], 0
-    for rule in AlertRule.objects.filter(
-        address=address, active=True
-    ).select_related("user"):
+    fired, skipped, held = [], 0, 0
+    for rule in _with_delivery(
+        AlertRule.objects.filter(address=address, active=True).select_related("user")
+    ):
         if rule.subject in SKIPPED:
             skipped += 1
+            continue
+        if not rule.deliverable:
+            # Left exactly as it was, so the crossing is still there when a
+            # browser is turned on.
+            held += 1
             continue
 
         value = reading_for(rule, total, values, client=client, now=unix_now)
@@ -222,10 +262,16 @@ def evaluate_page(address, payload, now=None, client=None, unix_now=None):
         rule.last_value = value
         rule.save(update_fields=["last_value", "last_fired_at", "updated_at"])
 
+    if held:
+        logger.info(
+            "alerts: %s rule(s) on %s held - their reader has no browser on",
+            held,
+            address,
+        )
     return fired, skipped
 
 
-def evaluate_prices(prices, now=None):
+def evaluate_prices(prices, now=None, client=None, unix_now=None):
     """Return the `asa_price` rules that just crossed, and record what was seen.
 
     The per-asset half, and the only evaluator here that is not per-page. It
@@ -244,6 +290,8 @@ def evaluate_prices(prices, now=None):
     :param prices: {asset id: price in ALGO}, as the engine computed them
     :type prices: dict
     :param now: the moment to evaluate at, for tests
+    :param client: an open Redis client, for `asa_price_percent`'s history read
+    :param unix_now: unix time, for tests
     :return: the rules that fired
     :rtype: list
     """
@@ -251,11 +299,32 @@ def evaluate_prices(prices, now=None):
     if not prices:
         return []
 
-    fired = []
-    for rule in AlertRule.objects.filter(
-        subject=Subject.ASA_PRICE, active=True, asset_id__in=list(prices)
-    ).select_related("user"):
+    fired, held = [], 0
+    for rule in _with_delivery(
+        AlertRule.objects.filter(
+            subject__in=PRICED_SUBJECTS,
+            active=True,
+            asset_id__in=list(prices),
+        ).select_related("user")
+    ):
+        if not rule.deliverable:
+            held += 1
+            continue
         value = prices.get(rule.asset_id)
+        if rule.subject == Subject.ASA_PRICE_PERCENT:
+            # **The same honesty rule as `total_percent`**, on the series the
+            # price task keeps: compared against the newest point at or before
+            # the window's far edge, or refused. A 24-hour rule reports nothing
+            # for its first 24 hours rather than reporting a shorter move under
+            # a longer name.
+            value = percent_move(
+                rule.asset_id,
+                rule.window_seconds,
+                value,
+                client=client,
+                now=unix_now,
+                prefix=ASSET_HISTORY_KEY,
+            )
         # **A price the engine could not compute arrives as None, not as zero.**
         # An asset with no pool left prices at nothing, and reading that as a
         # collapse to zero would fire every "falls below" rule naming it at
@@ -269,6 +338,10 @@ def evaluate_prices(prices, now=None):
         rule.last_value = value
         rule.save(update_fields=["last_value", "last_fired_at", "updated_at"])
 
+    if held:
+        logger.info(
+            "alerts: %s price rule(s) held - their reader has no browser on", held
+        )
     return fired
 
 

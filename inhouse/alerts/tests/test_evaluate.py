@@ -15,17 +15,35 @@ from widgets.inhouse.alerts.evaluate import (
     payload_for,
     reading_for,
 )
-from widgets.inhouse.alerts.models import AlertRule, Direction, Subject
+from widgets.inhouse.alerts.models import (
+    AlertRule,
+    Direction,
+    PushSubscription,
+    Subject,
+)
 
 PAGE = "BUNDLEHASH"
 
 
 @pytest.fixture
 def reader(db):
-    """Return a user to hang rules on."""
-    return get_user_model().objects.create_user(
+    """Return a user to hang rules on, with a browser to notify.
+
+    **The subscription is not incidental.** A rule whose reader has no browser
+    is *held* rather than evaluated - see `_with_delivery` - so a fixture
+    without one would make every test here assert that nothing fires, which is
+    true and useless. The held case has its own class below.
+    """
+    user = get_user_model().objects.create_user(
         username="eval@example.com", email="eval@example.com", password="x"
     )
+    PushSubscription.objects.create(
+        user=user,
+        endpoint="https://push.example/eval",
+        p256dh="p",
+        auth="a",
+    )
+    return user
 
 
 def _rule(reader, **overrides):
@@ -366,6 +384,93 @@ class TestAlertsEvaluatePrices:
 
 
 @pytest.mark.django_db
+class TestAlertsEvaluatePricePercent:
+    """Testing class for the percentage half of the per-asset evaluator."""
+
+    def _rule(self, reader, **overrides):
+        fields = {
+            "user": reader,
+            "subject": Subject.ASA_PRICE_PERCENT,
+            "direction": Direction.DOWN,
+            "threshold": "5",
+            "asset_id": 31566704,
+            "window_seconds": 3600,
+        }
+        fields.update(overrides)
+        return AlertRule.objects.create(**fields)
+
+    def _client(self, mocker, members):
+        client = mocker.MagicMock()
+        client.zrevrangebyscore.return_value = members
+        return client
+
+    def test_alerts_evaluate_price_percent_reports_a_crossing(self, reader, mocker):
+        """A tenth off the hour's price crosses a "down 5%" rule.
+
+        `last_value` is the move *last* time, not the price: the reading this
+        subject compares is a percentage, and the rule was sitting at a move of
+        minus one.
+        """
+        client = self._client(mocker, [b"1000:1.0"])
+        self._rule(reader, last_value="-1")
+
+        fired = evaluate_prices({31566704: 0.9}, client=client)
+
+        assert len(fired) == 1
+
+    def test_alerts_evaluate_price_percent_refuses_a_short_history(
+        self, reader, mocker
+    ):
+        """**The reading is refused, and the rule is left armed.**
+
+        No point at or before the far edge means the series does not reach back
+        a window - so there is no honest answer, and reporting the move since
+        whenever the price task started would be a move over a period the reader
+        did not choose. `last_value` must survive that, or the rule would be
+        re-armed against a number it never saw.
+        """
+        client = self._client(mocker, [])
+        rule = self._rule(reader, last_value="-1")
+
+        assert evaluate_prices({31566704: 0.5}, client=client) == []
+        rule.refresh_from_db()
+        assert float(rule.last_value) == -1
+
+    def test_alerts_evaluate_price_percent_reads_its_own_asset(
+        self, reader, mocker
+    ):
+        client = self._client(mocker, [b"1000:1.0"])
+        self._rule(reader, asset_id=386192725, last_value="-1")
+
+        evaluate_prices({386192725: 0.9}, client=client, unix_now=10_000)
+
+        assert client.zrevrangebyscore.call_args[0][0] == "lvah:386192725"
+
+    def test_alerts_evaluate_price_percent_does_not_read_for_a_level_rule(
+        self, reader, mocker
+    ):
+        """`asa_price` is answered by the price in the body and nothing else.
+
+        The two subjects ride the same task and the same query; only the
+        percentage one costs a read, and a level rule paying for one would be a
+        round trip per asset per run for a number it does not use.
+        """
+        client = self._client(mocker, [b"1000:1.0"])
+        AlertRule.objects.create(
+            user=reader,
+            subject=Subject.ASA_PRICE,
+            direction=Direction.DOWN,
+            threshold="1",
+            asset_id=31566704,
+            last_value="2",
+        )
+
+        evaluate_prices({31566704: 0.5}, client=client)
+
+        assert client.zrevrangebyscore.called is False
+
+
+@pytest.mark.django_db
 class TestAlertsEvaluatePercentMove:
     """Testing class for reading a move out of the engine's totals history.
 
@@ -392,6 +497,24 @@ class TestAlertsEvaluatePercentMove:
         client = self._client(mocker, [b"1000:100.0"])
 
         assert percent_move(PAGE, 3600, 90.0, client=client) == pytest.approx(-10.0)
+
+    def test_alerts_evaluate_percent_move_reads_the_asset_series_by_prefix(
+        self, mocker
+    ):
+        """**One function, two series.** `asa_price_percent` compares an asset's
+        price against its own history at `lvah:{asset id}`; the page subject
+        compares a total against `lvth:{page}`. Same honesty rule, same read -
+        so the key is the only thing that differs, and a second copy of this
+        function would be a second place for the far-edge rule to rot.
+        """
+        client = self._client(mocker, [b"1000:0.5"])
+
+        move = percent_move(
+            31566704, 3600, 0.55, client=client, now=10_000, prefix="lvah"
+        )
+
+        assert move == pytest.approx(10.0)
+        assert client.zrevrangebyscore.call_args[0][0] == "lvah:31566704"
 
     def test_alerts_evaluate_percent_move_asks_past_the_far_edge(self, mocker):
         """**The read that makes the window mean what it says.** It asks for the

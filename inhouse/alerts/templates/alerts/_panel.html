@@ -42,8 +42,15 @@
 
   <ul class="alerts-list">
     {% for rule in rules %}
-    <li class="alerts-rule">
+    <li class="alerts-rule{% if editing and editing.pk == rule.pk %} alerts-rule-editing{% endif %}">
       <span class="alerts-rule-text">{{ rule }}</span>
+      {# Loads this rule into the form below. A GET, because it changes #}
+      {# nothing until the reader saves.                                #}
+      <button type="button" class="alerts-edit"
+              hx-get="{% url 'alerts_rule_edit' address rule.pk %}"
+              hx-target="#id-alerts-panel"
+              hx-swap="outerHTML"
+              aria-label="Change this alert">Edit</button>
       <button type="button" class="alerts-remove"
               hx-post="{% url 'alerts_rule_delete' address rule.pk %}"
               hx-target="#id-alerts-panel"
@@ -57,13 +64,46 @@
 
   {% comment %} The remainder, not the total: the view does the arithmetic so
      this does not, and so there is only one place to get it wrong. {% endcomment %}
-  <p class="alerts-left">
-    {{ rules_left }} of {{ rules_allowed }} left
+  <p class="alerts-left{% if rules_capped %} alerts-left-capped{% endif %}">
+    {{ rules_left }} of {{ rules_allowed }} left{% if rules_capped %}{% comment %}
+       **Why the number is explained here and not only where the form was.**
+       A reader at the limit sees the form disappear, and the sentence that
+       says why sits where the form used to be - which is below the fold on a
+       phone, and gone entirely while they are editing a rule. The count is the
+       thing they are reading, so the reason belongs next to the count.
+
+       The top tier gets the same sentence without the link: see
+       `tiers.more_rules_available`.
+    {% endcomment %}&nbsp;&mdash;
+    {% if more_rules_available %}
+    <a href="{% url 'subscriptions' %}" class="link">a larger plan</a> keeps more.
+    {% else %}
+    the most any plan keeps.
+    {% endif %}{% endif %}
   </p>
 
-  {% if rules_left %}
+  {% comment %} **Every control shows what was sent, not its default.**
+
+     A rejected rule comes back as a bound form and this panel replaces the one
+     the reader filled in - so without the bindings below, a threshold typed as
+     "0" took the subject, the direction, the asset and the period down with it.
+     They fixed one number and had to enter everything else again.
+
+     The asset button falls back to `#<id>` because the id is all a bound form
+     carries; the unit and the name were only ever on the search row. It is the
+     choice preserved rather than the label, which beats losing the choice.
+  {% endcomment %}
+  {# **Editing stays available at the limit.** `rules_left` is zero for a #}
+  {# reader who has spent their allowance, and hiding the form there would #}
+  {# leave them unable to change a rule - exactly the reader most likely to #}
+  {# want to. The form shows whenever there is room *or* something to edit. #}
+  {% if rules_left or editing %}
+  {% comment %} One form, two jobs. Editing posts to the rule's own URL and
+     keeps the reader on it until they save or cancel; creating posts to the
+     collection. A second form would be a second place for every field and
+     every binding to drift out of step. {% endcomment %}
   <form class="alerts-form"
-        hx-post="{% url 'alerts_rules' address %}"
+        hx-post="{% if editing %}{% url 'alerts_rule_edit' address editing.pk %}{% else %}{% url 'alerts_rules' address %}{% endif %}"
         hx-target="#id-alerts-panel"
         hx-swap="outerHTML">
     {% csrf_token %}
@@ -72,7 +112,8 @@
       <span>Watch</span>
       <select name="subject" class="alerts-subject">
         {% for value, label in subjects %}
-        <option value="{{ value }}">{{ label }}</option>
+        <option value="{{ value }}"
+          {% if form.subject.value == value %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
     </label>
@@ -97,12 +138,13 @@
     {% endcomment %}
     <div class="alerts-field alerts-asset-field" hidden>
       <span class="alerts-field-label">Asset</span>
-      <input type="hidden" name="asset_id" class="alerts-asset-id">
+      <input type="hidden" name="asset_id" class="alerts-asset-id"
+             value="{{ form.asset_id.value|default_if_none:'' }}">
       <button type="button" class="alerts-assetbtn id-alerts-assetbtn"
               aria-expanded="false">
         <img class="alerts-assetbtn-icon" alt="" hidden
              data-fallback="{{ BASE_CDN_URL }}/icons/empty.png">
-        <span class="alerts-assetbtn-text">Choose asset</span>
+        <span class="alerts-assetbtn-text">{% if form.asset_id.value %}#{{ form.asset_id.value }}{% else %}Choose asset{% endif %}</span>
       </button>
 
       {% comment %} The picker, inline rather than a nested `<dialog>`: this
@@ -125,7 +167,8 @@
       <span>When it</span>
       <select name="direction">
         {% for value, label in directions %}
-        <option value="{{ value }}">{{ label }}</option>
+        <option value="{{ value }}"
+          {% if form.direction.value == value %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
     </label>
@@ -144,17 +187,18 @@
       <span>Threshold</span>
       <span class="alerts-threshold-row">
         <input type="text" name="threshold" class="alerts-threshold"
-               inputmode="decimal" required>
+               inputmode="decimal" required
+               value="{{ form.threshold.value|default_if_none:'' }}">
         <span class="alerts-units" role="group" aria-label="Threshold unit">
           {% for value, label in units %}
           <button type="button" class="alerts-unit id-alerts-unit"
                   data-unit="{{ value }}"
-                  {% if forloop.first %}aria-pressed="true"{% else %}aria-pressed="false"{% endif %}>{{ label }}</button>
+                  {% if form.threshold_unit.value|default:'algo' == value %}aria-pressed="true"{% else %}aria-pressed="false"{% endif %}>{{ label }}</button>
           {% endfor %}
         </span>
       </span>
       <input type="hidden" name="threshold_unit" class="alerts-unit-value"
-             value="algo">
+             value="{{ form.threshold_unit.value|default:'algo' }}">
       {# Posted back so the conversion uses the rate the reader was shown, #}
       {# rather than one fetched again at save. #}
       <input type="hidden" name="algo_usd" value="{{ algo_usd|default_if_none:'' }}">
@@ -173,7 +217,8 @@
       <span>Over</span>
       <select name="window_seconds">
         {% for value, label in windows %}
-        <option value="{{ value }}">{{ label }}</option>
+        <option value="{{ value }}"
+          {% if form.window_seconds.value|stringformat:"s" == value|stringformat:"s" %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
       {% comment %} Said before they choose, because the alternative is a reader
@@ -186,12 +231,26 @@
       </small>
     </label>
 
-    <button type="submit" class="alerts-save">Add alert</button>
+    <button type="submit" class="alerts-save">
+      {% if editing %}Save changes{% else %}Add alert{% endif %}
+    </button>
+    {% if editing %}
+    {# Reloads the panel as it was, which is the only way back out of editing #}
+    {# without saving. A GET on the modal's own URL re-renders everything.    #}
+    <button type="button" class="alerts-cancel"
+            hx-get="{% url 'alerts' address %}"
+            hx-target="#id-alerts-modal-slot"
+            hx-swap="innerHTML">Cancel</button>
+    {% endif %}
   </form>
   {% else %}
   <p class="alerts-full">
     That is all {{ rules_allowed }} of your alerts.
+    {% if more_rules_available %}
     <a href="{% url 'subscriptions' %}" class="link">Upgrade for more</a>.
+    {% else %}
+    Remove one to make room for another.
+    {% endif %}
   </p>
   {% endif %}
 </div>

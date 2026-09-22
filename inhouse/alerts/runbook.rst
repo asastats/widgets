@@ -171,6 +171,21 @@ harmless.
    Relaxing that to "the oldest point we have" would make every percentage alert
    subtly wrong in a way no notification reveals.
 
+9. **``asa_price_percent``**, the fifth subject and the one that needed both
+   halves. Done: the price task already had the prices, so it writes each one to
+   ``lvah:{asset id}`` as it goes - the same bucket-and-trim write the live pass
+   does for a page's totals - and ``percent_move`` reads that series through its
+   ``prefix`` argument. One function answers both percentage subjects, which is
+   deliberate: a second copy would be a second place for the far-edge rule above
+   to rot.
+
+   **Two things it required elsewhere.** ``publish_assets`` had to widen from
+   ``asa_price`` to ``models.PRICED_SUBJECTS``, or an asset named only by
+   percentage rules would never be priced and its series would stay empty
+   forever - a rule refusing every reading looks exactly like one that has not
+   crossed yet. And ``AlertRule.subject`` had to widen from 16 characters to 32:
+   ``asa_price_percent`` is 17. That is migration ``widgets/0003``.
+
 Traps waiting in the later steps
 ================================
 

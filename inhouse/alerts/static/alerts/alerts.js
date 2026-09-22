@@ -12,10 +12,10 @@
   "use strict";
 
   /** Subjects that name a single asset, mirroring `models.ASSET_SUBJECTS`. */
-  var ASSET_SUBJECTS = ["asa_price", "asa_total"];
+  var ASSET_SUBJECTS = ["asa_price", "asa_price_percent", "asa_total"];
 
   /** Subjects expressed as a percentage, mirroring `models.PERCENT_SUBJECTS`. */
-  var PERCENT_SUBJECTS = ["total_percent"];
+  var PERCENT_SUBJECTS = ["total_percent", "asa_price_percent"];
 
   /**
    * Show the fields this subject needs and hide the rest.
@@ -322,6 +322,21 @@
   }
 
   /**
+   * Format a price without losing a small one to rounding.
+   *
+   * A threshold of 0.0000123 is an ordinary ASA price, and `toFixed(2)` would
+   * show it as 0.00 - a reference figure that says the asset is worthless.
+   *
+   * @param {number} value - the figure.
+   * @returns {string} it, readably.
+   */
+  function trim(value) {
+    if (value >= 1) return value.toFixed(2);
+    // Enough places to keep four significant digits on a small number.
+    return value.toPrecision(4).replace(/0+$/, "").replace(/\.$/, "");
+  }
+
+  /**
    * Show what the watched figure is now, in the unit the reader chose.
    *
    * **A threshold is only meaningful next to the current value**, and a reader
@@ -348,19 +363,35 @@
     var total = parseFloat(note.getAttribute("data-current-total"));
     var rate = parseFloat(note.getAttribute("data-algo-usd"));
 
-    // Percentages have no current value to show, and an asset's price is not
-    // published here.
-    if (!subject || subject.value !== "total_value" || !isFinite(total)) {
+    var text = "";
+    if (!subject) {
       note.textContent = "";
       return "";
     }
 
-    var text;
-    if (chosen === "usd" && isFinite(rate)) {
-      text = "Now $" + (total * rate).toFixed(2);
-    } else {
-      text = "Now " + total.toFixed(2) + " ALGO";
+    if (subject.value === "total_value" && isFinite(total)) {
+      text =
+        chosen === "usd" && isFinite(rate)
+          ? "Now $" + (total * rate).toFixed(2)
+          : "Now " + total.toFixed(2) + " ALGO";
+    } else if (subject.value === "asa_price") {
+      // **Derived, because the two sides speak different currencies.** The
+      // search row carries the asset's price in *USD*; the threshold is stored
+      // in ALGO. Dividing by what one ALGO costs is the whole conversion, and
+      // showing the USD figure beside an ALGO threshold without it would be the
+      // most dangerous version of this feature.
+      var assetUsd = parseFloat(note.getAttribute("data-asset-usd"));
+      if (isFinite(assetUsd) && isFinite(rate) && rate > 0) {
+        text =
+          chosen === "usd"
+            ? "Now $" + trim(assetUsd)
+            : "Now " + trim(assetUsd / rate) + " ALGO";
+      }
     }
+    // `asa_total` is the value of *this reader's holding*, which is not the
+    // asset's price and is not published to this modal. Nothing rather than the
+    // wrong number.
+
     note.textContent = text;
     return text;
   }
@@ -457,8 +488,17 @@
       icon.src = row.getAttribute("data-icon") || "";
       icon.hidden = !icon.src;
     }
+    // **The row is the only place this price exists.** `swap_assets` ranks
+    // assets and hands back a USD price with each; nothing else in this modal
+    // knows one, so it is kept here for `showCurrent` to convert.
+    var note = (field.closest(".alerts-panel") || document).querySelector(
+      ".alerts-now"
+    );
+    if (note) note.setAttribute("data-asset-usd", row.getAttribute("data-usdc-price") || "");
+
     // The asset is now on the button, so the picker has done its job.
     togglePicker(field, false);
+    showCurrent(field.closest(".alerts-panel") || document);
     return true;
   }
 

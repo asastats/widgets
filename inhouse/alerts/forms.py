@@ -79,15 +79,17 @@ class AlertRuleForm(forms.Form):
         choices=WINDOW_CHOICES, coerce=int, required=False
     )
 
-    def __init__(self, *args, user=None, address="", **kwargs):
-        """Bind the reader and the page the rule is being made from.
+    def __init__(self, *args, user=None, address="", instance=None, **kwargs):
+        """Bind the reader, the page, and the rule being edited if any.
 
         :param user: the authenticated reader
         :param address: the bundle or address the modal was opened on
+        :param instance: the rule being edited, or None when creating
         """
         super().__init__(*args, **kwargs)
         self.user = user
         self.address = address
+        self.instance = instance
 
     def clean_threshold(self):
         """Reject a threshold that cannot mean anything.
@@ -206,7 +208,15 @@ class AlertRuleForm(forms.Form):
             raise forms.ValidationError(
                 "Alerts are available from the Asastatser tier."
             )
-        kept = AlertRule.objects.filter(user=self.user, active=True).count()
+        # **An edit spends no slot, and this is not a nicety.** The rule being
+        # edited is already among the kept ones, so counting it would refuse
+        # every edit made by a reader at their limit - the reader most likely
+        # to want to change a rule rather than add one, and with no way to see
+        # why the form kept saying they were full.
+        kept = AlertRule.objects.filter(user=self.user, active=True)
+        if self.instance is not None:
+            kept = kept.exclude(pk=self.instance.pk)
+        kept = kept.count()
         if kept >= allowed:
             raise forms.ValidationError(
                 f"That is all {allowed} of your alerts. "
@@ -215,7 +225,7 @@ class AlertRuleForm(forms.Form):
         return subject
 
     def save(self):
-        """Store the rule.
+        """Store the rule, creating one or updating the one being edited.
 
         **`last_value` is deliberately left unset.** A rule arms on its first
         reading rather than firing on it - see `AlertRule.crossed`. Seeding it
@@ -225,15 +235,34 @@ class AlertRuleForm(forms.Form):
 
         :return: :class:`AlertRule`
         """
-        rule = AlertRule.objects.create(
-            user=self.user,
-            subject=self.cleaned_data["subject"],
-            direction=self.cleaned_data["direction"],
-            threshold=self.cleaned_data["threshold"],
-            asset_id=self.cleaned_data.get("asset_id"),
-            window_seconds=self.cleaned_data.get("window_seconds"),
-            address=self.address,
-        )
+        fields = {
+            "subject": self.cleaned_data["subject"],
+            "direction": self.cleaned_data["direction"],
+            "threshold": self.cleaned_data["threshold"],
+            "asset_id": self.cleaned_data.get("asset_id"),
+            "window_seconds": self.cleaned_data.get("window_seconds"),
+            "address": self.address,
+        }
+        if self.instance is None:
+            rule = AlertRule.objects.create(user=self.user, **fields)
+        else:
+            rule = self.instance
+            for name, value in fields.items():
+                setattr(rule, name, value)
+            # **An edited rule re-arms rather than carrying its old reading.**
+            #
+            # `last_value` describes a comparison against the *previous*
+            # threshold. Keeping it across an edit makes the rule fire on the
+            # difference between two rules rather than on a crossing: move a
+            # "falls below 100" to 50 while the last reading was 90, and the
+            # rule is suddenly on the other side of its own line through no
+            # movement at all.
+            #
+            # So the edited rule behaves like a new one - it arms on its next
+            # reading - which is also what the reader means by changing it.
+            rule.last_value = None
+            rule.last_fired_at = None
+            rule.save()
         # **After the row exists, never before.** `publish_page` asks the
         # database what it should publish, so telling the engine first would
         # publish the state that has not happened yet - and it returns None

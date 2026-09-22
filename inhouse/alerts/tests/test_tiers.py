@@ -2,7 +2,11 @@
 
 import pytest
 
-from widgets.inhouse.alerts.tiers import ALERT_RULES_PER_TIER, rules_allowed
+from widgets.inhouse.alerts.tiers import (
+    ALERT_RULES_PER_TIER,
+    more_rules_available,
+    rules_allowed,
+)
 from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
 
 
@@ -86,3 +90,36 @@ class TestAlertRulesPerTier:
             ALERT_RULES_PER_TIER[name]
             for name in ("Intro", "Asastatser", "Professional", "Cluster")
         ] != watched_addresses
+
+
+class TestAlertsTiersMoreRulesAvailable:
+    """Testing class for whether a capped reader has anywhere to upgrade to."""
+
+    @pytest.mark.parametrize(
+        ("tier", "expected"),
+        [
+            ("Intro", True),
+            ("Asastatser", True),
+            ("Professional", True),
+            ("Cluster", False),
+        ],
+    )
+    def test_alerts_tiers_offer_an_upgrade_below_the_top_band(self, tier, expected):
+        permission = SUBSCRIPTION_TIER_PERMISSIONS[tier]
+
+        assert more_rules_available(permission) is expected
+
+    def test_alerts_tiers_offer_an_upgrade_to_an_unsubscribed_reader(self):
+        assert more_rules_available(0) is True
+
+    def test_alerts_tiers_read_the_top_from_the_table_not_a_name(self):
+        """**Derived, so a band added above `Cluster` needs no change here.**
+
+        Naming the top tier in the upsell would mean two places that have to
+        agree about which tier is the top one, and the failure is an invisible
+        one: a reader on a new highest band would be shown a link to a plan that
+        keeps fewer alerts than the one they already pay for.
+        """
+        top = max(ALERT_RULES_PER_TIER, key=ALERT_RULES_PER_TIER.get)
+
+        assert more_rules_available(SUBSCRIPTION_TIER_PERMISSIONS[top]) is False

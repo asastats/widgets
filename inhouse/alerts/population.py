@@ -46,7 +46,7 @@ RULE_ASSETS_KEY = "lvra"
 
 
 def publish_assets(client=None):
-    """Replace `lvra` with the assets active `asa_price` rules name.
+    """Replace `lvra` with the assets active price rules name.
 
     **Replaced wholesale rather than adjusted.** `publish_page` can ask a single
     yes/no question about one page; there is no equivalent here, because a rule
@@ -62,16 +62,17 @@ def publish_assets(client=None):
     :return: how many assets are now published, or None when unreachable
     :rtype: int or None
     """
-    from .models import AlertRule, Subject  # noqa: PLC0415
+    from .models import PRICED_SUBJECTS, AlertRule  # noqa: PLC0415
 
-    # **`asa_price` only, though two subjects name an asset.** `asa_total` is
+    # **The priced subjects only, though three name an asset.** `asa_total` is
     # "my holding of this asset on this page" and is answered by the live pass
     # out of what it already published, so an asset that appears only in
-    # `asa_total` rules must not make the price task fetch anything.
+    # `asa_total` rules must not make the price task fetch anything. See
+    # `models.PRICED_SUBJECTS`, which is also what the evaluator reads.
     wanted = sorted(
         asset_id
         for asset_id in AlertRule.objects.filter(
-            subject=Subject.ASA_PRICE, active=True
+            subject__in=PRICED_SUBJECTS, active=True
         )
         .values_list("asset_id", flat=True)
         .distinct()

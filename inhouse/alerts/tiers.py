@@ -53,3 +53,22 @@ def rules_allowed(permission):
         if permission >= floor:
             return ALERT_RULES_PER_TIER.get(name, 0)
     return ALERT_RULES_PER_TIER["Trial"]
+
+
+def more_rules_available(permission):
+    """Whether any tier keeps more rules than the one at `permission`.
+
+    **The top band has nowhere to be sent.** A reader who has spent a Cluster
+    allowance is at the largest number this site sells, and offering them a link
+    to the plans page is an invitation to pay for something they already have -
+    which reads, correctly, as the site not knowing what they bought.
+
+    Derived from the table rather than naming the top tier, so a band added
+    above `Cluster` needs no change here and one removed cannot leave this
+    pointing at a tier that no longer exists.
+
+    :param permission: the profile's permission value
+    :type permission: int
+    :return: Boolean
+    """
+    return rules_allowed(permission) < max(ALERT_RULES_PER_TIER.values())

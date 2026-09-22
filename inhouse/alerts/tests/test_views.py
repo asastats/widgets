@@ -9,6 +9,8 @@ import logging
 import pytest
 from django.contrib.auth import get_user_model
 from django.http import Http404
+from django.test import RequestFactory
+from django.utils import timezone
 
 from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
 from widgets.inhouse.alerts.models import (
@@ -22,6 +24,7 @@ from widgets.inhouse.alerts.views import (
     AlertsPricedView,
     AlertsRepricedView,
     AlertsRuleDeleteView,
+    AlertsRuleEditView,
     AlertsRulesView,
     AlertsSubscribeView,
     AlertsUnsubscribeView,
@@ -224,8 +227,62 @@ class TestInhouseAlertsViewsModal:
         assert context["rules_kept"] == 1
         # The form's choices are server-rendered, so anything else the browser
         # posts was typed by hand - which `test_forms` relies on.
-        assert len(context["subjects"]) == 4
+        assert len(context["subjects"]) == 5
         assert len(context["windows"]) == 4
+
+    def test_inhouse_alerts_views_modal_is_not_capped_with_room_left(self, mocker):
+        reader = _reader(tier="Asastatser")
+        _rule(reader)
+        view = AlertsView()
+        view.request = mocker.MagicMock(user=reader)
+        view.bundle = "BUNDLEHASH"
+        view.kwargs = {}
+
+        context = view.get_context_data()
+
+        assert context["rules_capped"] is False
+
+    def test_inhouse_alerts_views_modal_says_when_the_allowance_is_spent(
+        self, mocker
+    ):
+        """**The number needs a sentence next to it at the limit.**
+
+        "0 of 5 left" on its own reads as something being broken. The reason and
+        the way out belong beside the count rather than only where the form used
+        to be - that sentence is below the fold on a phone, and is not rendered
+        at all while the reader is editing a rule.
+        """
+        reader = _reader(tier="Asastatser")
+        for asset_id in range(1, 6):
+            _rule(reader, asset_id=asset_id)
+        view = AlertsView()
+        view.request = mocker.MagicMock(user=reader)
+        view.bundle = "BUNDLEHASH"
+        view.kwargs = {}
+
+        context = view.get_context_data()
+
+        assert context["rules_left"] == 0
+        assert context["rules_capped"] is True
+        assert context["more_rules_available"] is True
+
+    def test_inhouse_alerts_views_modal_offers_the_top_tier_no_upgrade(
+        self, mocker
+    ):
+        """A Cluster reader at their cap already has the largest allowance sold.
+
+        Sending them to the plans page is an invitation to buy what they have,
+        which reads as the site not knowing what they bought.
+        """
+        reader = _reader(tier="Cluster")
+        view = AlertsView()
+        view.request = mocker.MagicMock(user=reader)
+        view.bundle = "BUNDLEHASH"
+        view.kwargs = {}
+
+        context = view.get_context_data()
+
+        assert context["more_rules_available"] is False
 
 
 @pytest.mark.django_db
@@ -990,3 +1047,358 @@ class TestInhouseAlertsViewsLiveFlag:
         settings.ALERTS_WEBHOOK_SECRET = "s3"
 
         assert self._context(mocker)["alerts_live"] is True
+
+
+@pytest.mark.django_db
+class TestInhouseAlertsViewsRejectedFormKeepsInput:
+    """Testing class for what a rejected rule leaves in the form.
+
+    **The panel that comes back replaces the one the reader filled in.** The
+    fields are hand-written markup rather than `{{ form.subject }}`, so nothing
+    repopulated them: fixing a threshold typed as "0" meant entering the
+    subject, the direction, the asset and the period all over again.
+    """
+
+    def _post(self, reader, **overrides):
+        data = {
+            "subject": Subject.ASA_PRICE,
+            "direction": Direction.UP,
+            "threshold": "0",  # refused, which is the point
+            "asset_id": "31566704",
+            "threshold_unit": "usd",
+            "algo_usd": "0.25",
+        }
+        data.update(overrides)
+        view = AlertsRulesView()
+        view.bundle = "A" * 58
+        view.request = RequestFactory().post("/", data)
+        view.request.user = reader
+        return view.post(view.request).content.decode()
+
+    def test_inhouse_alerts_views_rejected_keeps_the_subject(self, reader_pro):
+        html = self._post(reader_pro)
+
+        assert 'value="asa_price"\n          selected' in html or (
+            'value="asa_price"' in html and "selected" in html
+        )
+
+    def test_inhouse_alerts_views_rejected_keeps_the_threshold(self, reader_pro):
+        html = self._post(reader_pro, threshold="-5")
+
+        assert 'value="-5"' in html
+
+    def test_inhouse_alerts_views_rejected_keeps_the_asset(self, reader_pro):
+        """The id is all a bound form carries - the unit and the name were only
+        ever on the search row - so the button falls back to `#<id>`. The choice
+        preserved beats the label preserved."""
+        html = self._post(reader_pro)
+
+        assert 'class="alerts-asset-id"' in html
+        assert "31566704" in html
+
+    def test_inhouse_alerts_views_rejected_keeps_the_unit(self, reader_pro):
+        html = self._post(reader_pro)
+
+        assert 'class="alerts-unit-value"' in html
+        assert 'value="usd"' in html
+
+    def test_inhouse_alerts_views_rejected_keeps_the_period(self, reader_pro):
+        html = self._post(
+            reader_pro,
+            subject=Subject.TOTAL_PERCENT,
+            window_seconds="86400",
+            threshold="0",
+        )
+
+        assert 'value="86400"' in html
+        assert "selected" in html
+
+    def test_inhouse_alerts_views_an_accepted_rule_starts_clean(self, reader_pro):
+        """**The opposite case, and it has to stay true.** A rule that saved
+        leaves an empty form ready for the next one, not the one just used."""
+        html = self._post(reader_pro, threshold="1.5")
+
+        assert 'value="1.5"' not in html
+
+
+@pytest.mark.django_db
+class TestInhouseAlertsViewsUndeliverableRules:
+    """Testing class for rules a reader has nowhere to receive.
+
+    **The state is silent and lossy.** A reader who never presses the enable
+    button still gets a modal that looks complete: rules save, the page is
+    published, the engine triggers, evaluation runs. `notify` then finds no
+    subscription and sends nothing - and the rule has already fired, so
+    `last_value` is past the threshold and the crossing is spent rather than
+    queued.
+    """
+
+    def _context(self, mocker, user):
+        view = AlertsView()
+        view.request = mocker.MagicMock(user=user)
+        return view.alerts_context("B")
+
+    def test_inhouse_alerts_views_rules_without_a_browser_are_visible(
+        self, mocker
+    ):
+        reader = _reader(email="nobrowser@example.com")
+        _rule(reader)
+
+        context = self._context(mocker, reader)
+
+        assert context["rules_kept"] == 1
+        assert context["subscribed_browsers"] == 0
+
+    def test_inhouse_alerts_views_a_subscribed_browser_is_counted(self, mocker):
+        reader = _reader(email="withbrowser@example.com")
+        _rule(reader)
+        PushSubscription.objects.create(
+            user=reader,
+            endpoint="https://push.example/abc",
+            p256dh="p",
+            auth="a",
+        )
+
+        context = self._context(mocker, reader)
+
+        assert context["subscribed_browsers"] == 1
+
+    def test_inhouse_alerts_views_a_rule_is_held_without_a_browser(self, mocker):
+        """**Held, not spent.** Firing it would advance `last_value` past the
+        threshold and the crossing would be gone - and the modal promises three
+        times over that rules saved now will be there when a browser is on."""
+        from widgets.inhouse.alerts.evaluate import evaluate_page
+
+        reader = _reader(email="held@example.com")
+        rule = _rule(
+            reader,
+            subject=Subject.TOTAL_VALUE,
+            asset_id=None,
+            threshold="100",
+            address="PAGE",
+            last_value="120",
+        )
+
+        fired, _ = evaluate_page("PAGE", {"total": 90})
+
+        assert fired == []
+        rule.refresh_from_db()
+        assert float(rule.last_value) == 120, "left exactly as it was"
+        assert rule.last_fired_at is None, "and no cooldown started"
+
+    def test_inhouse_alerts_views_the_held_crossing_survives_subscribing(
+        self, mocker
+    ):
+        """The whole point of holding: the alert a reader was promised arrives
+        once they turn a browser on."""
+        from widgets.inhouse.alerts.evaluate import evaluate_page
+
+        reader = _reader(email="later@example.com")
+        _rule(
+            reader,
+            subject=Subject.TOTAL_VALUE,
+            asset_id=None,
+            threshold="100",
+            address="PAGE",
+            last_value="120",
+        )
+        evaluate_page("PAGE", {"total": 90})
+
+        PushSubscription.objects.create(
+            user=reader,
+            endpoint="https://push.example/later",
+            p256dh="p",
+            auth="a",
+        )
+        fired, _ = evaluate_page("PAGE", {"total": 90})
+
+        assert len(fired) == 1
+
+    def test_inhouse_alerts_views_holding_is_said_in_the_log(self, mocker, caplog):
+        """"My alert never fired" is the question this answers."""
+        import logging
+
+        from widgets.inhouse.alerts.evaluate import evaluate_page
+
+        reader = _reader(email="logged@example.com")
+        _rule(
+            reader,
+            subject=Subject.TOTAL_VALUE,
+            asset_id=None,
+            threshold="100",
+            address="PAGE",
+            last_value="120",
+        )
+
+        with caplog.at_level(logging.INFO):
+            evaluate_page("PAGE", {"total": 90})
+
+        assert "no browser on" in caplog.text
+
+
+@pytest.mark.django_db
+class TestInhouseAlertsViewsEdit:
+    """Testing class for changing a rule that already exists."""
+
+    PAGE = "A" * 58
+
+    def _view(self, reader, rule, data=None):
+        view = AlertsRuleEditView()
+        view.bundle = self.PAGE
+        view.kwargs = {"page": self.PAGE, "pk": rule.pk}
+        factory = RequestFactory()
+        view.request = factory.post("/", data) if data else factory.get("/")
+        view.request.user = reader
+        return view
+
+    def _rule_for(self, reader):
+        return _rule(
+            reader,
+            subject=Subject.TOTAL_VALUE,
+            asset_id=None,
+            threshold="100",
+            address=self.PAGE,
+        )
+
+    def test_inhouse_alerts_views_edit_loads_the_rule_into_the_form(self, mocker):
+        reader = _reader(email="edit-load@example.com")
+        rule = self._rule_for(reader)
+        view = self._view(reader, rule)
+
+        html = view.get(view.request).content.decode()
+
+        assert 'value="100.0000000000"' in html or 'value="100' in html
+        assert "Save changes" in html
+
+    def test_inhouse_alerts_views_edit_applies_the_change(self, mocker):
+        reader = _reader(email="edit-apply@example.com")
+        rule = self._rule_for(reader)
+        view = self._view(
+            reader,
+            rule,
+            {
+                "subject": Subject.TOTAL_VALUE,
+                "direction": Direction.UP,
+                "threshold": "250",
+            },
+        )
+
+        view.post(view.request)
+
+        rule.refresh_from_db()
+        assert float(rule.threshold) == 250
+        assert rule.direction == Direction.UP
+
+    def test_inhouse_alerts_views_edit_does_not_make_a_second_rule(self, mocker):
+        reader = _reader(email="edit-once@example.com")
+        rule = self._rule_for(reader)
+        view = self._view(
+            reader,
+            rule,
+            {
+                "subject": Subject.TOTAL_VALUE,
+                "direction": Direction.DOWN,
+                "threshold": "250",
+            },
+        )
+
+        view.post(view.request)
+
+        assert AlertRule.objects.filter(user=reader).count() == 1
+
+    def test_inhouse_alerts_views_edit_re_arms_the_rule(self, mocker):
+        """**An edited rule carries no old reading.**
+
+        `last_value` described a comparison against the *previous* threshold.
+        Keeping it makes the rule fire on the difference between two rules
+        rather than on a crossing: move "falls below 100" to 50 while the last
+        reading was 90 and it is suddenly on the other side of its own line,
+        through no movement at all.
+        """
+        reader = _reader(email="edit-arm@example.com")
+        rule = self._rule_for(reader)
+        rule.last_value = "90"
+        rule.last_fired_at = timezone.now()
+        rule.save()
+        view = self._view(
+            reader,
+            rule,
+            {
+                "subject": Subject.TOTAL_VALUE,
+                "direction": Direction.DOWN,
+                "threshold": "50",
+            },
+        )
+
+        view.post(view.request)
+
+        rule.refresh_from_db()
+        assert rule.last_value is None
+        assert rule.last_fired_at is None
+
+    def test_inhouse_alerts_views_edit_works_at_the_limit(self, mocker):
+        """**The reader most likely to want to edit is the one who is full.**
+
+        The cap counts kept rules, and the rule being edited is among them - so
+        counting it refuses every edit a reader at their limit tries to make,
+        with nothing on screen to say why.
+        """
+        reader = _reader(tier="Asastatser", email="edit-full@example.com")  # five
+        rules = [
+            _rule(
+                reader,
+                subject=Subject.TOTAL_VALUE,
+                asset_id=None,
+                threshold=f"{index + 1}00",
+                address=self.PAGE,
+            )
+            for index in range(5)
+        ]
+        view = self._view(
+            reader,
+            rules[0],
+            {
+                "subject": Subject.TOTAL_VALUE,
+                "direction": Direction.DOWN,
+                "threshold": "999",
+            },
+        )
+
+        response = view.post(view.request)
+
+        assert response.status_code == 200
+        rules[0].refresh_from_db()
+        assert float(rules[0].threshold) == 999
+
+    def test_inhouse_alerts_views_edit_refuses_another_readers_rule(self, mocker):
+        """A 404, which is also the true answer: it is not theirs to know
+        about."""
+        owner = _reader(email="edit-owner@example.com")
+        attacker = _reader(email="edit-attacker@example.com")
+        rule = self._rule_for(owner)
+        view = self._view(attacker, rule)
+
+        with pytest.raises(Http404):
+            view.get(view.request)
+
+    def test_inhouse_alerts_views_a_rejected_edit_stays_on_the_rule(self, mocker):
+        """**It must not become a new rule.** A rejected change comes back on
+        the same one, or the reader's next press creates a duplicate."""
+        reader = _reader(email="edit-reject@example.com")
+        rule = self._rule_for(reader)
+        view = self._view(
+            reader,
+            rule,
+            {
+                "subject": Subject.TOTAL_VALUE,
+                "direction": Direction.DOWN,
+                "threshold": "0",
+            },
+        )
+
+        response = view.post(view.request)
+        html = response.content.decode()
+
+        assert response.status_code == 422
+        assert "Save changes" in html
+        assert AlertRule.objects.filter(user=reader).count() == 1

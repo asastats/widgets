@@ -21,7 +21,7 @@ class TestInhouseAlertsUrls:
     """
 
     def test_inhouse_alerts_urls_patterns_count(self):
-        assert len(urls.urlpatterns) == 7
+        assert len(urls.urlpatterns) == 8
 
     def test_inhouse_alerts_urls_are_named(self):
         assert [pattern.name for pattern in urls.urlpatterns] == [
@@ -30,6 +30,7 @@ class TestInhouseAlertsUrls:
             "alerts_subscribe",
             "alerts_unsubscribe",
             "alerts_rule_delete",
+            "alerts_rule_edit",
             "alerts_rules",
             "alerts",
         ]
@@ -43,9 +44,20 @@ class TestInhouseAlertsUrls:
             "AlertsSubscribeView",
             "AlertsUnsubscribeView",
             "AlertsRuleDeleteView",
+            "AlertsRuleEditView",
             "AlertsRulesView",
             "AlertsView",
         ]
+
+    def test_inhouse_alerts_urls_edit_is_not_swallowed_by_the_collection(self):
+        """`<page>/rules` would match the start of `<page>/rules/7/edit` were it
+        not anchored, and an edit would be read as a create."""
+        rules = re.compile(
+            str(next(p for p in urls.urlpatterns if p.name == "alerts_rules").pattern)
+        )
+
+        assert rules.match("A" * 58 + "/rules")
+        assert not rules.match("A" * 58 + "/rules/7/edit")
 
     def test_inhouse_alerts_urls_put_the_longest_first(self):
         """**Order decides correctness here.** The bare page pattern would
@@ -134,6 +146,7 @@ class TestInhouseAlertsUrlsDelivery:
             ("alerts", "A" * 58),
             ("alerts_rules", "A" * 58 + "/rules"),
             ("alerts_rule_delete", "A" * 58 + "/rules/7/delete"),
+            ("alerts_rule_edit", "A" * 58 + "/rules/7/edit"),
         ],
     )
     def test_inhouse_alerts_urls_every_route_delivers_the_page_as_a_keyword(

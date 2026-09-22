@@ -203,6 +203,32 @@ class TestAlertsPopulationAssets:
 
         assert publish_assets(client) == 1
 
+    def test_alerts_population_publishes_a_percentage_rules_asset(
+        self, reader, mocker
+    ):
+        """**The subject that cannot be answered without this set.**
+
+        `asa_price_percent` compares an asset's price against its own history,
+        and that history exists only because the price task writes a point each
+        time it prices the asset. An asset named only by percentage rules and
+        left out of `lvra` would never be priced, so the series would stay empty
+        and the rule would refuse every reading forever - silently, and looking
+        exactly like a rule that has simply not crossed yet.
+        """
+        client = mocker.MagicMock()
+        AlertRule.objects.create(
+            user=reader,
+            subject=Subject.ASA_PRICE_PERCENT,
+            direction=Direction.DOWN,
+            threshold="5",
+            asset_id=386192725,
+            window_seconds=3600,
+        )
+
+        assert publish_assets(client) == 1
+        _, mapping = client.pipeline.return_value.zadd.call_args.args
+        assert list(mapping) == ["386192725"]
+
     def test_alerts_population_ignores_a_holding_rule(self, reader, mocker):
         """**`asa_total` names an asset too, and must not appear here.** It is
         answered by the live pass out of what it already published, so an asset
