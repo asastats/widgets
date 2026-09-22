@@ -19,6 +19,8 @@
    names.
 {% endcomment %}
 <div id="id-alerts-panel" class="alerts-panel"
+     data-rules-kept="{{ rules_kept }}"
+     data-rules-left="{{ rules_left }}"
      hx-headers:inherited='{"X-CSRFToken": "{{ csrf_token }}"}'>
 
   {% comment %} **Any field's error, not just the subject's.**
@@ -79,34 +81,45 @@
        `alerts.js` toggles it; it is rendered either way so switching subject
        needs no request.
 
-       **The same search the swap window uses, and the same endpoint.** A reader
-       does not know an asset by its integer - they know it as USDC or ORA - and
-       a number field asked them for the one thing they would have to go and
-       look up. `swap_assets` already ranks by name, unit and id.
+       **The asset is the control; the search is how you reach it.** This was a
+       search box with the chosen asset hung off it as help text, which put the
+       tool in front of the point. It is the swap window's shape now - a token
+       button that opens a picker - because that is what the rest of the
+       product does and a reader has already met it there.
 
-       Reusing swapcore's URL rather than adding one here keeps the promise in
-       this widget's manifest: `capability = "public"`, no `engine_endpoints`.
-       The lookup happens under the swap widget's own gate, which every
-       authenticated reader clears - both widgets are `required_permission = 0` -
-       so alerts gains no privilege by linking to it.
+       The hidden input is the truth the form posts, exactly as
+       `.id-swap-to` is for the swap.
 
-       `type="search"` rather than `text`: Enter in a text input inside a form
-       submits the form, which here would try to save a half-filled rule.
+       Reusing swapcore's `swap_assets` URL rather than adding one keeps this
+       widget's `capability = "public"` and its empty `engine_endpoints`
+       honest. Both widgets are `required_permission = 0`, so every reader who
+       may keep an alert may search.
     {% endcomment %}
-    <label class="alerts-field alerts-asset-field" hidden>
-      <span>Asset</span>
-      <input type="search" class="alerts-asset-search"
-             placeholder="Search name, unit or asset ID"
-             hx-get="{% url 'swap_assets' %}"
-             hx-trigger="keyup changed delay:300ms"
-             hx-target="next .alerts-asset-results"
-             name="q" autocomplete="off">
-      {# What the form actually posts. `alerts.js` writes it when a row is #}
-      {# picked, so an unpicked search submits nothing and the form says so. #}
+    <div class="alerts-field alerts-asset-field" hidden>
+      <span class="alerts-field-label">Asset</span>
       <input type="hidden" name="asset_id" class="alerts-asset-id">
-      <span class="alerts-asset-chosen" aria-live="polite"></span>
-      <div class="alerts-asset-results"></div>
-    </label>
+      <button type="button" class="alerts-assetbtn id-alerts-assetbtn"
+              aria-expanded="false">
+        <img class="alerts-assetbtn-icon" alt="" hidden
+             data-fallback="{{ BASE_CDN_URL }}/icons/empty.png">
+        <span class="alerts-assetbtn-text">Choose asset</span>
+      </button>
+
+      {% comment %} The picker, inline rather than a nested `<dialog>`: this
+         form is already inside one, and a dialog inside a dialog is a focus
+         trap inside a focus trap. {% endcomment %}
+      <div class="alerts-picker" hidden>
+        <label class="alerts-search">
+          <input type="search" class="alerts-asset-search"
+                 placeholder="Search name, unit or asset ID"
+                 hx-get="{% url 'swap_assets' %}"
+                 hx-trigger="keyup changed delay:300ms"
+                 hx-target="next .alerts-asset-results"
+                 name="q" autocomplete="off">
+        </label>
+        <div class="alerts-asset-results"></div>
+      </div>
+    </div>
 
     <label class="alerts-field">
       <span>When it</span>
@@ -117,9 +130,40 @@
       </select>
     </label>
 
-    <label class="alerts-field">
+    {% comment %} **The unit was never stated, and the answer was ALGO.**
+
+       Every threshold is compared against an ALGO figure - `unit_price` answers
+       "amount of ALGO for one asset", and the pass publishes the page total in
+       ALGO - so a reader thinking in dollars was entering the wrong number with
+       nothing to tell them. They may now say which they mean; a USD figure is
+       converted before it is stored, at the rate shown here.
+
+       The toggle is hidden for a percentage, which is not a currency.
+    {% endcomment %}
+    <label class="alerts-field alerts-threshold-field">
       <span>Threshold</span>
-      <input type="text" name="threshold" inputmode="decimal" required>
+      <span class="alerts-threshold-row">
+        <input type="text" name="threshold" class="alerts-threshold"
+               inputmode="decimal" required>
+        <span class="alerts-units" role="group" aria-label="Threshold unit">
+          {% for value, label in units %}
+          <button type="button" class="alerts-unit id-alerts-unit"
+                  data-unit="{{ value }}"
+                  {% if forloop.first %}aria-pressed="true"{% else %}aria-pressed="false"{% endif %}>{{ label }}</button>
+          {% endfor %}
+        </span>
+      </span>
+      <input type="hidden" name="threshold_unit" class="alerts-unit-value"
+             value="algo">
+      {# Posted back so the conversion uses the rate the reader was shown, #}
+      {# rather than one fetched again at save. #}
+      <input type="hidden" name="algo_usd" value="{{ algo_usd|default_if_none:'' }}">
+      {% comment %} What the figure is now, so a threshold has something to aim
+         at. Absent when the page has never been re-priced. `alerts.js` fills it
+         per subject and keeps it in the chosen unit. {% endcomment %}
+      <small class="alerts-now"
+             data-current-total="{{ current_total|default_if_none:'' }}"
+             data-algo-usd="{{ algo_usd|default_if_none:'' }}"></small>
     </label>
 
     {% comment %} A short list rather than a free number: the honest period

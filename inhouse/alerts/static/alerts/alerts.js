@@ -37,6 +37,10 @@
     var window_ = form.querySelector(".alerts-window-field");
     if (asset) asset.hidden = ASSET_SUBJECTS.indexOf(chosen) === -1;
     if (window_) window_.hidden = PERCENT_SUBJECTS.indexOf(chosen) === -1;
+    // A percentage is not a currency, so the unit control has nothing to say.
+    var units = form.querySelector(".alerts-units");
+    if (units) units.hidden = PERCENT_SUBJECTS.indexOf(chosen) !== -1;
+    showCurrent(root);
     return true;
   }
 
@@ -270,6 +274,7 @@
 
     if (swapped.querySelector("#alerts-modal")) {
       openModal(swapped);
+      syncCount(swapped.querySelector(".alerts-panel"));
       return true;
     }
     // A create or a delete replaces the panel by `outerHTML`, which leaves
@@ -282,10 +287,122 @@
     // works from and what the jest fixture and the template are guaranteed to
     // agree on.
     if (swapped.classList && swapped.classList.contains("alerts-panel")) {
-      syncFields(document.querySelector(".alerts-panel") || swapped);
+      var panel = document.querySelector(".alerts-panel") || swapped;
+      syncFields(panel);
+      syncCount(panel);
+      showCurrent(panel);
       return true;
     }
     return false;
+  }
+
+  /**
+   * Record which unit the reader is typing their threshold in.
+   *
+   * **The hidden input is what the form posts.** The buttons are the visible
+   * state and `aria-pressed` is what a screen reader is told; neither is what
+   * the server reads, so they cannot disagree with it.
+   *
+   * @param {Element} button - the pressed unit button.
+   * @returns {boolean} whether the unit was recorded.
+   */
+  function chooseUnit(button) {
+    var field = button.closest(".alerts-threshold-field");
+    if (!field) return false;
+    var hidden = field.querySelector(".alerts-unit-value");
+    if (!hidden) return false;
+
+    hidden.value = button.getAttribute("data-unit") || "algo";
+    var buttons = field.querySelectorAll(".id-alerts-unit");
+    Array.prototype.forEach.call(buttons, function (other) {
+      other.setAttribute("aria-pressed", other === button ? "true" : "false");
+    });
+    showCurrent(field.closest(".alerts-panel") || document);
+    return true;
+  }
+
+  /**
+   * Show what the watched figure is now, in the unit the reader chose.
+   *
+   * **A threshold is only meaningful next to the current value**, and a reader
+   * had no way to see one without leaving the modal. Shown rather than filled
+   * in: a threshold equal to the current value fires on the first wobble past
+   * it, because a rule arms on its first reading and then triggers on any
+   * crossing. The suggestion offered beside it is offset for that reason.
+   *
+   * Only the portfolio total is known here. An asset's price is not - the page
+   * publishes the totals, not every asset's own price - so an asset subject
+   * shows nothing rather than something borrowed from the wrong figure.
+   *
+   * @param {Element} root - the panel.
+   * @returns {string} what was shown, for the tests.
+   */
+  function showCurrent(root) {
+    var note = root && root.querySelector(".alerts-now");
+    var form = root && root.querySelector(".alerts-form");
+    if (!note || !form) return "";
+
+    var subject = form.querySelector(".alerts-subject");
+    var unitField = form.querySelector(".alerts-unit-value");
+    var chosen = unitField ? unitField.value : "algo";
+    var total = parseFloat(note.getAttribute("data-current-total"));
+    var rate = parseFloat(note.getAttribute("data-algo-usd"));
+
+    // Percentages have no current value to show, and an asset's price is not
+    // published here.
+    if (!subject || subject.value !== "total_value" || !isFinite(total)) {
+      note.textContent = "";
+      return "";
+    }
+
+    var text;
+    if (chosen === "usd" && isFinite(rate)) {
+      text = "Now $" + (total * rate).toFixed(2);
+    } else {
+      text = "Now " + total.toFixed(2) + " ALGO";
+    }
+    note.textContent = text;
+    return text;
+  }
+
+  /**
+   * Copy the panel's counts onto the toolbar the reader can actually see.
+   *
+   * **The swap replaces the modal, and the badge is not in it.** Creating or
+   * removing a rule re-renders `#id-alerts-panel`; the count sits out in the
+   * toolbar beside the button, so nothing touched it and it went stale the
+   * moment a reader added their first rule - the modal said "4 of 5 left" over
+   * a button that still said none.
+   *
+   * Read off the panel rather than counted here: the server already did this
+   * arithmetic once, and a second place doing it is a second place to get it
+   * wrong.
+   *
+   * @param {Element} panel - the freshly swapped panel.
+   * @returns {boolean} whether the toolbar was updated.
+   */
+  function syncCount(panel) {
+    var toolbar = document.getElementById("id-alerts");
+    if (!panel || !toolbar) return false;
+    var kept = panel.getAttribute("data-rules-kept");
+    var left = panel.getAttribute("data-rules-left");
+    if (kept === null || left === null) return false;
+
+    var badge = toolbar.querySelector(".alerts-count");
+    if (badge) {
+      badge.textContent = kept;
+      badge.hidden = kept === "0";
+    }
+    toolbar.setAttribute("data-rules-left", left);
+
+    var button = toolbar.querySelector(".alerts-open");
+    if (button) {
+      // The template writes this when the allowance is spent; the modal is the
+      // only place that number changes, so it has to be maintained here too.
+      if (left === "0") button.setAttribute("data-at-limit", "true");
+      else button.removeAttribute("data-at-limit");
+    }
+    return true;
   }
 
   /**
@@ -326,27 +443,65 @@
     var field = row.closest(".alerts-asset-field");
     if (!field) return false;
     var hidden = field.querySelector(".alerts-asset-id");
-    var chosen = field.querySelector(".alerts-asset-chosen");
-    var results = field.querySelector(".alerts-asset-results");
-    if (!hidden) return false;
+    var button = field.querySelector(".alerts-assetbtn");
+    if (!hidden || !button) return false;
 
     hidden.value = row.getAttribute("data-id") || "";
-    if (chosen) {
-      chosen.textContent =
-        (row.getAttribute("data-unit") || "") + " #" + hidden.value;
+    var text = button.querySelector(".alerts-assetbtn-text");
+    if (text) {
+      text.textContent =
+        (row.getAttribute("data-unit") || "") + "  #" + hidden.value;
     }
-    // Cleared so the list does not sit open over the rest of the form; the
-    // choice is now shown beside the box instead.
-    if (results) results.innerHTML = "";
+    var icon = button.querySelector(".alerts-assetbtn-icon");
+    if (icon) {
+      icon.src = row.getAttribute("data-icon") || "";
+      icon.hidden = !icon.src;
+    }
+    // The asset is now on the button, so the picker has done its job.
+    togglePicker(field, false);
+    return true;
+  }
+
+  /**
+   * Open or close an asset field's picker.
+   *
+   * @param {Element} field - the `.alerts-asset-field`.
+   * @param {boolean} open - whether it should be open.
+   * @returns {boolean} whether a picker was found.
+   */
+  function togglePicker(field, open) {
+    var picker = field && field.querySelector(".alerts-picker");
+    var button = field && field.querySelector(".alerts-assetbtn");
+    if (!picker || !button) return false;
+    picker.hidden = !open;
+    button.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) {
+      var search = picker.querySelector(".alerts-asset-search");
+      if (search) search.focus();
+    }
     return true;
   }
 
   document.addEventListener("click", function (event) {
     if (!event.target.closest) return;
+
     // Scoped to this widget's own results: the swap window renders the same
     // rows from the same endpoint, and its picker has its own handler.
     var row = event.target.closest(".alerts-asset-results .id-swap-asset-option");
-    if (row) chooseAsset(row);
+    if (row) {
+      chooseAsset(row);
+      return;
+    }
+
+    var button = event.target.closest(".id-alerts-assetbtn");
+    if (button) {
+      var field = button.closest(".alerts-asset-field");
+      togglePicker(field, button.getAttribute("aria-expanded") !== "true");
+      return;
+    }
+
+    var unit = event.target.closest(".id-alerts-unit");
+    if (unit) chooseUnit(unit);
   });
 
   placeToolbar();
@@ -371,7 +526,11 @@
   window.asastatsAlerts = {
     handleSwap: handleSwap,
     placeToolbar: placeToolbar,
+    syncCount: syncCount,
     chooseAsset: chooseAsset,
+    chooseUnit: chooseUnit,
+    showCurrent: showCurrent,
+    togglePicker: togglePicker,
     openModal: openModal,
     syncFields: syncFields,
   };
@@ -382,7 +541,11 @@
       syncFields: syncFields,
       handleSwap: handleSwap,
       placeToolbar: placeToolbar,
+      syncCount: syncCount,
       chooseAsset: chooseAsset,
+      chooseUnit: chooseUnit,
+      showCurrent: showCurrent,
+      togglePicker: togglePicker,
       openModal: openModal,
       supportState: supportState,
       showSupport: showSupport,

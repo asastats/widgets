@@ -28,7 +28,7 @@ from django.views.generic.base import TemplateView, View
 from widgethost.enforcement import WidgetAccessMixin
 
 from .evaluate import evaluate_page, evaluate_prices, payload_for
-from .forms import WINDOW_CHOICES, AlertRuleForm
+from .forms import UNIT_CHOICES, WINDOW_CHOICES, AlertRuleForm
 from .manifest import MANIFEST
 from .models import AlertRule, Direction, PushSubscription, Subject
 from .population import publish_assets, publish_page
@@ -52,6 +52,17 @@ class AlertsContextMixin:
         :type address: str
         :return: dict
         """
+        # **The page's own numbers, for the reader to aim at.** A threshold is
+        # only meaningful next to what the figure is now, and the pass already
+        # published both: `total` is the page's ALGO total and `priceusdc` is
+        # what one ALGO is worth, which is also the rate a USD threshold is
+        # converted at.
+        #
+        # None when the page has never been re-priced - it is in no live set -
+        # and the template then shows no reference rather than a zero, which
+        # would read as "your portfolio is worth nothing".
+        published = payload_for(address) or {}
+
         user = self.request.user
         profile = getattr(user, "profile", None)
         allowed = rules_allowed(getattr(profile, "permission", 0))
@@ -70,6 +81,7 @@ class AlertsContextMixin:
             "subjects": Subject.choices,
             "directions": Direction.choices,
             "windows": WINDOW_CHOICES,
+            "units": UNIT_CHOICES,
             "widget_id": MANIFEST.id,
             # The public key is not secret - a subscription is bound to it, so
             # the browser must have it. The private one never leaves the server.
@@ -88,6 +100,12 @@ class AlertsContextMixin:
             "subscribed_browsers": PushSubscription.objects.filter(
                 user=user
             ).count(),
+            # Both in ALGO, as every threshold is stored.
+            "current_total": published.get("total"),
+            # ALGO's own price in USD. The form converts a USD threshold with
+            # it, and the template shows the dollar equivalent beside the ALGO
+            # one so a reader can see both without doing the arithmetic.
+            "algo_usd": published.get("priceusdc"),
         }
 
 

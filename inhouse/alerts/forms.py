@@ -38,6 +38,20 @@ WINDOW_CHOICES = (
     (604800, "7 days"),
 )
 
+#: The units a value threshold may be entered in.
+#:
+#: **Stored in ALGO whichever is chosen**, because ALGO is what the engine
+#: compares against: `unit_price` answers "amount of ALGO for one asset" and the
+#: pass publishes the page total in ALGO. A dollar figure is derived from those,
+#: and is one re-price behind - which is exactly why the alert itself is not.
+#:
+#: The cost of converting at save rather than at evaluation, said plainly: a
+#: rule entered as $0.50 is stored as the ALGO that bought $0.50 *that day*, so
+#: if ALGO's own price moves the rule no longer means $0.50. Converting at
+#: evaluation would need the unit kept on the row and the ALGO price carried to
+#: the evaluator; it is the better design and it is not this one.
+UNIT_CHOICES = (("algo", "ALGO"), ("usd", "USD"))
+
 #: The largest percentage move worth offering. Above this a rule is a way of
 #: saying "tell me if it collapses", which `down 90` already says.
 MAX_PERCENT = Decimal("100")
@@ -50,6 +64,17 @@ class AlertRuleForm(forms.Form):
     direction = forms.ChoiceField(choices=Direction.choices)
     threshold = forms.DecimalField(max_digits=30, decimal_places=10)
     asset_id = forms.IntegerField(required=False, min_value=0)
+    threshold_unit = forms.ChoiceField(
+        choices=UNIT_CHOICES, required=False, initial="algo"
+    )
+    #: What one ALGO was worth when the form was rendered, posted back with it.
+    #:
+    #: **From the form rather than fetched again at save**, so the number the
+    #: reader saw is the number they are held to. Fetching a fresh rate here
+    #: would convert at a price they were never shown.
+    algo_usd = forms.DecimalField(
+        required=False, max_digits=30, decimal_places=10, min_value=0
+    )
     window_seconds = forms.TypedChoiceField(
         choices=WINDOW_CHOICES, coerce=int, required=False
     )
@@ -77,6 +102,17 @@ class AlertRuleForm(forms.Form):
         if value <= 0:
             raise forms.ValidationError("A threshold has to be more than zero.")
         return value
+
+    def clean_threshold_unit(self):
+        """Default an absent or empty unit to ALGO.
+
+        The field is optional so that a form posted without it - an older
+        cached panel, or a percentage rule where the control is hidden - still
+        means what it always meant.
+
+        :return: str
+        """
+        return self.cleaned_data.get("threshold_unit") or "algo"
 
     def clean(self):
         """Apply the rules that depend on more than one field.
@@ -116,7 +152,43 @@ class AlertRuleForm(forms.Form):
         else:
             cleaned["window_seconds"] = None
 
+        self._to_algo(cleaned)
         return cleaned
+
+    def _to_algo(self, cleaned):
+        """Convert a USD threshold into the ALGO the row stores.
+
+        **A percentage is not a currency**, so a percent subject is left alone
+        however the unit control was left - the template hides it there, and a
+        stale posted value must not turn "5%" into "5 ALGO worth of dollars".
+
+        A USD threshold with no rate is refused rather than stored unconverted:
+        storing the dollar figure as though it were ALGO is off by whatever an
+        ALGO costs, silently, and the rule would fire at a number the reader
+        never chose.
+
+        :param cleaned: the cleaned data, modified in place
+        :type cleaned: dict
+        """
+        subject = cleaned.get("subject")
+        threshold = cleaned.get("threshold")
+        if not subject or threshold is None:
+            return
+        if subject in {s.value for s in PERCENT_SUBJECTS}:
+            cleaned["threshold_unit"] = "algo"
+            return
+        if cleaned.get("threshold_unit") != "usd":
+            return
+
+        rate = cleaned.get("algo_usd")
+        if not rate:
+            self.add_error(
+                "threshold",
+                "The ALGO price is not available right now - enter the "
+                "threshold in ALGO.",
+            )
+            return
+        cleaned["threshold"] = threshold / rate
 
     def clean_subject(self):
         """Refuse a rule the reader's tier does not admit.

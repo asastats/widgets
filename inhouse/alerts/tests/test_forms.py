@@ -1,5 +1,7 @@
 """Testing module for the rule form."""
 
+from decimal import Decimal
+
 import pytest
 from django.contrib.auth import get_user_model
 
@@ -223,3 +225,74 @@ class TestAlertRuleFormSave:
         assert form.is_valid(), form.errors
 
         assert form.save().last_value is None
+
+
+@pytest.mark.django_db
+class TestAlertRuleFormUnits:
+    """Testing class for the threshold's unit.
+
+    **Everything is stored in ALGO**, because ALGO is what the engine compares
+    against: `unit_price` answers "amount of ALGO for one asset" and the pass
+    publishes the page total in ALGO. The reader may say which unit they are
+    typing in; the row does not change meaning.
+    """
+
+    def _form(self, **overrides):
+        data = {
+            "subject": Subject.TOTAL_VALUE,
+            "direction": Direction.DOWN,
+            "threshold": "100",
+        }
+        data.update(overrides)
+        return AlertRuleForm(data, user=_reader(), address="BUNDLE")
+
+    def test_alerts_forms_algo_is_stored_as_typed(self):
+        form = self._form(threshold_unit="algo")
+
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["threshold"] == Decimal("100")
+
+    def test_alerts_forms_usd_is_converted(self):
+        """100 USD at $0.25 an ALGO is 400 ALGO."""
+        form = self._form(threshold_unit="usd", algo_usd="0.25")
+
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["threshold"] == Decimal("400")
+
+    def test_alerts_forms_usd_without_a_rate_is_refused(self):
+        """**Refused rather than stored unconverted.** A dollar figure kept as
+        though it were ALGO is off by whatever an ALGO costs, silently, and the
+        rule would fire at a number the reader never chose."""
+        form = self._form(threshold_unit="usd")
+
+        assert form.is_valid() is False
+        assert "not available" in str(form.errors["threshold"])
+
+    def test_alerts_forms_a_missing_unit_means_algo(self):
+        """An older cached panel posts no unit, and has to keep meaning what it
+        always meant."""
+        form = self._form()
+
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["threshold_unit"] == "algo"
+
+    def test_alerts_forms_a_percentage_ignores_the_unit(self):
+        """**A percentage is not a currency.** The template hides the control
+        there, so any value posted is stale - and converting "5%" by an ALGO
+        price would make it something else entirely."""
+        form = self._form(
+            subject=Subject.TOTAL_PERCENT,
+            window_seconds=3600,
+            threshold="5",
+            threshold_unit="usd",
+            algo_usd="0.25",
+        )
+
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["threshold"] == Decimal("5")
+        assert form.cleaned_data["threshold_unit"] == "algo"
+
+    def test_alerts_forms_the_rate_comes_from_the_form(self):
+        """Posted back rather than fetched again at save, so the number the
+        reader was shown is the number they are held to."""
+        assert "algo_usd" in AlertRuleForm(user=_reader()).fields

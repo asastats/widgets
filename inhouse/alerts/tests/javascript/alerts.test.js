@@ -24,11 +24,30 @@ function panel(subject) {
           <option value="total_value">Portfolio total</option>
           <option value="total_percent">Portfolio total, percentage move</option>
         </select>
-        <label class="alerts-field alerts-asset-field" hidden>
-          <input type="search" class="alerts-asset-search" name="q">
+        <div class="alerts-field alerts-asset-field" hidden>
           <input type="hidden" name="asset_id" class="alerts-asset-id">
-          <span class="alerts-asset-chosen"></span>
-          <div class="alerts-asset-results"></div>
+          <button type="button" class="alerts-assetbtn id-alerts-assetbtn"
+                  aria-expanded="false">
+            <img class="alerts-assetbtn-icon" alt="" hidden>
+            <span class="alerts-assetbtn-text">Choose asset</span>
+          </button>
+          <div class="alerts-picker" hidden>
+            <input type="search" class="alerts-asset-search" name="q">
+            <div class="alerts-asset-results"></div>
+          </div>
+        </div>
+        <label class="alerts-field alerts-threshold-field">
+          <input type="text" name="threshold" class="alerts-threshold">
+          <span class="alerts-units">
+            <button type="button" class="alerts-unit id-alerts-unit"
+                    data-unit="algo" aria-pressed="true">ALGO</button>
+            <button type="button" class="alerts-unit id-alerts-unit"
+                    data-unit="usd" aria-pressed="false">USD</button>
+          </span>
+          <input type="hidden" name="threshold_unit" class="alerts-unit-value"
+                 value="algo">
+          <small class="alerts-now" data-current-total="1000"
+                 data-algo-usd="0.25"></small>
         </label>
         <label class="alerts-field alerts-window-field" hidden>
           <select name="window_seconds"><option value="3600">1 hour</option></select>
@@ -732,17 +751,18 @@ describe("picking an asset out of the search", () => {
     expect(document.querySelector(".alerts-asset-id").value).toBe("31566704");
   });
 
-  test("the choice is shown once the list closes", () => {
-    // Otherwise a reader who picked something watches the list vanish with no
-    // confirmation that anything was recorded.
+  test("the asset lands on the button and the picker closes", () => {
+    // **The asset is the control now.** It used to be help text hanging off a
+    // search box, which put the tool in front of the point.
     withResults();
+    alerts.togglePicker(document.querySelector(".alerts-asset-field"), true);
 
     alerts.chooseAsset(document.querySelector(".id-swap-asset-option"));
 
-    expect(document.querySelector(".alerts-asset-chosen").textContent).toContain(
-      "USDC"
-    );
-    expect(document.querySelector(".alerts-asset-results").innerHTML).toBe("");
+    expect(
+      document.querySelector(".alerts-assetbtn-text").textContent
+    ).toContain("USDC");
+    expect(document.querySelector(".alerts-picker").hidden).toBe(true);
   });
 
   test("typing without picking posts no asset", () => {
@@ -762,5 +782,176 @@ describe("picking an asset out of the search", () => {
     expect(
       alerts.chooseAsset(document.querySelector(".id-swap-asset-option"))
     ).toBe(false);
+  });
+});
+
+describe("the count on the button", () => {
+  /** The toolbar as `_swap_entry.html` renders it, plus a swapped panel. */
+  function mount(kept, left) {
+    document.body.innerHTML =
+      '<div id="id-alerts" data-rules-left="5">' +
+      '<button class="alerts-open">Alerts' +
+      '<span class="badge alerts-count" hidden>0</span></button></div>' +
+      '<div class="alerts-panel" data-rules-kept="' + kept +
+      '" data-rules-left="' + left + '"></div>';
+    return document.querySelector(".alerts-panel");
+  }
+
+  const badge = () => document.querySelector(".alerts-count");
+  const toolbar = () => document.getElementById("id-alerts");
+
+  test("the first rule makes the badge appear", () => {
+    // The bug as a reader met it: the modal said "4 of 5 left" over a button
+    // that still showed none.
+    const panel = mount(1, 4);
+
+    expect(alerts.syncCount(panel)).toBe(true);
+    expect(badge().textContent).toBe("1");
+    expect(badge().hidden).toBe(false);
+  });
+
+  test("removing the last rule hides it again", () => {
+    const panel = mount(0, 5);
+
+    alerts.syncCount(panel);
+
+    expect(badge().hidden).toBe(true);
+  });
+
+  test("the remaining allowance follows too", () => {
+    const panel = mount(1, 4);
+
+    alerts.syncCount(panel);
+
+    expect(toolbar().getAttribute("data-rules-left")).toBe("4");
+  });
+
+  test("spending the allowance marks the button at its limit", () => {
+    // `data-at-limit` is written by the template on first render; the modal is
+    // the only place the number changes, so it is maintained here too.
+    const panel = mount(5, 0);
+
+    alerts.syncCount(panel);
+
+    expect(
+      document.querySelector(".alerts-open").getAttribute("data-at-limit")
+    ).toBe("true");
+  });
+
+  test("freeing one clears the limit mark", () => {
+    mount(5, 0);
+    document.querySelector(".alerts-open").setAttribute("data-at-limit", "true");
+    const panel = document.querySelector(".alerts-panel");
+    panel.setAttribute("data-rules-kept", "4");
+    panel.setAttribute("data-rules-left", "1");
+
+    alerts.syncCount(panel);
+
+    expect(
+      document.querySelector(".alerts-open").hasAttribute("data-at-limit")
+    ).toBe(false);
+  });
+
+  test("a panel without the counts changes nothing", () => {
+    // The modal at its own URL renders a panel too; an older cached copy of it
+    // would carry no attributes, and guessing zero would blank a real count.
+    mount(2, 3);
+    const panel = document.querySelector(".alerts-panel");
+    panel.removeAttribute("data-rules-kept");
+
+    expect(alerts.syncCount(panel)).toBe(false);
+  });
+
+  test("no toolbar on the page is not an error", () => {
+    document.body.innerHTML =
+      '<div class="alerts-panel" data-rules-kept="1" data-rules-left="4"></div>';
+
+    expect(alerts.syncCount(document.querySelector(".alerts-panel"))).toBe(false);
+  });
+});
+
+describe("the unit the threshold is typed in", () => {
+  const hidden = () => document.querySelector(".alerts-unit-value");
+  const usdButton = () => document.querySelector('[data-unit="usd"]');
+  const note = () => document.querySelector(".alerts-now");
+
+  test("the hidden field is what the form posts", () => {
+    // The buttons are the visible state and `aria-pressed` is what a screen
+    // reader is told; neither is what the server reads.
+    panel("total_value");
+
+    alerts.chooseUnit(usdButton());
+
+    expect(hidden().value).toBe("usd");
+  });
+
+  test("only the pressed unit reads as pressed", () => {
+    panel("total_value");
+
+    alerts.chooseUnit(usdButton());
+
+    expect(usdButton().getAttribute("aria-pressed")).toBe("true");
+    expect(
+      document.querySelector('[data-unit="algo"]').getAttribute("aria-pressed")
+    ).toBe("false");
+  });
+
+  test("a percentage hides the unit control", () => {
+    // A percentage is not a currency, so the control has nothing to say.
+    const root = panel("total_percent");
+
+    alerts.syncFields(root);
+
+    expect(document.querySelector(".alerts-units").hidden).toBe(true);
+  });
+
+  test("a value subject shows it", () => {
+    const root = panel("total_value");
+
+    alerts.syncFields(root);
+
+    expect(document.querySelector(".alerts-units").hidden).toBe(false);
+  });
+});
+
+describe("the current value shown beside the threshold", () => {
+  const note = () => document.querySelector(".alerts-now");
+
+  test("the portfolio total is shown in ALGO", () => {
+    const root = panel("total_value");
+
+    expect(alerts.showCurrent(root)).toBe("Now 1000.00 ALGO");
+  });
+
+  test("choosing USD converts it at the rate the page carried", () => {
+    // 1000 ALGO at $0.25.
+    const root = panel("total_value");
+
+    alerts.chooseUnit(document.querySelector('[data-unit="usd"]'));
+
+    expect(note().textContent).toBe("Now $250.00");
+  });
+
+  test("a percentage has no current value to show", () => {
+    const root = panel("total_percent");
+
+    expect(alerts.showCurrent(root)).toBe("");
+  });
+
+  test("an asset subject shows nothing rather than the portfolio's figure", () => {
+    // **The wrong number is worse than none.** The page publishes its totals,
+    // not each asset's own price, so there is nothing here to show for an asset
+    // and borrowing the total would be a different statement entirely.
+    const root = panel("asa_price");
+
+    expect(alerts.showCurrent(root)).toBe("");
+  });
+
+  test("a page that has never been re-priced shows nothing", () => {
+    // Not zero, which would read as "your portfolio is worth nothing".
+    const root = panel("total_value");
+    note().setAttribute("data-current-total", "");
+
+    expect(alerts.showCurrent(root)).toBe("");
   });
 });
