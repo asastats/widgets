@@ -288,6 +288,73 @@
     return false;
   }
 
+  /**
+   * Move the alerts toolbar into the page's action row, beside Dust Sweep.
+   *
+   * **It renders where the partial lands, which is not where it belongs.**
+   * `_swap_entry.html` arrives near the top of the page, so without this the
+   * button sits in a strip of its own above the heading while Sweep dust - which
+   * does exactly this - is down in the row with Historic data and CSV export.
+   * Two controls of the same kind, in two different places.
+   *
+   * The same slot the sweep uses, and appended after it, so the order is stable
+   * rather than a race between two scripts.
+   *
+   * @returns {boolean} whether the toolbar was moved.
+   */
+  function placeToolbar() {
+    var toolbar = document.getElementById("id-alerts");
+    var slot = document.getElementById("id-dustsweep-slot");
+    if (!toolbar || !slot || slot === toolbar.parentNode) return false;
+    slot.appendChild(toolbar);
+    return true;
+  }
+
+  /**
+   * Record the asset a reader picked out of the search results.
+   *
+   * **The hidden field is what the form posts**, so nothing is chosen until
+   * this runs: a reader who types "USDC" and presses Add without picking a row
+   * submits no asset, and the form tells them to choose one. Typing is not
+   * choosing, and an id guessed from a partial match would be the wrong asset
+   * rather than no asset.
+   *
+   * @param {Element} row - the clicked result row.
+   * @returns {boolean} whether an asset was recorded.
+   */
+  function chooseAsset(row) {
+    var field = row.closest(".alerts-asset-field");
+    if (!field) return false;
+    var hidden = field.querySelector(".alerts-asset-id");
+    var chosen = field.querySelector(".alerts-asset-chosen");
+    var results = field.querySelector(".alerts-asset-results");
+    if (!hidden) return false;
+
+    hidden.value = row.getAttribute("data-id") || "";
+    if (chosen) {
+      chosen.textContent =
+        (row.getAttribute("data-unit") || "") + " #" + hidden.value;
+    }
+    // Cleared so the list does not sit open over the rest of the form; the
+    // choice is now shown beside the box instead.
+    if (results) results.innerHTML = "";
+    return true;
+  }
+
+  document.addEventListener("click", function (event) {
+    if (!event.target.closest) return;
+    // Scoped to this widget's own results: the swap window renders the same
+    // rows from the same endpoint, and its picker has its own handler.
+    var row = event.target.closest(".alerts-asset-results .id-swap-asset-option");
+    if (row) chooseAsset(row);
+  });
+
+  placeToolbar();
+
+  // The partial itself arrives by swap, so the toolbar may not exist yet when
+  // this script first runs - the same reason `handleSwap` exists at all.
+  document.body.addEventListener("htmx:after:swap", placeToolbar);
+
   document.body.addEventListener("htmx:after:swap", handleSwap);
 
   // **Published so the page can tell this script is listening.**
@@ -303,6 +370,8 @@
   // has arrived.
   window.asastatsAlerts = {
     handleSwap: handleSwap,
+    placeToolbar: placeToolbar,
+    chooseAsset: chooseAsset,
     openModal: openModal,
     syncFields: syncFields,
   };
@@ -312,6 +381,8 @@
     module.exports = {
       syncFields: syncFields,
       handleSwap: handleSwap,
+      placeToolbar: placeToolbar,
+      chooseAsset: chooseAsset,
       openModal: openModal,
       supportState: supportState,
       showSupport: showSupport,

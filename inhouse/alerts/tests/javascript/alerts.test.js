@@ -25,7 +25,10 @@ function panel(subject) {
           <option value="total_percent">Portfolio total, percentage move</option>
         </select>
         <label class="alerts-field alerts-asset-field" hidden>
-          <input type="number" name="asset_id">
+          <input type="search" class="alerts-asset-search" name="q">
+          <input type="hidden" name="asset_id" class="alerts-asset-id">
+          <span class="alerts-asset-chosen"></span>
+          <div class="alerts-asset-results"></div>
         </label>
         <label class="alerts-field alerts-window-field" hidden>
           <select name="window_seconds"><option value="3600">1 hour</option></select>
@@ -664,5 +667,100 @@ describe("the period warm-up note", () => {
 
     expect(windowField().hidden).toBe(false);
     expect(windowField().querySelector(".alerts-window-note")).not.toBeNull();
+  });
+});
+
+describe("where the toolbar ends up", () => {
+  /**
+   * `_swap_entry.html` lands near the top of the page, so the control renders
+   * in a strip of its own above the heading - while Sweep dust, which does
+   * exactly this, sits down in the row with Historic data and CSV export. Two
+   * controls of the same kind in two different places.
+   */
+  test("it moves into the slot the sweep uses", () => {
+    document.body.innerHTML =
+      '<div id="top"><div id="id-alerts"></div></div>' +
+      '<span id="id-dustsweep-slot"></span>';
+
+    expect(alerts.placeToolbar()).toBe(true);
+    expect(document.getElementById("id-alerts").parentNode.id).toBe(
+      "id-dustsweep-slot"
+    );
+  });
+
+  test("a second call leaves it where it is", () => {
+    // The partial arrives by swap and every swap calls this, so it runs many
+    // times per page. Moving an element that is already in place would be a
+    // needless reflow, and appending it again would reorder the row.
+    document.body.innerHTML =
+      '<span id="id-dustsweep-slot"><div id="id-alerts"></div></span>';
+
+    expect(alerts.placeToolbar()).toBe(false);
+  });
+
+  test("no slot on the page leaves the toolbar alone", () => {
+    // Not every page offering alerts offers the sweep's row.
+    document.body.innerHTML = '<div id="top"><div id="id-alerts"></div></div>';
+
+    expect(alerts.placeToolbar()).toBe(false);
+    expect(document.getElementById("id-alerts").parentNode.id).toBe("top");
+  });
+
+  test("no toolbar is not an error", () => {
+    document.body.innerHTML = '<span id="id-dustsweep-slot"></span>';
+
+    expect(alerts.placeToolbar()).toBe(false);
+  });
+});
+
+describe("picking an asset out of the search", () => {
+  /** One result row, exactly as `swap/_assets.html` renders it. */
+  function withResults() {
+    const root = panel("asa_price");
+    root.querySelector(".alerts-asset-results").innerHTML =
+      '<ul class="swap-rows id-swap-asset-options">' +
+      '<li class="swap-row id-swap-asset-option" data-id="31566704"' +
+      ' data-unit="USDC" data-name="USDC"></li></ul>';
+    return root;
+  }
+
+  test("the hidden field carries the id the form posts", () => {
+    withResults();
+
+    alerts.chooseAsset(document.querySelector(".id-swap-asset-option"));
+
+    expect(document.querySelector(".alerts-asset-id").value).toBe("31566704");
+  });
+
+  test("the choice is shown once the list closes", () => {
+    // Otherwise a reader who picked something watches the list vanish with no
+    // confirmation that anything was recorded.
+    withResults();
+
+    alerts.chooseAsset(document.querySelector(".id-swap-asset-option"));
+
+    expect(document.querySelector(".alerts-asset-chosen").textContent).toContain(
+      "USDC"
+    );
+    expect(document.querySelector(".alerts-asset-results").innerHTML).toBe("");
+  });
+
+  test("typing without picking posts no asset", () => {
+    // **Typing is not choosing.** An id guessed from a partial match would be
+    // the wrong asset rather than no asset, and the form's own error is the
+    // honest answer.
+    const root = withResults();
+    root.querySelector(".alerts-asset-search").value = "USDC";
+
+    expect(document.querySelector(".alerts-asset-id").value).toBe("");
+  });
+
+  test("a row outside an asset field is ignored", () => {
+    document.body.innerHTML =
+      '<li class="swap-row id-swap-asset-option" data-id="1"></li>';
+
+    expect(
+      alerts.chooseAsset(document.querySelector(".id-swap-asset-option"))
+    ).toBe(false);
   });
 });

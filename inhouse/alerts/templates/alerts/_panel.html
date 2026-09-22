@@ -77,10 +77,35 @@
 
     {% comment %} Shown only for the two subjects that name an asset.
        `alerts.js` toggles it; it is rendered either way so switching subject
-       needs no request. {% endcomment %}
+       needs no request.
+
+       **The same search the swap window uses, and the same endpoint.** A reader
+       does not know an asset by its integer - they know it as USDC or ORA - and
+       a number field asked them for the one thing they would have to go and
+       look up. `swap_assets` already ranks by name, unit and id.
+
+       Reusing swapcore's URL rather than adding one here keeps the promise in
+       this widget's manifest: `capability = "public"`, no `engine_endpoints`.
+       The lookup happens under the swap widget's own gate, which every
+       authenticated reader clears - both widgets are `required_permission = 0` -
+       so alerts gains no privilege by linking to it.
+
+       `type="search"` rather than `text`: Enter in a text input inside a form
+       submits the form, which here would try to save a half-filled rule.
+    {% endcomment %}
     <label class="alerts-field alerts-asset-field" hidden>
-      <span>Asset ID</span>
-      <input type="number" name="asset_id" min="0" inputmode="numeric">
+      <span>Asset</span>
+      <input type="search" class="alerts-asset-search"
+             placeholder="Search name, unit or asset ID"
+             hx-get="{% url 'swap_assets' %}"
+             hx-trigger="keyup changed delay:300ms"
+             hx-target="next .alerts-asset-results"
+             name="q" autocomplete="off">
+      {# What the form actually posts. `alerts.js` writes it when a row is #}
+      {# picked, so an unpicked search submits nothing and the form says so. #}
+      <input type="hidden" name="asset_id" class="alerts-asset-id">
+      <span class="alerts-asset-chosen" aria-live="polite"></span>
+      <div class="alerts-asset-results"></div>
     </label>
 
     <label class="alerts-field">
