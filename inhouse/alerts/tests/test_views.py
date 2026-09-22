@@ -74,7 +74,11 @@ class TestInhouseAlertsViewsGate:
         manifest gate is what bands the widget by address count.
         """
         view = view_class()
-        view.args = ["abcdef"]
+        # **`kwargs`, not `args`.** Django sends every group as a keyword when
+        # any one of them is named, and the delete route names `pk` - so a view
+        # reading `self.args[0]` worked on two routes and raised `IndexError`
+        # on the third. See `test_the_delete_route_really_reaches_its_gate`.
+        view.kwargs = {"page": "abcdef"}
         resolver = mocker.patch(
             "widgets.inhouse.alerts.views.bundle_and_addresses_from_path",
             return_value=("BUNDLEHASH", "ADDR_ONE ADDR_TWO"),

@@ -21,9 +21,20 @@
 <div id="id-alerts-panel" class="alerts-panel"
      hx-headers:inherited='{"X-CSRFToken": "{{ csrf_token }}"}'>
 
-  {% if form.non_field_errors or form.subject.errors %}
+  {% comment %} **Any field's error, not just the subject's.**
+
+     This showed `form.subject.errors` and `form.non_field_errors` only, so a
+     rule rejected for its *threshold* - "A threshold has to be more than zero",
+     the most ordinary mistake there is - came back with the form intact and
+     nothing said. The reader pressed Add and watched nothing happen.
+
+     `form.errors` is a dict of field name to list, so this takes the first
+     message of the first field that has one; the tier refusal still arrives as
+     a `subject` error and still shows.
+  {% endcomment %}
+  {% if form.errors %}
   <p class="alerts-error" role="alert">
-    {{ form.subject.errors.0|default:form.non_field_errors.0 }}
+    {% for field_errors in form.errors.values %}{% if forloop.first %}{{ field_errors.0 }}{% endif %}{% endfor %}
   </p>
   {% endif %}
 

@@ -127,7 +127,7 @@ class AlertsView(WidgetAccessMixin, AlertsContextMixin, TemplateView):
 
         :return: Boolean
         """
-        url_path = self.args[0].upper()
+        url_path = self.kwargs["page"].upper()
         self.bundle, self.addresses = bundle_and_addresses_from_path(
             url_path, force_bundle=True
         )
@@ -185,7 +185,7 @@ class AlertsRulesView(WidgetAccessMixin, AlertsContextMixin, View):
 
         :return: Boolean
         """
-        url_path = self.args[0].upper()
+        url_path = self.kwargs["page"].upper()
         self.bundle, self.addresses = bundle_and_addresses_from_path(
             url_path, force_bundle=True
         )
@@ -243,7 +243,7 @@ class AlertsRuleDeleteView(WidgetAccessMixin, AlertsContextMixin, View):
 
         :return: Boolean
         """
-        url_path = self.args[0].upper()
+        url_path = self.kwargs["page"].upper()
         self.bundle, self.addresses = bundle_and_addresses_from_path(
             url_path, force_bundle=True
         )

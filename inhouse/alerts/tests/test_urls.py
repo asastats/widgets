@@ -2,6 +2,8 @@
 
 import re
 
+import pytest
+
 from widgets.inhouse.alerts import urls
 
 
@@ -107,3 +109,46 @@ class TestInhouseAlertsUrls:
         )
 
         assert "58" not in pattern and "40" not in pattern
+
+
+@pytest.mark.django_db
+class TestInhouseAlertsUrlsDelivery:
+    """Testing class for *how* a matched route hands the page to its view.
+
+    **The gap that let a 500 ship.** Every other test in this widget calls a
+    view directly with `bundle` already set, so none of them ran `test_func`
+    against what Django would really pass - and `test_func` read `self.args[0]`.
+    Django sends every captured group as a *keyword* when any one of them is
+    named, so the delete route, which names `pk`, left `args` empty and raised
+    `IndexError`. Removing a rule answered 500 from the day it was written.
+    """
+
+    def _match(self, name, path):
+        """Return what Django would hand a view for `path` on route `name`."""
+        pattern = next(p for p in urls.urlpatterns if p.name == name)
+        return pattern.resolve(path)
+
+    @pytest.mark.parametrize(
+        ("name", "path"),
+        [
+            ("alerts", "A" * 58),
+            ("alerts_rules", "A" * 58 + "/rules"),
+            ("alerts_rule_delete", "A" * 58 + "/rules/7/delete"),
+        ],
+    )
+    def test_inhouse_alerts_urls_every_route_delivers_the_page_as_a_keyword(
+        self, name, path
+    ):
+        """**All three the same way**, which is the whole point of naming the
+        group: a view can read `kwargs["page"]` without knowing which route it
+        was reached by."""
+        match = self._match(name, path)
+
+        assert match is not None, name
+        assert match.kwargs.get("page") == "A" * 58
+        assert match.args == (), "a named group anywhere sends them all to kwargs"
+
+    def test_inhouse_alerts_urls_delete_still_carries_its_pk(self):
+        match = self._match("alerts_rule_delete", "A" * 58 + "/rules/7/delete")
+
+        assert match.kwargs["pk"] == "7"

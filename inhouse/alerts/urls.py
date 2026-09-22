@@ -13,7 +13,14 @@ from .views import (
 )
 
 #: An address or a bundle hash, as the other per-page widgets spell it.
-PAGE = r"(\w{40}|\w{58})"
+#:
+#: **Named, and it has to be.** Django hands a view *either* positional groups
+#: or keyword ones, never both: one named group anywhere in a pattern sends all
+#: of them to `kwargs` and leaves `args` empty. The delete route has a named
+#: `pk`, so a view reading `self.args[0]` raised `IndexError` there and answered
+#: 500 - while the two routes without a `pk` worked. Naming this one makes every
+#: route deliver the page the same way.
+PAGE = r"(?P<page>\w{40}|\w{58})"
 
 urlpatterns = [
     # The engine's trigger, and the only pattern here no reader ever reaches.
