@@ -16,7 +16,7 @@ const alerts = require("../../static/alerts/alerts.js");
 /** The panel as `_panel.html` renders it, both conditional fields mounted. */
 function panel(subject) {
   document.body.innerHTML = `
-    <div class="alerts-panel">
+    <div id="id-alerts-panel" class="alerts-panel">
       <form class="alerts-form">
         <select class="alerts-subject">
           <option value="asa_price">Asset price</option>

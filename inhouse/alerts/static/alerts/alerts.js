@@ -244,25 +244,74 @@
     }
   });
 
-  // htmx 4 spelling. The modal arrives by swap, and so does every re-rendered
-  // panel after a create or a delete, so both need the fields re-synced.
-  // No `event.target || document` fallback and no `querySelector &&` guard: a
-  // dispatched event always carries a target, and htmx fires this on the
-  // element it swapped, so both would be branches no test could reach. An
-  // unreachable guard is worse than none - it reads as a case somebody once
-  // saw.
-  document.body.addEventListener("htmx:after:swap", function (event) {
-    if (event.target.querySelector("#alerts-modal")) {
-      openModal(event.target);
-    } else {
-      syncFields(event.target);
+  /**
+   * React to an htmx swap: open the modal that arrived, or re-sync a panel.
+   *
+   * **`event.target` is not the swapped content.** htmx 4 fires this on the
+   * element that made the request - the *button* - and names the region it
+   * replaced in `detail.ctx.target`. Reading `event.target` therefore searched
+   * inside the button, found no dialog, and left the modal sitting in the
+   * document unopened: a control that fetched everything correctly and looked
+   * broken. The jest suite could not see it, because it calls `openModal`
+   * directly; only a real browser fires a real htmx event.
+   *
+   * **Only these two swaps are acted on.** Other widgets swap fragments into
+   * this same page all the time - live refresh does it every block - and
+   * reopening the dialog on one of those would put the modal back in a
+   * reader's face after they closed it.
+   *
+   * @param {Event} event - htmx's after-swap event.
+   * @returns {boolean} whether this swap was one of ours.
+   */
+  function handleSwap(event) {
+    var ctx = event.detail && event.detail.ctx;
+    var swapped = (ctx && ctx.target) || event.target;
+    if (!swapped || !swapped.querySelector) return false;
+
+    if (swapped.querySelector("#alerts-modal")) {
+      openModal(swapped);
+      return true;
     }
-  });
+    // A create or a delete replaces the panel by `outerHTML`, which leaves
+    // `ctx.target` pointing at the element that was replaced - detached, and
+    // useless to sync. It still carries the class, so the live panel is looked
+    // up in the document and the detached one is only used to recognise the
+    // swap.
+    //
+    // By class rather than by id, because that is what `syncFields` itself
+    // works from and what the jest fixture and the template are guaranteed to
+    // agree on.
+    if (swapped.classList && swapped.classList.contains("alerts-panel")) {
+      syncFields(document.querySelector(".alerts-panel") || swapped);
+      return true;
+    }
+    return false;
+  }
+
+  document.body.addEventListener("htmx:after:swap", handleSwap);
+
+  // **Published so the page can tell this script is listening.**
+  //
+  // The tag that loads this file rides in `_swap_entry.html`, which is itself
+  // swapped in - so it is fetched asynchronously, and for a moment the control
+  // is on the page while nothing is listening for the swap it triggers. A press
+  // in that window fetches the modal and leaves it closed, which is a reader
+  // pressing a button that does nothing.
+  //
+  // The same shape as `window.asastatsWallet` and `window.asastatsSwap`, and
+  // read for the same reason: something that arrives late has to say when it
+  // has arrived.
+  window.asastatsAlerts = {
+    handleSwap: handleSwap,
+    openModal: openModal,
+    syncFields: syncFields,
+  };
 
   /* istanbul ignore next -- exported for the jest suite only */
   if (typeof module !== "undefined" && module.exports) {
     module.exports = {
       syncFields: syncFields,
+      handleSwap: handleSwap,
       openModal: openModal,
       supportState: supportState,
       showSupport: showSupport,

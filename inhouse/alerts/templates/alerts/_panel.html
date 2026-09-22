@@ -6,7 +6,20 @@
    endpoint would need a second renderer in JavaScript for markup the server
    already knows how to make.
 {% endcomment %}
-<div id="id-alerts-panel" class="alerts-panel">
+{% comment %} `hx-headers:inherited`, because htmx 4 does not inherit attributes
+   implicitly as htmx 2 did. The remove buttons below are `hx-post`s that carry
+   no headers of their own and sit outside the form, so they have no
+   `{% templatetag openblock %} csrf_token {% templatetag closeblock %}` field
+   to be collected either - and without this Django rejects every deletion with
+   a 403 while the form beside them works. `profile_addresses.html` hit the same
+   thing and says so at more length.
+
+   Outside the tag, not inside it: a Django comment between attributes renders
+   away, but any HTML parser reading the template sees its words as attribute
+   names.
+{% endcomment %}
+<div id="id-alerts-panel" class="alerts-panel"
+     hx-headers:inherited='{"X-CSRFToken": "{{ csrf_token }}"}'>
 
   {% if form.non_field_errors or form.subject.errors %}
   <p class="alerts-error" role="alert">
