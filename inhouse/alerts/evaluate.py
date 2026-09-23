@@ -111,8 +111,6 @@ def in_rule_currency(rule, algo_figure, algo_per_usd):
     cannot be made honestly is not made. Answering in ALGO against a threshold
     the reader typed in dollars would be wrong by whatever an ALGO costs.
 
-    :param rule: the rule being evaluated
-    :type rule: :class:`widgets.inhouse.alerts.models.AlertRule`
     **Divided, not multiplied, and that is the whole of it.** `algo_per_usd` is
     how much ALGO one USD buys - about 4 when ALGO is $0.25 - which is what the
     engine publishes as `priceusdc` and what the address page labels "ALGO/USD".
@@ -120,9 +118,14 @@ def in_rule_currency(rule, algo_figure, algo_per_usd):
     divides to show a dollar figure; this has to agree with both. A name like
     "the ALGO price" is how this widget converted it backwards three times.
 
+    :param rule: the rule being evaluated
+    :type rule: :class:`widgets.inhouse.alerts.models.AlertRule`
     :param algo_figure: the reading, in ALGO
+    :type algo_figure: float
     :param algo_per_usd: how much ALGO one USD buys, or None
+    :type algo_per_usd: float
     :return: the reading in the rule's own currency, or None
+    :rtype: float
     """
     if algo_figure is None:
         return None

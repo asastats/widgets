@@ -165,7 +165,7 @@
 
     <label class="alerts-field">
       <span>When it</span>
-      <select name="direction">
+      <select name="direction" class="alerts-direction">
         {% for value, label in directions %}
         <option value="{{ value }}"
           {% if form.direction.value == value %}selected{% endif %}>{{ label }}</option>

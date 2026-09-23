@@ -254,6 +254,13 @@
   // The subject select is replaced on every swap, so this is delegated from the
   // document rather than bound to it - the same reason `showmore.js` delegates.
   document.addEventListener("change", function (event) {
+    // **The direction decides which side of the figure to offer**, so a reader
+    // switching from "rises above" to "falls below" must not be left holding a
+    // threshold the price is already past.
+    if (event.target.classList.contains("alerts-direction")) {
+      suggest(event.target.closest(".alerts-panel") || document);
+      return;
+    }
     if (event.target.classList.contains("alerts-subject")) {
       // No `|| document` fallback: the select is rendered inside the panel, so
       // a miss is impossible - and `syncFields` already answers false for a
@@ -346,6 +353,14 @@
    * @param {number} value - the figure.
    * @returns {string} it, readably.
    */
+  /** How far past the current figure a suggested threshold is offered.
+   *
+   * Five percent: far enough that ordinary movement does not reach it on the
+   * first block, near enough that it is a threshold the reader might have
+   * chosen. It is a starting point to be edited, not a recommendation.
+   */
+  var SUGGEST_OFFSET = 0.05;
+
   function trim(value) {
     if (value >= 1) return value.toFixed(2);
     // Enough places to keep four significant digits on a small number.
@@ -368,12 +383,13 @@
    * @param {Element} root - the panel.
    * @returns {string} what was shown, for the tests.
    */
-  function showCurrent(root) {
+  function currentFigure(root) {
     var note = root && root.querySelector(".alerts-now");
     var form = root && root.querySelector(".alerts-form");
-    if (!note || !form) return "";
+    if (!note || !form) return null;
 
     var subject = form.querySelector(".alerts-subject");
+    if (!subject) return null;
     var unitField = form.querySelector(".alerts-unit-value");
     var chosen = unitField ? unitField.value : "algo";
     var total = parseFloat(note.getAttribute("data-current-total"));
@@ -384,18 +400,15 @@
     // reference.
     var rate = parseFloat(note.getAttribute("data-algo-per-usd"));
 
-    var text = "";
-    if (!subject) {
-      note.textContent = "";
-      return "";
-    }
-
     if (subject.value === "total_value" && isFinite(total)) {
-      text =
-        chosen === "usd" && isFinite(rate)
-          ? "Now $" + (total / rate).toFixed(2)
-          : "Now " + total.toFixed(2) + " ALGO";
-    } else if (subject.value === "asa_price") {
+      if (chosen === "usd") {
+        return isFinite(rate) && rate > 0
+          ? { value: total / rate, unit: "usd" }
+          : null;
+      }
+      return { value: total, unit: "algo" };
+    }
+    if (subject.value === "asa_price") {
       // **Derived, because the two sides speak different currencies.** The
       // search row carries the asset's price in *USD*; the threshold is stored
       // in ALGO. Dividing by what one ALGO costs is the whole conversion, and
@@ -403,17 +416,72 @@
       // most dangerous version of this feature.
       var assetUsd = parseFloat(note.getAttribute("data-asset-usd"));
       if (isFinite(assetUsd) && isFinite(rate) && rate > 0) {
-        text =
-          chosen === "usd"
-            ? "Now $" + trim(assetUsd)
-            : "Now " + trim(assetUsd * rate) + " ALGO";
+        return chosen === "usd"
+          ? { value: assetUsd, unit: "usd" }
+          : { value: assetUsd * rate, unit: "algo" };
       }
     }
-    // `asa_total` is the value of *this reader's holding*, which is not the
-    // asset's price and is not published to this modal. Nothing rather than the
-    // wrong number.
+    // `asa_total` and `asa_amount` are about *this reader's holding* - its
+    // value and its count - and neither is published to this modal. The panel
+    // is rendered for a page before an asset has been chosen, and the picker
+    // answers with the asset's price, not with how much of it anybody holds.
+    // Nothing rather than the wrong number, here and in the suggestion.
+    return null;
+  }
 
+  function showCurrent(root) {
+    var note = root && root.querySelector(".alerts-now");
+    if (!note) return "";
+    var figure = currentFigure(root);
+    var text = "";
+    if (figure) {
+      text =
+        figure.unit === "usd"
+          ? "Now $" + trim(figure.value)
+          : "Now " + trim(figure.value) + " ALGO";
+    }
     note.textContent = text;
+    suggest(root);
+    return text;
+  }
+
+  /**
+   * Offer a threshold a little way past what the figure is now.
+   *
+   * **A threshold equal to the current value is the one value it must not
+   * be.** A rule arms on its first reading and fires on a crossing, so a
+   * threshold sitting exactly on the figure triggers on the first wobble past
+   * it - which is why this is offered offset rather than filled in flat, and
+   * why the note beside it says "Now" rather than proposing that number.
+   *
+   * Above for "rises above" and below for "falls below", because the reader
+   * has already said which way they are watching; offering a threshold on the
+   * wrong side of the price would be offering a rule that fires immediately.
+   *
+   * **Never over what the reader typed.** The field is written only while it
+   * is empty or still holds exactly the last thing written here, which is what
+   * `data-suggested` records. Changing the subject, the asset, the direction
+   * or the unit re-offers; typing one character ends it for good.
+   *
+   * @param {Element} root - the panel.
+   * @returns {string} what was offered, or "" when nothing was.
+   */
+  function suggest(root) {
+    var form = root && root.querySelector(".alerts-form");
+    if (!form) return "";
+    var input = form.querySelector(".alerts-threshold");
+    if (!input) return "";
+    if (input.value && input.value !== input.getAttribute("data-suggested")) {
+      return "";
+    }
+    var figure = currentFigure(root);
+    if (!figure) return "";
+
+    var direction = form.querySelector(".alerts-direction");
+    var up = !direction || direction.value === "up";
+    var text = trim(figure.value * (up ? 1 + SUGGEST_OFFSET : 1 - SUGGEST_OFFSET));
+    input.value = text;
+    input.setAttribute("data-suggested", text);
     return text;
   }
 
@@ -672,6 +740,8 @@
     chooseAsset: chooseAsset,
     chooseUnit: chooseUnit,
     showCurrent: showCurrent,
+    currentFigure: currentFigure,
+    suggest: suggest,
     resolveAsset: resolveAsset,
     togglePicker: togglePicker,
     openModal: openModal,
@@ -688,6 +758,8 @@
       chooseAsset: chooseAsset,
       chooseUnit: chooseUnit,
       showCurrent: showCurrent,
+      currentFigure: currentFigure,
+      suggest: suggest,
       resolveAsset: resolveAsset,
       togglePicker: togglePicker,
       openModal: openModal,

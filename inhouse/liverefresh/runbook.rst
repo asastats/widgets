@@ -51,10 +51,22 @@ Redis keys, on the liveserver's own instance unless noted:
   a poll for them. The engine drops a page 90 s after its last beat.
 - ``lvp:<page>`` — the published block, msgpack, 120 s TTL.
 - ``lvs`` — page → valued holdings, which is what admission control charges.
-- ``lvh`` — page → the holdings fingerprint, ``<counter>:<digest of the asset ids>``. The
-  widget compares it against ``data-holdings`` on the page and answers a difference with
-  ``HX-Refresh``; the address page's own cache entry is keyed on it too, so the reload
-  cannot be served the markup that prompted it.
+- ``lvh`` — page → the holdings fingerprint,
+  ``<counter>:<asset digest>:<position digest>``. The widget compares it against
+  ``data-holdings`` on the page. A differing **asset** digest is answered with
+  ``HX-Refresh``: a bought asset has no row for a fragment to land in. A differing
+  **position** digest is answered with a regroup instead (below). The address page's own
+  cache entry is keyed on the whole fingerprint, so a reload cannot be served the markup
+  that prompted it. A two-part fingerprint is one published before the halves were split;
+  it reloads, exactly as it used to.
+- ``lvn:<page>`` — the full serialized account, msgpack, and **nothing else**: the API
+  path serves this key to entitled callers, so its shape is a contract rather than a
+  convention. Published for a page an API caller keeps warm (``lva``) **and** on any
+  block where a watched page's position digest changed, which is what a regroup renders
+  from.
+- ``lvnh:<page>`` — the fingerprint the snapshot beside it describes. Written in the same
+  pipeline under the same TTL and read with it in one ``MGET``. Absent means the engine
+  predates it, which the widget reads as "cannot tell" and answers with the reload.
 - ``lvf:<user id>`` — one free reader's spend today: ``day``, ``used``, ``seen``. Expires
   after 48 h.
 - ``lvd`` — **on the shared instance**, not this one: addresses a collector has corrected
@@ -64,6 +76,41 @@ Redis keys, on the liveserver's own instance unless noted:
 **No engine scopes.** The manifest declares none: nothing is called on the reader's
 behalf. A deployment that cannot reach the engine's HTTP API can still host this, as long
 as its own engine runs the pass.
+
+Regrouping, and when the page still reloads
+-------------------------------------------
+
+A position opening or closing changes a row *inside* a row the page already has. That
+used to reload the page, which cost the reader their scroll, their filters, every open
+section and every pin to add one row.
+
+What happens instead, once per change rather than per poll:
+
+1. The poll finds the position digest moved and the asset digest standing, and answers
+   with ``HX-Trigger: liverefresh:regroup`` — on the 204 as well as on a body, because a
+   position can open on a block that moves no figure this page renders.
+2. The page ``POST``\ s ``/widgets/liverefresh/<page>/regroup`` with one
+   ``<asset id>:<pid>`` per position it is carrying. It sends ``X-CSRFToken`` from the
+   cookie: this is the widget's only POST and it is not submitted from a form.
+3. The view reads ``lvn:<page>``, renders the ``.program-groups`` of each asset whose pid
+   set differs, and swaps them out of band. It answers
+   ``HX-Trigger: liverefresh:regrouped`` carrying the snapshot's own fingerprint, which
+   the page writes back onto ``data-holdings`` — without that it would ask again every
+   three seconds for ever.
+4. The script drops any stale ``.pgroup`` copies left in ``#venue-list`` and asks
+   ``asastatsToolbar.regroup()`` to lay the page out again, so "Group by venue" survives.
+
+**It falls back to the reload** — which is the behaviour that preceded it — whenever it
+cannot be sure: a two-part fingerprint on either side, no snapshot published, an
+unstamped snapshot, the classic layout (which renders no positions), or a group whose
+positions the page could not name. Ambiguous pids are excluded on both sides; counting
+them on one would make that asset differ on every regroup for ever.
+
+**Symptom to watch for:** a row that only appears on F5. Check that the engine is
+publishing three-part fingerprints (``lvh``), that ``lvn:<page>`` exists and carries a
+``holdings`` key, and that the regroup POST is not being refused — a missing CSRF token
+shows as ``Forbidden (CSRF token missing.)`` in the website log and nothing at all on the
+page.
 
 Who may use it
 --------------

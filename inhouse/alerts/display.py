@@ -77,6 +77,38 @@ def format_price(amount):
     return _trimmed(amount, STORED_DECIMALS) if amount else text
 
 
+def format_count(amount):
+    """Return `amount` as a count of an asset, grouped for reading.
+
+    **Grouped, because a count is the one figure here that gets long.** A
+    million of a token rendered "1000000" is a number a reader has to count the
+    digits of; "1,000,000" is one they can see. Values and prices are not
+    grouped - a price is small by nature and a value is money the rest of the
+    site renders ungrouped - so this is its own formatter rather than a flag on
+    another one.
+
+    Trailing zeros dropped first: a whole number of tokens should not read
+    "1,000,000.000000".
+
+    **No guard around `int()`, because there is nothing it could catch.**
+    `_number` answers a finite `Decimal` for everything - NaN, Infinity, None
+    and a junk string all come back as one - and `_trimmed` renders that with
+    `:.6f`, which yields an optional minus sign and digits and never an
+    exponent. So the whole part is always something `int` accepts. That was
+    checked by running every one of those through it rather than by reading
+    the code, after a `try` here sat uncovered and a test for it would have had
+    to fake an input production cannot produce.
+
+    :param amount: the count, in whole units as the reader typed it
+    :type amount: decimal.Decimal or float
+    :return: str
+    """
+    text = _trimmed(_number(amount), PRICE_DECIMALS)
+    whole, _, fraction = text.partition(".")
+    whole = f"{int(whole):,}"
+    return f"{whole}.{fraction}" if fraction else whole
+
+
 def format_percent(amount):
     """Return `amount` as a percentage, without trailing zeros.
 
@@ -236,6 +268,46 @@ def asset_label(rule):
     return (rule.asset_unit or "").strip() or str(rule.asset_id)
 
 
+#: How each subject reads *inside a sentence*, with the thing it watches in it.
+#:
+#: **Not `get_subject_display()`, and that was the bug.** Those labels are
+#: picker options - they answer "what do you want to watch?" and read as
+#: "How much of an asset I hold". Dropped into a sentence in front of the asset
+#: they produced "How much of an asset I hold 393537671 rises above 1000000
+#: 393537671": the option's own wording, the asset named where the option
+#: already said "an asset", and then the asset again because the count carried
+#: it as a unit.
+#:
+#: So the picker keeps its labels and a sentence gets its own phrasing, with
+#: one slot for the thing being watched. The two are edited apart on purpose:
+#: a good option is rarely a good subject.
+SENTENCES = {
+    Subject.ASA_PRICE: "{target} price",
+    Subject.ASA_PRICE_PERCENT: "{target} price change",
+    Subject.ASA_AMOUNT: "My {target} holding",
+    Subject.ASA_TOTAL: "My {target} holding's value",
+    Subject.TOTAL_VALUE: "Portfolio total for {target}",
+    Subject.TOTAL_PERCENT: "Portfolio total change for {target}",
+}
+
+
+def subject_phrase(rule):
+    """Return how `rule`'s subject reads in front of its direction.
+
+    A subject with no sentence form falls back to its picker label, which is
+    the behaviour this replaced: clumsy, and never wrong.
+
+    :param rule: the rule
+    :type rule: :class:`widgets.inhouse.alerts.models.AlertRule`
+    :return: str
+    """
+    target = asset_label(rule) if rule.needs_asset else page_label(rule.address)
+    form = SENTENCES.get(rule.subject)
+    return form.format(target=target) if form else (
+        f"{rule.get_subject_display()} {target}"
+    )
+
+
 def describe(rule):
     """Return the sentence a reader is shown for `rule`.
 
@@ -250,10 +322,13 @@ def describe(rule):
     if rule.subject in PERCENT_SUBJECTS:
         amount = format_percent(rule.threshold)
     elif rule.subject in AMOUNT_SUBJECTS:
-        # **A count of the asset, in its own units.** No currency: "I hold more
-        # than 1,000 ASASTATS" is true whatever an ASASTATS is worth, which is
-        # the whole point of the subject.
-        amount = f"{format_price(rule.threshold)} {asset_label(rule)}".strip()
+        # **A count of the asset, in its own units, and the unit is not
+        # repeated here.** It used to be, which read "My ASASTATS holding rises
+        # above 1,000,000 ASASTATS" - the subject already names the asset, so
+        # saying it again is the sentence stuttering rather than being precise.
+        # No currency either: "I hold more than a million" is true whatever one
+        # is worth, which is the whole point of the subject.
+        amount = format_count(rule.threshold)
     elif rule.subject == Subject.ASA_PRICE:
         amount = f"{format_price(rule.threshold)} {currency}"
     else:
@@ -267,8 +342,7 @@ def describe(rule):
         # elimination, and testing for it left an `else` no subject could reach.
         amount = f"{format_value(rule.threshold)} {currency}"
 
-    target = asset_label(rule) if rule.needs_asset else page_label(rule.address)
     return (
-        f"{rule.get_subject_display()} {target} "
+        f"{subject_phrase(rule)} "
         f"{rule.get_direction_display().lower()} {amount}"
     )

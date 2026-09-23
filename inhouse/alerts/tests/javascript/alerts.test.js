@@ -26,6 +26,10 @@ function panel(subject) {
           <option value="total_value">Portfolio total</option>
           <option value="total_percent">Portfolio total, percentage move</option>
         </select>
+        <select class="alerts-direction">
+          <option value="up" selected>Rises above</option>
+          <option value="down">Falls below</option>
+        </select>
         <div class="alerts-field alerts-asset-field" hidden>
           <input type="hidden" name="asset_id" class="alerts-asset-id">
           <input type="hidden" name="asset_unit" class="alerts-asset-unit">
@@ -1545,5 +1549,151 @@ describe("markup these handlers did not expect", () => {
 
       expect(root.querySelector(".alerts-unit-value").value).toBe("usd");
     });
+  });
+});
+
+describe("offering a threshold to start from", () => {
+  const input = () => document.querySelector(".alerts-threshold");
+  const direction = () => document.querySelector(".alerts-direction");
+
+  /** Choose a subject the way the panel's own change handler does. */
+  function watch(subject) {
+    const select = document.querySelector(".alerts-subject");
+    select.value = subject;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  it("offers five percent above the total for a rule watching upwards", () => {
+    // **A threshold equal to the current figure is the one value it must not
+    // be.** A rule arms on its first reading and fires on a crossing, so
+    // sitting it exactly on the figure triggers on the first wobble past it.
+    panel();
+    watch("total_value");
+
+    expect(input().value).toBe("1050.00");
+  });
+
+  it("offers five percent below it for a rule watching downwards", () => {
+    // Offering a threshold on the wrong side of the figure would be offering
+    // a rule that fires the moment it is saved.
+    panel();
+    direction().value = "down";
+    watch("total_value");
+
+    expect(input().value).toBe("950.00");
+  });
+
+  it("re-offers on the other side when the direction changes", () => {
+    panel();
+    watch("total_value");
+    expect(input().value).toBe("1050.00");
+
+    direction().value = "down";
+    direction().dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(input().value).toBe("950.00");
+  });
+
+  it("falls back to the document for a direction outside a panel", () => {
+    // The select is rendered inside the panel, so this is defensive - but a
+    // delegated handler runs on whatever matches, and a `closest` miss here
+    // would throw rather than do nothing.
+    panel();
+    const loose = document.createElement("select");
+    loose.className = "alerts-direction";
+    loose.innerHTML = '<option value="down" selected>Falls below</option>';
+    document.body.appendChild(loose);
+    watch("total_value");
+    input().value = "";
+
+    loose.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(input().value).toBe("1050.00");
+  });
+
+  it("never writes over what the reader typed", () => {
+    // The whole feature has to be abandonable by typing one character, or it
+    // is a field that argues with the person filling it in.
+    panel();
+    watch("total_value");
+    input().value = "1234";
+
+    direction().value = "down";
+    direction().dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(input().value).toBe("1234");
+  });
+
+  it("offers a price in the unit the reader is thinking in", () => {
+    // The search row carries USD and the threshold is stored in ALGO, so the
+    // offer has to follow the toggle exactly as the "Now" note does -
+    // suggesting a dollar figure against an ALGO threshold is the most
+    // dangerous version of this.
+    panel();
+    document.querySelector(".alerts-now").setAttribute("data-asset-usd", "0.25");
+    watch("asa_price");
+
+    expect(input().value).toBe("1.05");
+
+    input().value = "";
+    document
+      .querySelector(".alerts-unit-value")
+      .setAttribute("value", "usd");
+    document.querySelector(".alerts-unit-value").value = "usd";
+    window.asastatsAlerts.suggest(document);
+
+    expect(input().value).toBe("0.2625");
+  });
+
+  it("offers nothing for a holding, because nothing here knows one", () => {
+    // `asa_total` and `asa_amount` are about *this reader's holding*. The
+    // panel is rendered for a page before an asset is chosen, and the picker
+    // answers with the asset's price rather than with how much anybody holds.
+    panel();
+    document.querySelector(".alerts-now").setAttribute("data-asset-usd", "0.25");
+    watch("asa_total");
+
+    expect(input().value).toBe("");
+    expect(window.asastatsAlerts.suggest(document)).toBe("");
+  });
+
+  it("offers nothing for a percentage, which is not a figure to nudge", () => {
+    panel();
+    watch("total_percent");
+
+    expect(input().value).toBe("");
+  });
+
+  it("offers nothing when the panel has no threshold to fill", () => {
+    panel();
+    document.querySelector(".alerts-threshold").remove();
+
+    expect(window.asastatsAlerts.suggest(document)).toBe("");
+  });
+
+  it("offers nothing when there is no form at all", () => {
+    document.body.innerHTML = "";
+
+    expect(window.asastatsAlerts.suggest(document)).toBe("");
+  });
+
+  it("reads no figure without a rate to convert one", () => {
+    panel();
+    document.querySelector(".alerts-now").removeAttribute("data-algo-per-usd");
+    document.querySelector(".alerts-unit-value").value = "usd";
+    watch("total_value");
+
+    expect(window.asastatsAlerts.currentFigure(document)).toBe(null);
+    expect(input().value).toBe("");
+  });
+
+  it("reads no figure from a panel with no note or no subject", () => {
+    panel();
+    document.querySelector(".alerts-now").remove();
+    expect(window.asastatsAlerts.currentFigure(document)).toBe(null);
+
+    panel();
+    document.querySelector(".alerts-subject").remove();
+    expect(window.asastatsAlerts.currentFigure(document)).toBe(null);
   });
 });

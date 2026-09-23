@@ -1078,7 +1078,7 @@ class TestInhouseAlertsViewsPriced:
 
         body = notify.call_args[0][1]["body"]
         assert "pools hold" not in body
-        assert "Asset price 1" in body
+        assert "1 price falls below" in body
 
     def test_inhouse_alerts_views_priced_ignores_an_unusable_depth(
         self, db, mocker, settings

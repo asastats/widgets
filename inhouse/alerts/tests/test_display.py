@@ -180,7 +180,7 @@ class TestAlertsDisplayDescribe:
         _resolves(mocker, ADDRESS)
 
         assert describe(_rule(reader)) == (
-            f"Portfolio total {ADDRESS[:5]}...{ADDRESS[-5:]} "
+            f"Portfolio total for {ADDRESS[:5]}...{ADDRESS[-5:]} "
             "falls below 100.00 ALGO"
         )
 
@@ -193,7 +193,7 @@ class TestAlertsDisplayDescribe:
             direction=Direction.UP,
         )
 
-        assert describe(rule) == "Asset price 31566704 rises above 0.1234 ALGO"
+        assert describe(rule) == "31566704 price rises above 0.1234 ALGO"
 
     def test_alerts_display_describes_a_percentage(self, reader, mocker):
         _resolves(mocker, ADDRESS)
@@ -274,7 +274,7 @@ class TestAlertsDisplayTheAssetAndItsCurrency:
         )
 
         assert asset_label(rule) == "USDC"
-        assert describe(rule).startswith("What my holding of an asset is worth USDC")
+        assert describe(rule).startswith("My USDC holding's value")
 
     def test_alerts_display_falls_back_to_the_id(self, reader):
         """A rule written before the unit was stored still has to describe
@@ -323,13 +323,134 @@ class TestAlertsDisplayTheAssetAndItsCurrency:
             threshold="1000",
         )
 
-        assert describe(rule) == (
-            "How much of an asset I hold ASASTATS rises above 1000 ASASTATS"
+        assert describe(rule) == "My ASASTATS holding rises above 1,000"
+
+    def test_alerts_display_reads_as_a_sentence_for_every_subject(self, reader, mocker):
+        """**The reported bug, pinned for all six.**
+
+        The subject came from `get_subject_display()`, which is a *picker
+        option* - it answers "what do you want to watch?" and reads "How much
+        of an asset I hold". In front of an asset it produced "How much of an
+        asset I hold 393537671 rises above 1000000 393537671": the option's own
+        wording, the asset named where the option already said "an asset", and
+        the asset a second time because the count carried it as a unit.
+
+        Asserted whole rather than by fragment, because what was wrong with it
+        was the shape of the whole line.
+        """
+        _resolves(mocker, ADDRESS)
+        page = f"{ADDRESS[:5]}...{ADDRESS[-5:]}"
+        cases = {
+            Subject.ASA_PRICE: "HOG price rises above 1,000",
+            Subject.ASA_PRICE_PERCENT: "HOG price change rises above 1000%",
+            Subject.ASA_AMOUNT: "My HOG holding rises above 1,000",
+            Subject.ASA_TOTAL: "My HOG holding's value rises above 1000.00 ALGO",
+            Subject.TOTAL_VALUE: (
+                f"Portfolio total for {page} rises above 1000.00 ALGO"
+            ),
+            Subject.TOTAL_PERCENT: (
+                f"Portfolio total change for {page} rises above 1000%"
+            ),
+        }
+        for subject, expected in cases.items():
+            rule = _rule(
+                reader,
+                subject=subject,
+                asset_id=7,
+                asset_unit="HOG",
+                threshold="1000",
+                direction=Direction.UP,
+                window_seconds=3600,
+            )
+            # The price subject is the one that is not grouped: a price is
+            # small by nature, and "1,000" would be a strange threshold to
+            # read against a figure rendered "0.005".
+            if subject == Subject.ASA_PRICE:
+                expected = "HOG price rises above 1000 ALGO"
+
+            assert describe(rule) == expected, subject
+
+    def test_alerts_display_never_names_the_asset_twice(self, reader):
+        """A count used to carry the asset as its unit while the subject named
+        it too. The subject names it; the figure does not repeat it."""
+        rule = _rule(
+            reader,
+            subject=Subject.ASA_AMOUNT,
+            asset_id=7,
+            asset_unit="HOG",
+            threshold="1000",
         )
+
+        assert describe(rule).count("HOG") == 1
+
+    def test_alerts_display_groups_a_long_count(self, reader):
+        """**A million of a token is the figure that gets long here.**
+        "1000000" is digits to be counted; "1,000,000" is a number to be read.
+        Values and prices stay ungrouped - a price is small by nature and the
+        rest of the site renders money ungrouped."""
+        rule = _rule(
+            reader,
+            subject=Subject.ASA_AMOUNT,
+            asset_id=7,
+            asset_unit="HOG",
+            threshold="1000000",
+        )
+
+        assert describe(rule) == "My HOG holding rises above 1,000,000"
+
+    @pytest.mark.parametrize(
+        "threshold",
+        ["0", "-1000000", "1E+30", "1e-30", "NaN", "Infinity", "-Infinity", "abc"],
+    )
+    def test_alerts_display_groups_whatever_a_threshold_turns_out_to_be(
+        self, threshold
+    ):
+        """**The invariant that makes a guard unnecessary, asserted directly.**
+
+        `format_count` groups the whole part with `int()`, unguarded: `_number`
+        answers a finite Decimal for every one of these - including the ones
+        that are not numbers at all - and `_trimmed` renders it with `:.6f`,
+        which never produces an exponent. A `try` around it was dead code, and
+        the only test that could have covered it would have had to fake an
+        input production cannot produce.
+
+        **Unsaved, and that is the point.** The column refuses five of these,
+        so a stored rule can never hold them - but the instance a form just
+        saved still carries the *string that was posted*, and that is the
+        instance the panel re-renders and the notification is built from. It is
+        the one path on which a threshold is not yet a Decimal, which is what
+        `_number` exists for.
+        """
+        rule = AlertRule(
+            subject=Subject.ASA_AMOUNT,
+            direction=Direction.UP,
+            asset_id=7,
+            asset_unit="HOG",
+            threshold=threshold,
+            address=BUNDLE,
+        )
+
+        sentence = describe(rule)
+
+        assert sentence.startswith("My HOG holding ")
+        assert "NaN" not in sentence
+        assert "Infinity" not in sentence
+
+    def test_alerts_display_keeps_a_fractional_count(self, reader):
+        """Grouping the whole part must not eat the rest of the number."""
+        rule = _rule(
+            reader,
+            subject=Subject.ASA_AMOUNT,
+            asset_id=7,
+            asset_unit="HOG",
+            threshold="1234567.25",
+        )
+
+        assert describe(rule).endswith("1,234,567.25")
 
     def test_alerts_display_describes_an_amount_with_no_unit_stored(self, reader):
         rule = _rule(
             reader, subject=Subject.ASA_AMOUNT, asset_id=7, threshold="1000"
         )
 
-        assert describe(rule).endswith("rises above 1000 7")
+        assert describe(rule) == "My 7 holding rises above 1,000"
