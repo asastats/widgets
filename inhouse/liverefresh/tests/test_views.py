@@ -11,6 +11,12 @@ from widgets.inhouse.liverefresh.views import (
     PAYLOAD_PREFIX,
     SUBSCRIBED_KEY,
     LiveRefreshView,
+    LiveRegroupView,
+    _digest,
+    _pids_of,
+    _positions_digest,
+    _sent_pids,
+    _snapshot_account,
 )
 
 ADDRESS = "2EVGZ4BGOSL3J64UYDE2BUGTNTBZZZLI54VUQQNZZLYCDODLY33UGXNSIU"
@@ -1465,9 +1471,9 @@ class TestLiveRefreshUrls:
 
         from widgets.inhouse.liverefresh import urls
 
-        assert len(urls.urlpatterns) == 1
-        entry = urls.urlpatterns[0]
-        assert entry.name == "liverefresh"
+        entry = next(
+            entry for entry in urls.urlpatterns if entry.name == "liverefresh"
+        )
         assert entry.lookup_str == (
             "widgets.inhouse.liverefresh.views.LiveRefreshView"
         )
@@ -1475,6 +1481,26 @@ class TestLiveRefreshUrls:
         assert pattern.match(ADDRESS)  # 58, an address
         assert pattern.match("A" * 40)  # 40, a bundle hash
         assert not pattern.match("A" * 39)
+
+    def test_liverefresh_the_regroup_url_takes_the_same_two_lengths(self):
+        """**Registered before the poll, and the order is the assertion.** Both
+        patterns start the same way, and a reader asking for a regroup must not
+        be answered with a poll - which is a 204 with no groups in it, so the
+        row would simply never arrive and nothing would say why.
+        """
+        import re
+
+        from widgets.inhouse.liverefresh import urls
+
+        entry = urls.urlpatterns[0]
+        assert entry.name == "liverefresh-regroup"
+        assert entry.lookup_str == (
+            "widgets.inhouse.liverefresh.views.LiveRegroupView"
+        )
+        pattern = re.compile(str(entry.pattern))
+        assert pattern.match(f"{ADDRESS}/regroup")
+        assert pattern.match("A" * 40 + "/regroup")
+        assert not pattern.match(ADDRESS)
 
 
 class TestLiveRefreshChunksALargeResync:
@@ -2071,94 +2097,6 @@ class TestLiveRefreshReloadCooldown:
         assert "HX-Refresh" not in self._poll(mocker, view, holdings="bare-old-form")
         assert self._poll(mocker, view, holdings="different")["HX-Refresh"] == "true"
 
-    def test_liverefresh_a_position_fragment_carries_the_id_its_row_has(
-        self, mocker
-    ):
-        """**The join this whole design rests on.**
-
-        The engine cannot name a position - the live pass never serializes one,
-        so it cannot build a `pid`. The page cannot value one. The engine sends
-        what the position *is* and the view turns that into the same id
-        `api/position_id.py` gave the row.
-
-        Asserted against `position_id` itself rather than a literal, because a
-        literal would agree with a broken recipe just as happily.
-        """
-        from api.position_id import position_id
-        from widgets.inhouse.liverefresh.views import _named_positions
-
-        program = {
-            "program": {
-                "type": "Added",
-                "name": "Liquidity",
-                "provider": {"name": "Pact"},
-                "url": "https://app.pact.fi",
-            },
-            "linked": [{"text": "Source LP token", "id": 1129173576}],
-        }
-        published = {
-            "positions": [
-                {
-                    "asset": 31566704,
-                    "fields": {
-                        "type": "Added",
-                        "name": "Liquidity",
-                        "provider": "Pact",
-                        "code": "",
-                        "url": "https://app.pact.fi",
-                    },
-                    "links": [["Source LP token", "1129173576"], ["Vestige", "7"]],
-                    "value": 4.5,
-                    "amount": 100,
-                    "decimals": 6,
-                    "breakdown": False,
-                }
-            ]
-        }
-
-        named = _named_positions(published)
-
-        assert len(named) == 1
-        assert named[0]["pid"] == position_id(31566704, program)
-
-    def test_liverefresh_a_position_without_an_asset_is_skipped(self, mocker):
-        """**The asset id is half the identity, so there is none without it.**
-
-        `position_id` hashes it as the first part and prefixes the result with
-        it, so a position missing one would be named `p1-None-...` - an id no
-        row on any page carries, and therefore a fragment landing nowhere on
-        every poll for as long as the engine kept sending it.
-
-        Skipping costs that position its live figure and nothing else: the
-        reload corrects it, which is what corrected every position until now.
-        """
-        from widgets.inhouse.liverefresh.views import _named_positions
-
-        published = {
-            "positions": [
-                {"fields": {"type": "Balance"}, "value": 1.0, "amount": 1},
-                {
-                    "asset": 5,
-                    "fields": {"type": "Balance"},
-                    "links": [],
-                    "value": 2.0,
-                    "amount": 2,
-                },
-            ]
-        }
-
-        named = _named_positions(published)
-
-        assert [position["asset"] for position in named] == [5]
-
-    def test_liverefresh_a_payload_without_positions_is_not_an_error(self, mocker):
-        """An engine that predates this sends no `positions` at all, and the
-        two services deploy separately - so that window is real."""
-        from widgets.inhouse.liverefresh.views import _named_positions
-
-        assert _named_positions({"values": {}}) == []
-        assert _named_positions(None) == []
-
     def test_liverefresh_a_reader_who_went_away_is_not_still_cooling_off(
         self, mocker
     ):
@@ -2206,3 +2144,337 @@ class TestLiveRefreshReloadCooldown:
         self._poll(mocker, view, holdings="same")
 
         assert "liverefresh:stale:HASH" not in view.request.session
+
+
+class TestLiveRefreshPositionsHalf:
+    """Which half of the fingerprint moved, and what it costs the reader."""
+
+    def test_liverefresh_digest_reads_the_asset_half_of_three_parts(self):
+        """`<counter>:<assets>:<positions>` - and only the asset half is worth
+        rebuilding a page for."""
+        assert _digest("4:assetdigest:positiondigest") == "assetdigest"
+
+    def test_liverefresh_digest_reads_an_older_two_part_fingerprint_whole(self):
+        """A page rendered before the split against a payload published after it
+        simply differ, which is one reload. Guessing at which half an older
+        digest was would be a reload that claims to be something better."""
+        assert _digest("4:combined") == "combined"
+
+    def test_liverefresh_positions_digest_reads_the_third_part(self):
+        assert _positions_digest("4:assetdigest:positiondigest") == "positiondigest"
+
+    @pytest.mark.parametrize("fingerprint", ["4:combined", "", None, "bare"])
+    def test_liverefresh_positions_digest_says_nothing_it_cannot_say(self, fingerprint):
+        """**"" is "cannot tell", never "no positions".** Two of those compare
+        equal, so a caller reading this as a value rather than as an absence
+        would quietly report that the positions match."""
+        assert _positions_digest(fingerprint) == ""
+
+    def test_liverefresh_regroup_is_wanted_when_only_the_positions_moved(self, mocker):
+        """The reported case: a Mallow position opened on an account already
+        holding USDC. No asset arrived, so nothing needs rebuilding - but a
+        value fragment reaches only an element that exists, and there is none."""
+        view = _view(mocker, holdings="4:assets:before")
+
+        assert view._regroup_wanted(
+            view.request, {"holdings": "5:assets:after"}
+        ) is True
+
+    def test_liverefresh_regroup_is_not_wanted_when_the_positions_stand(self, mocker):
+        """A price move, which is most blocks. The counter differing is not a
+        row arriving: it steps on every block that strikes the account."""
+        view = _view(mocker, holdings="4:assets:same")
+
+        assert view._regroup_wanted(
+            view.request, {"holdings": "9:assets:same"}
+        ) is False
+
+    @pytest.mark.parametrize(
+        "rendered,published",
+        [
+            ("4:combined", "5:assets:after"),
+            ("4:assets:before", "5:combined"),
+            ("", "5:assets:after"),
+        ],
+    )
+    def test_liverefresh_regroup_needs_both_halves_to_decide(
+        self, mocker, rendered, published
+    ):
+        """One side that predates the split cannot be compared against one that
+        does not, and the answer there is the reload that came before all of
+        this rather than a guess."""
+        view = _view(mocker, holdings=rendered)
+
+        assert view._regroup_wanted(view.request, {"holdings": published}) is False
+
+    def test_liverefresh_poll_asks_for_a_regroup_rather_than_a_reload(self, mocker):
+        """**The whole point.** Before this, a position opening reloaded the
+        page and cost the reader their scroll, their filters and every section
+        they had open, to add one row."""
+        view = _view(mocker, holdings="4:assets:before")
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(
+            {"total": 5.0, "values": {1: 2.0}, "holdings": "5:assets:after"}
+        )
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        mocker.patch.object(
+            LiveRefreshView, "render_to_response", return_value=HttpResponse()
+        )
+
+        response = view.get(view.request)
+
+        assert "HX-Refresh" not in response
+        assert "liverefresh:regroup" in json.loads(response["HX-Trigger"])
+
+    def test_liverefresh_poll_asks_on_a_quiet_block_too(self, mocker):
+        """**A position can open on a block that moves no figure this page
+        renders** - a stake of an amount the row already showed, on an asset
+        whose price sat still - and that poll answers 204. Attaching the ask
+        only to a response with fragments in it would leave exactly that reader
+        waiting for an unrelated price to move before their row appeared."""
+        view = _view(mocker, holdings="4:assets:before", session={})
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(
+            {"total": 5.0, "values": {}, "holdings": "5:assets:after"}
+        )
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        view.request.session[view._session_key()] = 5.0
+
+        response = view.get(view.request)
+
+        assert response.status_code == 204
+        assert "liverefresh:regroup" in json.loads(response["HX-Trigger"])
+
+    def test_liverefresh_regrouping_keeps_the_allowance_badge(self, mocker):
+        """`_with_left` has usually written the allowance into this header
+        already, and overwriting it would stop the badge for as long as a
+        regroup is pending."""
+        response = HttpResponse()
+        response["HX-Trigger"] = json.dumps({"liverefresh:left": {"seconds": 12}})
+
+        LiveRefreshView._regrouping(response, True)
+
+        triggers = json.loads(response["HX-Trigger"])
+        assert triggers["liverefresh:left"] == {"seconds": 12}
+        assert triggers["liverefresh:regroup"] == {}
+
+    def test_liverefresh_regrouping_writes_no_header_when_nothing_moved(self):
+        response = HttpResponse()
+
+        LiveRefreshView._regrouping(response, False)
+
+        assert "HX-Trigger" not in response
+
+
+class TestLiveRegroupViewReads:
+    """Turning what the page sent into the groups that have to be re-rendered."""
+
+    def test_liverefresh_sent_pids_groups_them_by_asset(self):
+        assert _sent_pids("5:p1-5-aa 5:p1-5-bb 0:p1-0-cc") == {
+            "5": frozenset({"p1-5-aa", "p1-5-bb"}),
+            "0": frozenset({"p1-0-cc"}),
+        }
+
+    @pytest.mark.parametrize("raw", ["", None, "nocolon", "5:", ":p1-5-aa"])
+    def test_liverefresh_sent_pids_drops_what_it_cannot_read(self, raw):
+        """Dropped rather than rejected: this is an optimisation over a reload,
+        so an unreadable body re-renders a group that did not need it and the
+        reload is still behind that."""
+        assert _sent_pids(raw) == {}
+
+    def test_liverefresh_pids_of_leaves_out_an_ambiguous_position(self):
+        """A position the page could not name renders no `data-pid`, so it is
+        absent from what the browser sends. Counting it on one side only would
+        make its asset differ on every regroup, for ever."""
+        asaitem = {
+            "asset": {"id": 5},
+            "programs": [
+                {"pid": "p1-5-aa"},
+                {"pid": "p1-5-bb", "pid_ambiguous": True},
+                {},
+            ],
+        }
+
+        assert _pids_of(asaitem) == frozenset({"p1-5-aa"})
+
+    def test_liverefresh_snapshot_account_refuses_an_unstamped_snapshot(self, mocker):
+        """The widget writes the fingerprint it caught up to back onto the page.
+        Doing that from a snapshot that cannot say which one it is would leave
+        wrong rows with nothing left to notice them."""
+        mocker.patch(
+            "api.live.stamped_snapshot", return_value=({"asaitems": []}, "")
+        )
+
+        assert _snapshot_account("HASH", ADDRESS) == (None, "")
+
+    def test_liverefresh_snapshot_account_refuses_when_none_is_published(self, mocker):
+        """No snapshot is the previous behaviour, not an error: the page keeps
+        its fingerprint, the next poll finds it stale and the reload rebuilds it
+        exactly as before."""
+        mocker.patch("api.live.stamped_snapshot", return_value=None)
+
+        assert _snapshot_account("HASH", ADDRESS) == (None, "")
+
+    def test_liverefresh_snapshot_account_never_calls_the_engine(self, mocker):
+        """A regroup is an optimisation over a reload. Buying it with a
+        synchronous engine call on a poll's back would make the fast path the
+        expensive one."""
+        fetched = mocker.patch("api.client.fetch_serialized_account")
+        mocker.patch("api.live.stamped_snapshot", return_value=(None, "4:a:b"))
+
+        assert _snapshot_account("HASH", ADDRESS) == (None, "")
+        fetched.assert_not_called()
+
+    def test_liverefresh_snapshot_account_names_every_position(self, mocker):
+        """`pid` is the website's identifier and the engine does not emit one. A
+        group rendered without them has no `data-pid`, no pin control, and
+        nothing for the next block's value fragments to land on."""
+        account = {
+            "asaitems": [
+                {
+                    "asset": {"id": 5},
+                    "programs": [{"program": {"type": "Balance"}, "value": 1.0}],
+                }
+            ]
+        }
+        mocker.patch("api.live.stamped_snapshot", return_value=(account, "4:a:b"))
+
+        named, holdings = _snapshot_account("HASH", ADDRESS)
+
+        assert holdings == "4:a:b"
+        assert named["asaitems"][0]["programs"][0]["pid"]
+
+
+class TestLiveRegroupViewPost:
+    """The request that carries what only the browser knows."""
+
+    def _view(self, mocker, pids="", session=None):
+        view = LiveRegroupView()
+        view.bundle = "HASH"
+        view.addresses = ADDRESS
+        view.request = mocker.MagicMock(session=session if session is not None else {})
+        view.request.user.profile.permission = ASASTATSER
+        view.request.POST = {"pids": pids}
+        view.kwargs = {"value": "HASH"}
+        view.args = ()
+        return view
+
+    def _account(self, *groups):
+        return {
+            "asaitems": [
+                {
+                    "asset": {"id": asset, "decimals": 6, "unit": "U"},
+                    "programs": [
+                        {"program": {"type": "Balance"}, "value": 1.0, "pid": pid}
+                        for pid in pids
+                    ],
+                }
+                for asset, pids in groups
+            ]
+        }
+
+    def test_liveregroup_sends_only_the_groups_that_changed(self, mocker):
+        """One block opened one position, so one group is re-rendered. Sending
+        every group would put the reader's whole position list through a swap
+        to correct one row of it."""
+        view = self._view(mocker, pids="5:p1-5-aa 9:p1-9-cc")
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views._snapshot_account",
+            return_value=(
+                self._account((5, ["p1-5-aa", "p1-5-bb"]), (9, ["p1-9-cc"])),
+                "7:assets:after",
+            ),
+        )
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.layout_for_user", return_value="dynamic"
+        )
+        rendered = mocker.patch.object(
+            LiveRegroupView, "render_to_response", return_value=HttpResponse()
+        )
+        mocker.patch("widgets.inhouse.liverefresh.views.redis_instance")
+
+        view.post(view.request)
+
+        changed = rendered.call_args.args[0]["changed"]
+        assert [item["asset"]["id"] for item in changed] == [5]
+
+    def test_liveregroup_says_which_fingerprint_the_page_caught_up_to(self, mocker):
+        """**Taken from the snapshot, never from what was last published.**
+        Rendering one fingerprint's rows and claiming another's leaves the page
+        wrong with no mismatch left to find it - and the page stops asking,
+        because as far as it knows it is up to date."""
+        view = self._view(mocker, pids="")
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views._snapshot_account",
+            return_value=(self._account((5, ["p1-5-aa"])), "7:assets:after"),
+        )
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.layout_for_user", return_value="dynamic"
+        )
+        mocker.patch.object(
+            LiveRegroupView, "render_to_response", return_value=HttpResponse()
+        )
+        mocker.patch("widgets.inhouse.liverefresh.views.redis_instance")
+
+        response = view.post(view.request)
+
+        assert json.loads(response["HX-Trigger"]) == {
+            "liverefresh:regrouped": {"holdings": "7:assets:after"}
+        }
+
+    def test_liveregroup_sends_nothing_without_a_snapshot(self, mocker):
+        """No snapshot is the previous behaviour rather than an error: the page
+        keeps its fingerprint, the next poll finds it stale, and the reload
+        rebuilds it exactly as it did before any of this."""
+        view = self._view(mocker)
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views._snapshot_account",
+            return_value=(None, ""),
+        )
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.layout_for_user", return_value="dynamic"
+        )
+        mocker.patch("widgets.inhouse.liverefresh.views.redis_instance")
+
+        assert view.post(view.request).status_code == 204
+
+    def test_liveregroup_sends_nothing_to_the_classic_layout(self, mocker):
+        """It renders no positions at all, so there is no group to send and
+        nothing a regroup would mean."""
+        view = self._view(mocker)
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.layout_for_user", return_value="classic"
+        )
+        snapshot = mocker.patch(
+            "widgets.inhouse.liverefresh.views._snapshot_account"
+        )
+
+        assert view.post(view.request).status_code == 204
+        snapshot.assert_not_called()
+
+    def test_liveregroup_leaves_an_all_ambiguous_group_alone(self, mocker):
+        """Both sides see nothing, so the sets match and the group is not sent.
+        Otherwise it would be re-rendered on every regroup for ever, and it
+        still would not gain the ids that would let a fragment reach it."""
+        view = self._view(mocker, pids="")
+        account = self._account((5, ["p1-5-aa"]))
+        account["asaitems"][0]["programs"][0]["pid_ambiguous"] = True
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views._snapshot_account",
+            return_value=(account, "7:assets:after"),
+        )
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.layout_for_user", return_value="dynamic"
+        )
+        rendered = mocker.patch.object(
+            LiveRegroupView, "render_to_response", return_value=HttpResponse()
+        )
+        mocker.patch("widgets.inhouse.liverefresh.views.redis_instance")
+
+        view.post(view.request)
+
+        assert rendered.call_args.args[0]["changed"] == []

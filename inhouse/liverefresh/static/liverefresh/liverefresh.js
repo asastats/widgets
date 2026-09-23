@@ -51,7 +51,7 @@
     return;
   }
 
-  var url = marker.dataset.pollUrl;
+  var pollUrl = marker.dataset.pollUrl;
   // **What this page was rendered from**, so the server can tell a price move
   // from a holdings change. The out-of-band swaps can only reach rows the page
   // already has, so an asset bought or sold is not something the fragments can
@@ -61,14 +61,36 @@
   // Read from the page rather than remembered per reader: a change between the
   // render and the first poll would otherwise never be noticed.
   //
-  // Read once. A reload replaces the document, so the value cannot go stale
-  // without this script starting again.
+  // **No longer read once**, and that changed when the reload stopped being the
+  // only answer. A regroup replaces venue groups in a document that stays put,
+  // so the page is carrying different positions than it was rendered with and
+  // this has to move with them - see `regrouped`. Left at the rendered value it
+  // would ask for the same regroup every three seconds for ever.
   var carrier = document.querySelector("[data-holdings]");
   var holdings = carrier ? carrier.dataset.holdings : "";
-  if (holdings) {
-    url += (url.indexOf("?") === -1 ? "?" : "&") +
-      "holdings=" + encodeURIComponent(holdings);
+
+  /**
+   * Return `base` carrying `value` as its `holdings` parameter.
+   *
+   * @param {string} base - the poll URL as the marker supplied it.
+   * @param {string} value - the fingerprint the page is carrying.
+   * @returns {string}
+   */
+  function withHoldings(base, value) {
+    if (!value) {
+      return base;
+    }
+    return (
+      base +
+      (base.indexOf("?") === -1 ? "?" : "&") +
+      "holdings=" +
+      encodeURIComponent(value)
+    );
   }
+
+  var url = withHoldings(pollUrl, holdings);
+  /** Whether a regroup is in flight; the trigger arrives faster than it. */
+  var regrouping = false;
   var interval = (parseInt(marker.dataset.interval, 10) || 3) * 1000;
   var grace = (parseInt(marker.dataset.grace, 10) || 300) * 1000;
   var timer = null;
@@ -317,9 +339,125 @@
   document.addEventListener("visibilitychange", visibility);
   // Fired by the server through `HX-Trigger` when the allowance runs out.
   document.body.addEventListener("liverefresh:spent", spent);
+  /**
+   * Send what the page is carrying, so the server can say what changed.
+   *
+   * **The one thing the poll cannot work out for itself.** A position opening
+   * or closing changes a row inside a row the page already has. The server
+   * knows the reader's fingerprint, which is a digest and not a list, so it can
+   * tell that the positions moved and not which ones - and the answer is a
+   * venue group, which the diff has no way to describe. So it asks, and this
+   * replies with one token per position: `<asset id>:<pid>`.
+   *
+   * The asset is sent rather than parsed out of the pid on the server, because
+   * a pid's internals belong to `api/position_id.py` and this already knows the
+   * asset - `data-owner` is on every row for the toolbar's sake.
+   *
+   * Ambiguous positions carry no `data-pid` at all, so they are absent from
+   * this by construction and the server excludes them to match. Their groups
+   * keep being corrected by the reload, as they always were.
+   *
+   * **One at a time.** The trigger arrives on every poll until the page has
+   * caught up, and a regroup takes longer than the three-second interval, so
+   * without this a slow answer would stack three or four requests all sending
+   * the same stale pid list.
+   */
+  function regroup() {
+    if (regrouping || !window.htmx) {
+      return;
+    }
+    var rows = document.querySelectorAll(".position[data-pid][data-owner]");
+    var pids = [];
+    Array.prototype.forEach.call(rows, function (row) {
+      // `data-owner` is `f<asset id>`; the `f` is the asset card's element id
+      // prefix and is not part of the id itself.
+      pids.push(row.dataset.owner.replace(/^f/, "") + ":" + row.dataset.pid);
+    });
+    regrouping = true;
+    window.htmx.ajax("POST", pollUrl + "/regroup", {
+      source: marker,
+      swap: "none",
+      values: { pids: pids.join(" ") },
+      // **Sent explicitly, because nothing else here would.** This is the only
+      // POST the widget makes, and it is made by `htmx.ajax` from a `<span>`
+      // rather than submitted from a form - so there is no
+      // `csrfmiddlewaretoken` field to pick up and no `hx-headers` on an
+      // ancestor to inherit. Django refused it outright, and the browser test
+      // is what found that: every unit test around it passed, because none of
+      // them goes through the middleware. Same read as the swap and Dust Sweep
+      // widgets do it.
+      headers: { "X-CSRFToken": csrfToken() },
+    });
+  }
+
+  /**
+   * Return Django's CSRF cookie, or "" when the page carries none.
+   *
+   * @returns {string}
+   */
+  function csrfToken() {
+    var match = document.cookie.match(/(^|;)\s*csrftoken\s*=\s*([^;]+)/);
+    return match ? match[2] : "";
+  }
+
+  /**
+   * Take the new groups, and put the reader's view back around them.
+   *
+   * **Group-by-venue is why this exists.** `toolbar.js` moves `.pgroup`
+   * elements out of their asset and into `#venue-list`, remembering the parent
+   * on the element itself. Replacing `.program-groups` under that leaves the
+   * moved groups pointing at a node no longer in the document - so switching
+   * back would append them to nothing and the reader would watch their
+   * positions disappear. Dropping the moved copies and asking the toolbar to
+   * lay itself out again is what makes the swap safe in either mode.
+   *
+   * Called after the swap rather than before, because the groups to drop are
+   * the *old* ones and they are identified by the assets that arrived.
+   *
+   * @param {CustomEvent} event carrying `{ holdings }`
+   */
+  function regrouped(event) {
+    regrouping = false;
+    var detail = (event && event.detail) || {};
+    if (detail.holdings) {
+      // **The fingerprint the page has now caught up to.** Without this the
+      // next poll compares the fingerprint the page was *rendered* with, finds
+      // it stale, and asks for a regroup again - every three seconds, for ever.
+      holdings = detail.holdings;
+      url = withHoldings(pollUrl, holdings);
+      var carrier = document.querySelector("[data-holdings]");
+      if (carrier) {
+        carrier.dataset.holdings = holdings;
+      }
+    }
+    var toolbar = window.asastatsToolbar;
+    if (!toolbar || typeof toolbar.regroup !== "function") {
+      return;
+    }
+    var venues = document.getElementById("venue-list");
+    if (venues) {
+      // A group in the venue list whose asset was just re-rendered is the old
+      // copy of a group the page now has twice.
+      Array.prototype.slice
+        .call(venues.querySelectorAll(".pgroup"))
+        .filter(function (group) {
+          var home = group._asastatsHome && group._asastatsHome.parent;
+          return home && !home.isConnected;
+        })
+        .forEach(function (group) {
+          group.parentNode.removeChild(group);
+        });
+    }
+    toolbar.regroup();
+  }
+
   // Sent with every poll response, including the 204s, so the figure does not
   // sit still on a quiet page and then jump.
   document.body.addEventListener("liverefresh:left", showLeft);
+  // The positions moved and the assets did not, so one venue group is
+  // re-rendered instead of the page being reloaded under the reader.
+  document.body.addEventListener("liverefresh:regroup", regroup);
+  document.body.addEventListener("liverefresh:regrouped", regrouped);
   // Bracketing the response's whole task list. These fire on the poll's source
   // element - the marker - and bubble, which is why listening on `body` reaches
   // them.
@@ -353,6 +491,9 @@
       humanize,
       rememberExpanded,
       settlePosition,
+      regroup,
+      regrouped,
+      withHoldings,
     };
   }
 })();

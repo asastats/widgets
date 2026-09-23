@@ -789,3 +789,238 @@ describe("settling a position fragment", () => {
     }
   });
 });
+
+describe("regrouping instead of reloading", () => {
+  /**
+   * Put a venue group on the page, laid out the way the address page lays it
+   * out: a `.program-groups` per asset, a `.pgroup` inside it, and a
+   * `.position` per row carrying the two attributes the server is told about.
+   *
+   * @param {Array} rows - `[assetId, pid]` pairs.
+   */
+  function positions(rows) {
+    document.body.innerHTML +=
+      '<div id="asset-list"></div><div id="venue-list"></div>' +
+      rows
+        .map(
+          ([asset, pid]) =>
+            `<div class="program-groups" id="pg-f${asset}"><div class="pgroup">` +
+            `<div class="position" data-owner="f${asset}" data-pid="${pid}">` +
+            "</div></div></div>"
+        )
+        .join("");
+  }
+
+  it("sends one token per position, naming the asset it belongs to", () => {
+    // The asset travels with the pid so the server never has to parse a pid:
+    // its internals belong to `api/position_id.py` and this already knows the
+    // asset, because `data-owner` is on the row for the toolbar's sake.
+    const module = load();
+    positions([
+      [31566704, "p1-31566704-aaaa"],
+      [31566704, "p1-31566704-bbbb"],
+      [0, "p1-0-cccc"],
+    ]);
+
+    module.regroup();
+
+    const [method, target, options] = window.htmx.ajax.mock.calls[0];
+    expect(method).toBe("POST");
+    expect(target).toBe(`${POLL_URL}/regroup`);
+    expect(options.values.pids.split(" ").sort()).toEqual([
+      "0:p1-0-cccc",
+      "31566704:p1-31566704-aaaa",
+      "31566704:p1-31566704-bbbb",
+    ]);
+  });
+
+  it("leaves an unnamed position out, because the page cannot name it either", () => {
+    // A position whose pid is ambiguous renders no `data-pid`, so there is
+    // nothing to send and the server excludes it to match. Counting it on one
+    // side only would make its asset differ on every regroup, for ever.
+    const module = load();
+    positions([[31566704, "p1-31566704-aaaa"]]);
+    document.body.innerHTML +=
+      '<div class="position" data-owner="f31566704"></div>';
+
+    module.regroup();
+
+    expect(window.htmx.ajax.mock.calls[0][2].values.pids).toBe(
+      "31566704:p1-31566704-aaaa"
+    );
+  });
+
+  it("sends Django's CSRF token, which nothing else here would", () => {
+    // **The browser found this and no unit test could have.** This is the
+    // widget's only POST, made by `htmx.ajax` from a `<span>` rather than
+    // submitted from a form - so there is no `csrfmiddlewaretoken` field to
+    // pick up and no `hx-headers` on an ancestor to inherit, and Django
+    // refused the request outright. Every test around it passed, because none
+    // of them goes through the middleware.
+    const module = load();
+    positions([[31566704, "p1-31566704-aaaa"]]);
+    document.cookie = "csrftoken=a-real-token";
+
+    module.regroup();
+
+    expect(window.htmx.ajax.mock.calls[0][2].headers).toEqual({
+      "X-CSRFToken": "a-real-token",
+    });
+    document.cookie = "csrftoken=; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  });
+
+  it("sends an empty token rather than failing to ask at all", () => {
+    // A page with no CSRF cookie is one Django will refuse, and the refusal is
+    // the honest outcome: the next poll finds the page stale and the reload
+    // corrects it. Throwing here would take the poll down with it.
+    const module = load();
+    positions([[31566704, "p1-31566704-aaaa"]]);
+
+    module.regroup();
+
+    expect(window.htmx.ajax.mock.calls[0][2].headers).toEqual({
+      "X-CSRFToken": "",
+    });
+  });
+
+  it("asks once while an answer is outstanding", () => {
+    // The trigger arrives on every poll until the page has caught up, and a
+    // regroup takes longer than the three-second interval - so without the
+    // guard a slow answer stacks requests all sending the same stale list.
+    const module = load();
+    positions([[31566704, "p1-31566704-aaaa"]]);
+
+    module.regroup();
+    module.regroup();
+    module.regroup();
+
+    expect(window.htmx.ajax).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks again once the answer has arrived", () => {
+    const module = load();
+    positions([[31566704, "p1-31566704-aaaa"]]);
+
+    module.regroup();
+    module.regrouped({ detail: { holdings: "7:assets:positions" } });
+    module.regroup();
+
+    expect(window.htmx.ajax).toHaveBeenCalledTimes(2);
+  });
+
+  it("does nothing without htmx to send it", () => {
+    const module = load();
+    positions([[31566704, "p1-31566704-aaaa"]]);
+    delete window.htmx;
+
+    expect(() => module.regroup()).not.toThrow();
+  });
+
+  it("carries the fingerprint it caught up to into the next poll", () => {
+    // **Without this the page asks for the same regroup for ever.** The poll
+    // sends what the page was rendered from, and a regroup changes what the
+    // page is carrying without replacing the document - so the value has to
+    // move with it or every later poll finds the page stale again.
+    const module = load();
+    positions([[31566704, "p1-31566704-aaaa"]]);
+
+    module.regrouped({ detail: { holdings: "7:assets:positions" } });
+    localStorage.setItem("refresh", "y");
+    module.poll();
+
+    expect(window.htmx.ajax.mock.calls[0][1]).toBe(
+      `${POLL_URL}?holdings=7%3Aassets%3Apositions`
+    );
+    expect(
+      document.querySelector("[data-holdings]").dataset.holdings
+    ).toBe("7:assets:positions");
+  });
+
+  it("keeps the fingerprint it has when the answer carries none", () => {
+    const module = load();
+    positions([[31566704, "p1-31566704-aaaa"]]);
+
+    module.regrouped({ detail: {} });
+    localStorage.setItem("refresh", "y");
+    module.poll();
+
+    expect(window.htmx.ajax.mock.calls[0][1]).toBe(POLLED);
+  });
+
+  it("survives an answer with no detail at all", () => {
+    const module = load();
+
+    expect(() => module.regrouped()).not.toThrow();
+  });
+
+  it("writes the fingerprint nowhere when the page has no carrier", () => {
+    // The classic layout renders no `data-holdings`. It also gets no regroup,
+    // but the handler must not be the thing that discovers that.
+    page({ holdings: null });
+    const module = load();
+
+    expect(() =>
+      module.regrouped({ detail: { holdings: "7:a:b" } })
+    ).not.toThrow();
+  });
+
+  it("drops the venue copies of a group that was just replaced", () => {
+    // **Group-by-venue moves `.pgroup` out of its asset and remembers the
+    // parent on the element.** Replacing `.program-groups` under that leaves
+    // the moved group pointing at a detached node, so switching back would
+    // append it to nothing and the reader would watch their positions
+    // disappear. The detached pointer is exactly how the stale copies are
+    // told apart from the ones whose asset was not re-rendered.
+    const module = load();
+    positions([
+      [31566704, "p1-31566704-aaaa"],
+      [0, "p1-0-cccc"],
+    ]);
+    const venues = document.getElementById("venue-list");
+    const stale = document.createElement("div");
+    stale.className = "pgroup";
+    stale._asastatsHome = { parent: document.createElement("div"), index: 0 };
+    const live = document.createElement("div");
+    live.className = "pgroup";
+    live._asastatsHome = { parent: document.getElementById("pg-f0"), index: 1 };
+    venues.appendChild(stale);
+    venues.appendChild(live);
+    window.asastatsToolbar = { regroup: jest.fn() };
+
+    module.regrouped({ detail: { holdings: "7:a:b" } });
+
+    expect(venues.querySelectorAll(".pgroup").length).toBe(1);
+    expect(venues.firstChild).toBe(live);
+    expect(window.asastatsToolbar.regroup).toHaveBeenCalled();
+    delete window.asastatsToolbar;
+  });
+
+  it("leaves the venue list alone when the page has none", () => {
+    // Design 2 renders no venue list. The toolbar is still asked to lay itself
+    // out, because the groups that arrived are new elements either way.
+    const module = load();
+    window.asastatsToolbar = { regroup: jest.fn() };
+
+    module.regrouped({ detail: { holdings: "7:a:b" } });
+
+    expect(window.asastatsToolbar.regroup).toHaveBeenCalled();
+    delete window.asastatsToolbar;
+  });
+
+  it("does not need the toolbar to be there", () => {
+    // The widget loads on a page whose toolbar script may not have run, and a
+    // regroup that threw would take the poll down with it.
+    const module = load();
+    delete window.asastatsToolbar;
+
+    expect(() => module.regrouped({ detail: {} })).not.toThrow();
+  });
+
+  it("does not call a toolbar that cannot lay itself out", () => {
+    const module = load();
+    window.asastatsToolbar = {};
+
+    expect(() => module.regrouped({ detail: {} })).not.toThrow();
+    delete window.asastatsToolbar;
+  });
+});

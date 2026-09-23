@@ -1,0 +1,27 @@
+{% comment %}
+The venue groups whose positions changed, applied wherever they live by htmx.
+
+**The address page's own partial, not a copy of it.** `programgroups` is
+`{% partialdef %}`-ed in `snippets/dynamic/asset.html` and rendered twice: once
+when the page is built and once from here, from the snapshot the live pass
+published. That is the same rule the figure fragments follow next door, and it
+matters more here than it does there - a group carries a heading, a count, a
+subtotal that appears only above two positions, a pin control per row and a
+breakdown panel under it, and a second copy of all that in JavaScript would
+drift the first time any of it changed, silently, because nothing renders both
+and compares.
+
+`hx-swap-oob` rides along under `oob`, because the attribute has to be on the
+swapped element and the page must not carry it. The target is the group's own
+`id="pg-f<asset>"`, which the page renders at rest for exactly this.
+
+**Whole groups rather than the rows that moved**, because a row arriving
+changes three things outside itself: the count beside the venue name, the
+subtotal in the money column, and whether either of them is rendered at all.
+Sending the row alone leaves a group of two labelled as a group of one.
+
+Nothing is sent for an asset whose positions match what the reader already has,
+so a block that opened one position re-renders one group. An empty body is a
+204 from the view and never reaches here.
+{% endcomment %}
+{% for asaitem in changed %}{% include "snippets/dynamic/asset.html#programgroups" with asaitem=asaitem asset=asaitem.asset oob=True %}{% endfor %}

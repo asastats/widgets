@@ -186,18 +186,42 @@ def _named_positions(payload):
 
 
 def _digest(fingerprint):
-    """Return the part of `fingerprint` that says *what* is held.
+    """Return the part of `fingerprint` that says which *assets* are held.
 
-    `<counter>:<digest>` - the counter is how many times the account has been
-    struck, the digest is over the asset id set. A fingerprint that predates the
-    counter, or any shape without a separator, is returned whole: comparing it
-    against itself still works, and guessing at it would not.
+    `<counter>:<assets>:<positions>` - the counter is how many times the account
+    has been struck, and the two digests are the two things a fragment cannot
+    express, kept apart because they cost the reader different amounts. Only the
+    asset set needs the page rebuilt.
+
+    An older two-part fingerprint, or any shape without a separator, is returned
+    whole: comparing it against itself still works, and guessing at it would
+    not. During a deploy a page rendered under one shape and a payload published
+    under the other simply differ, which is one reload.
 
     :param fingerprint: what `_holdings_fingerprint` made
     :type fingerprint: str
     :return: str
     """
-    return fingerprint.split(":", 1)[-1]
+    parts = fingerprint.split(":")
+    return parts[1] if len(parts) > 2 else parts[-1]
+
+
+def _positions_digest(fingerprint):
+    """Return the part of `fingerprint` that says which *positions* are held.
+
+    **"" is "cannot tell", and it is not the same as "no positions".** A
+    fingerprint from before the split has no third part and a page that sent
+    none has no parts at all, and in both cases the only safe answer is the
+    reload that preceded the regroup path entirely. So the caller checks for
+    truth, never just for inequality - two empty strings comparing equal would
+    silently claim the positions match.
+
+    :param fingerprint: what `_holdings_fingerprint` made, or None
+    :type fingerprint: str
+    :return: str
+    """
+    parts = (fingerprint or "").split(":")
+    return parts[2] if len(parts) > 2 else ""
 
 
 @method_decorator(never_cache, name="dispatch")
@@ -318,17 +342,54 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             self.request.session.pop(self._carry_key(), None)
             return self._with_left(reload, remaining_seconds)
 
+        regroup = self._regroup_wanted(request, payload)
+
         payload, sending = self._chunked(payload)
 
         # **`sending` first**, because a resync can outlive the block that
         # started it: the total settles while values are still going out, and
         # answering 204 then would strand the rest of them.
         if not sending and payload.get("total") == self._last_total():
-            return self._with_left(HttpResponse(status=204), remaining_seconds)
+            return self._regrouping(
+                self._with_left(HttpResponse(status=204), remaining_seconds), regroup
+            )
 
         self.request.session[self._session_key()] = payload.get("total")
         context = self.get_context_data(payload=payload, **kwargs)
-        return self._with_left(self.render_to_response(context), remaining_seconds)
+        return self._regrouping(
+            self._with_left(self.render_to_response(context), remaining_seconds),
+            regroup,
+        )
+
+    @staticmethod
+    def _regrouping(response, wanted):
+        """Ask the reader's page for its positions, when they are out of date.
+
+        **On the 204 as well as on a body, and that is not symmetry for its own
+        sake.** A position can open on a block that moves no figure this page
+        renders - a stake of an amount the row already showed, on an asset whose
+        price sat still - and that poll answers 204. Attaching this only to a
+        response with fragments in it would leave exactly that reader waiting
+        for an unrelated price to move before their new row appeared.
+
+        `HX-Trigger` rather than a body, because what this asks for is a second
+        request carrying something only the browser has.
+
+        :param response: the response this poll is about to return
+        :type response: :class:`HttpResponse`
+        :param wanted: whether the positions are out of date
+        :type wanted: bool
+        :return: :class:`HttpResponse`
+        """
+        if not wanted:
+            return response
+        # Merged rather than assigned: `_with_left` has usually written the
+        # allowance into this header already, and overwriting it would stop the
+        # badge for as long as a regroup is pending.
+        triggers = json.loads(response.get("HX-Trigger") or "{}")
+        triggers["liverefresh:regroup"] = {}
+        response["HX-Trigger"] = json.dumps(triggers)
+        return response
 
     @staticmethod
     def _with_left(response, seconds):
@@ -490,6 +551,10 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # has no row for a fragment to land in. A position the page could not
         # name - three on the reference bundle are indistinguishable - gets no
         # id and no fragment, so its figure waits for the next rebuild.
+        # **A position arriving is handled a level down, by `_regroup_wanted`.**
+        # It changes a row inside a row the page already has, so one venue group
+        # is re-rendered and the reader keeps their scroll, their filters and
+        # every section they had open. Only the asset set reaches this far.
         if _digest(rendered) == _digest(published):
             return None
 
@@ -533,6 +598,42 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         response = HttpResponse(status=200)
         response["HX-Refresh"] = "true"
         return response
+
+    @staticmethod
+    def _regroup_wanted(request, payload):
+        """Return whether the reader's positions are out of date, not their assets.
+
+        **The case the reload was covering and should not have been.** Opening a
+        Mallow position on an account that already holds USDC adds a row inside a
+        row the page already has: no asset arrived, so nothing needs rebuilding,
+        but a value fragment reaches only elements that exist and there is no
+        element yet. Until the two digests were published apart this was
+        indistinguishable from buying a new asset, and the reader lost their
+        scroll, their filters and every open section to a full reload for it.
+
+        **Asked for rather than answered here.** This poll knows the reader's
+        fingerprint and not their positions - a digest is not a list - so it
+        cannot say which groups to send. `LiveRegroupView` is told, once per
+        change rather than every three seconds.
+
+        Both digests must be present. An absent one is a fingerprint from before
+        the split, and the answer there is the reload that came before all this.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :param payload: what the pass last published for this page
+        :type payload: dict
+        :return: bool
+        """
+        rendered = request.GET.get("holdings") or ""
+        published = payload.get("holdings") or ""
+        mine = _positions_digest(rendered)
+        theirs = _positions_digest(published)
+        if not mine or not theirs:
+            return False
+        # The asset half deliberately not compared: a page whose assets also
+        # moved is getting `HX-Refresh` from `_reload_response` before this runs.
+        return mine != theirs
 
     def _heartbeat(self, client, now):
         """Say the page is being read, so the engine keeps re-pricing it.
@@ -788,3 +889,168 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
                 for address in self.addresses.split()
             )
         return True
+
+
+def _snapshot_account(value, addresses, client=None):
+    """Return `(account, fingerprint)` for a page, or `(None, "")`.
+
+    **The snapshot and never the engine call.** `fetch_and_serialize_account`
+    falls back to asking the engine when no snapshot is published, which is the
+    right answer for a page being rendered and the wrong one here: a regroup is
+    an optimisation over a reload, and buying it with a synchronous engine call
+    on a poll's back would make the fast path the expensive one. No snapshot
+    means no regroup, and the reload is what happens instead.
+
+    Positions are annotated with their `pid` for the same reason `api.main`
+    annotates the snapshot it serves: the engine does not emit one, and a group
+    rendered without them has no `data-pid`, no pin control and nothing for the
+    next block's value fragments to land on.
+
+    An unstamped snapshot is refused. The widget writes the fingerprint it has
+    caught up to back onto the page, and doing that from a snapshot that cannot
+    say which one it is would leave wrong rows with nothing left to notice them.
+
+    :param value: single address, or the bundle hash from the path
+    :type value: str
+    :param addresses: space-joined addresses for a multi-address bundle
+    :type addresses: str
+    :param client: Redis client instance, for tests
+    :type client: :class:`Redis`
+    :return: tuple of (dict, str)
+    """
+    from api.live import stamped_snapshot
+    from api.position_id import annotate_positions
+
+    stamped = stamped_snapshot(value, addresses, client)
+    if not stamped:
+        return None, ""
+    account, holdings = stamped
+    if not account or not holdings:
+        return None, ""
+    for item in account.get("asaitems") or ():
+        annotate_positions((item.get("asset") or {}).get("id"), item.get("programs"))
+    return account, holdings
+
+
+def _asaitem_id(asaitem):
+    """Return an asaitem's asset id as the string a `data-owner` carries.
+
+    :param asaitem: one entry from a serialized account's `asaitems`
+    :type asaitem: dict
+    :return: str
+    """
+    return str((asaitem.get("asset") or {}).get("id"))
+
+
+def _pids_of(asaitem):
+    """Return the position ids an asaitem's group would render with.
+
+    **Ambiguous positions are excluded, and they have to be.** A position the
+    page could not name renders no `data-pid` - three on the reference bundle
+    are genuinely indistinguishable - so it is absent from what the browser
+    sends back. Counting it here would make every asset holding one differ on
+    every regroup, for ever, and re-render a group that had not changed.
+
+    :param asaitem: one entry from a serialized account's `asaitems`
+    :type asaitem: dict
+    :return: frozenset
+    """
+    return frozenset(
+        program.get("pid")
+        for program in asaitem.get("programs") or ()
+        if program.get("pid") and not program.get("pid_ambiguous")
+    )
+
+
+def _sent_pids(raw):
+    """Return `{asset id: {pid}}` from what the reader's page sent.
+
+    **Each token is `<asset id>:<pid>`, and the asset is sent rather than parsed
+    out of the pid.** A pid's internals belong to `api.position_id`, which is
+    free to change how it builds one; the page already knows which asset a row
+    belongs to, because `data-owner` is on the row for the toolbar's sake. So
+    the browser says it and nothing here has to know the format.
+
+    Anything malformed is dropped rather than rejected. This is an optimisation
+    over a reload: a body this cannot read means some group looks changed, which
+    re-renders a group that did not need it, and the reload is still behind that
+    if the page really is wrong.
+
+    :param raw: the `pids` field, as the page posted it
+    :type raw: str
+    :return: dict
+    """
+    sent = {}
+    for token in (raw or "").split():
+        asset, separator, pid = token.partition(":")
+        if asset and separator and pid:
+            sent.setdefault(asset, set()).add(pid)
+    return {asset: frozenset(pids) for asset, pids in sent.items()}
+
+
+@method_decorator(never_cache, name="dispatch")
+class LiveRegroupView(LiveRefreshView):
+    """POST /widgets/liverefresh/<value>/regroup -> the venue groups that moved.
+
+    **What the poll cannot answer, because only the browser knows the question.**
+    A position opening or closing changes a row *inside* a row the page already
+    has. The poll knows the reader's fingerprint, which is a digest and not a
+    list, so it can tell that the positions moved and not which ones - and the
+    engine's diff describes figures, not rows. This is told: the page sends the
+    `data-pid` of every position it is carrying, and what comes back is the
+    `.program-groups` of each asset whose set differs, swapped out of band.
+
+    **The group and not the row, which is not a matter of taste.** A group has a
+    heading, a count and a subtotal that appears only above two positions, so a
+    row arriving changes three things outside itself. Sending the row would
+    leave a group of two labelled as a group of one with no subtotal.
+
+    Rendered from the *snapshot* rather than from the diff, because the diff
+    carries none of that - and the snapshot is the address page's own structure,
+    so the group is built by the template that built it in the first place
+    rather than by a second description of a position in JavaScript.
+
+    Inherits the poll's gate: the same manifest band, the same linked-address
+    rule, the same page resolution. It spends no allowance - the reader has
+    already paid for the poll that asked for this, and charging twice for one
+    block's news would be charging for our own message.
+    """
+
+    template_name = "liverefresh/regroup.html"
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        """Return the changed groups, or 204 when none of them changed.
+
+        :return: :class:`HttpResponse`
+        """
+        if layout_for_user(getattr(request, "user", None)) == "classic":
+            # The classic layout renders no positions at all, so there is no
+            # group to send and nothing that a regroup would mean.
+            return HttpResponse(status=204)
+
+        account, holdings = _snapshot_account(
+            self.kwargs.get("value") or self.args[0], self.addresses, redis_instance()
+        )
+        if not account:
+            # **No snapshot is not an error, it is the previous behaviour.** The
+            # page keeps the fingerprint it has, so the next poll finds it stale
+            # again and `_reload_response` rebuilds the page as it always did.
+            return HttpResponse(status=204)
+
+        mine = _sent_pids(request.POST.get("pids"))
+        changed = [
+            item
+            for item in account.get("asaitems") or ()
+            if _pids_of(item) != mine.get(_asaitem_id(item), frozenset())
+        ]
+        context = self.get_context_data(changed=changed, holdings=holdings, **kwargs)
+        response = self.render_to_response(context)
+        # What the page has caught up to, so the next poll stops asking. Taken
+        # from the snapshot rather than from what was last published: rendering
+        # one fingerprint's rows and claiming another's is how a page ends up
+        # wrong with no mismatch left to find it.
+        response["HX-Trigger"] = json.dumps(
+            {"liverefresh:regrouped": {"holdings": holdings}}
+        )
+        return response
