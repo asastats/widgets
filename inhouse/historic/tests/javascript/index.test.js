@@ -867,6 +867,75 @@ describe("the currency switch and the charts", () => {
     expect(candles.update).toHaveBeenCalled();
   });
 
+  it("names the currency on the axis when the switch is thrown", () => {
+    // **Nothing on these charts said what they were showing.** The figures
+    // beside them carry their unit; the charts carried none, so a reader who
+    // flipped the switch watched every bar change height with nothing saying
+    // what they were now reading.
+    mountPrice("0.25");
+    const widget = freshHistoric();
+    widget.populateCharts(payload());
+    const bars = document.getElementById("id-bars").chart;
+    const candles = document.getElementById("id-candles").chart;
+
+    widget.setCurrency("USD");
+
+    expect(bars.options.scales.y.title).toEqual({ display: true, text: "USD" });
+    expect(candles.options.scales.y.title).toEqual({
+      display: true,
+      text: "USD",
+    });
+
+    widget.setCurrency("ALGO");
+
+    expect(bars.options.scales.y.title.text).toBe("ALGO");
+    expect(candles.options.scales.y.title.text).toBe("ALGO");
+  });
+
+  it("builds the axis in the currency the reader last chose", () => {
+    // The switch is remembered in `hcur` and the charts are built before
+    // `setCurrency` runs, so a title hardcoded to ALGO would be wrong on every
+    // visit by a reader who last chose dollars - briefly, then corrected,
+    // which reads as a bug in the figures themselves.
+    mountPrice("0.25");
+    localStorage.setItem("hcur", "USD");
+    const widget = freshHistoric();
+
+    widget.populateCharts(payload());
+
+    expect(
+      document.getElementById("id-bars").chart.options.scales.y.title.text
+    ).toBe("USD");
+  });
+
+  it("falls back to ALGO when storage cannot be read", () => {
+    // Private mode, or site data blocked. ALGO is what the engine sent, so it
+    // is the honest label when nothing says otherwise.
+    const widget = freshHistoric();
+    const getItem = jest
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+    try {
+      expect(widget.axisTitle()).toEqual({ display: true, text: "ALGO" });
+    } finally {
+      getItem.mockRestore();
+    }
+  });
+
+  it("leaves a chart it cannot label alone", () => {
+    // `setCurrency` runs on pages where a chart was never built - the bars and
+    // the candles are separate tabs, and an unprocessed page has neither.
+    const widget = freshHistoric();
+
+    expect(() => widget.setAxisTitle(undefined, "USD")).not.toThrow();
+    expect(() => widget.setAxisTitle({}, "USD")).not.toThrow();
+    expect(() =>
+      widget.setAxisTitle({ options: { scales: {} } }, "USD")
+    ).not.toThrow();
+  });
+
   it("switching back and forth does not shrink the charts", () => {
     // The compounding this is built to prevent: rescale from the drawn figures
     // and four flips leave the charts at a 256th of their value.

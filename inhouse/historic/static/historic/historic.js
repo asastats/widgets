@@ -542,6 +542,44 @@ function viewChanged(evt) {
  */
 
 /**
+ * Return the y axis title both charts are built with.
+ *
+ * **Read from storage rather than defaulted to ALGO**, because the switch is
+ * remembered in `hcur` and the charts are built before `setCurrency` runs. A
+ * title that always started at "ALGO" would be wrong on every visit by a
+ * reader who last chose dollars - briefly, and then corrected, which is the
+ * kind of flicker that reads as a bug in the figures themselves.
+ *
+ * @returns {Object} a Chart.js scale title configuration
+ */
+function axisTitle() {
+  var code = "ALGO";
+  try {
+    code = localStorage.getItem("hcur") || "ALGO";
+  } catch (e) {
+    // Private mode or storage blocked. ALGO is what the engine sent.
+  }
+  return { display: true, text: code };
+}
+
+/**
+ * Put `code` on a chart's y axis.
+ *
+ * Guarded because this runs from `setCurrency`, which fires on a page where a
+ * chart may not have been built - the bars and the candles are separate tabs
+ * and a reader on an unprocessed page has neither.
+ *
+ * @param {Object} chart a Chart.js instance, or undefined
+ * @param {String} code the currency the reader has chosen
+ */
+function setAxisTitle(chart, code) {
+  if (!chart || !chart.options || !chart.options.scales) return;
+  var y = chart.options.scales.y;
+  if (!y) return;
+  y.title = { display: true, text: code };
+}
+
+/**
  * Shows provided number as currency
  *
  * @param {jQuery} num
@@ -855,6 +893,7 @@ function populateBarsChart(chartData) {
         },
         y: {
           stacked: true,
+          title: axisTitle(),
           ticks: {
             autoSkip: false,
           },
@@ -929,6 +968,7 @@ function populateCandlesChart(chartData) {
         },
         y: {
           type: "linear",
+          title: axisTitle(),
         },
       },
       plugins: {
@@ -1157,6 +1197,14 @@ function setChartsCurrency(code, price) {
   if (typeof chartBars === "undefined") return;
 
   var charts = chartsInCurrency(chartsSource, code, price);
+  // **The axis says which currency these are, and until now nothing did.**
+  // The figures beside the charts carry their unit, the charts carried none -
+  // so a reader who flipped the switch watched every bar change height with
+  // nothing on the page saying what they were now reading. The switch is
+  // remembered across visits in `hcur`, which makes it worse: they arrive at a
+  // chart already in a currency they did not choose this time.
+  setAxisTitle(chartBars, code);
+  setAxisTitle(chartCandles, code);
   // The data only, not `updateChart`: that resets the zoom, and a reader who
   // has panned to a week in March did not ask to be sent back to the whole
   // range because they wanted to read the figures in dollars. The x axis is
@@ -1429,6 +1477,8 @@ if (typeof exports !== "undefined") {
     //  * SECTION: Currency functions
     cur,
     dec6,
+    axisTitle,
+    setAxisTitle,
     setHistoricTip,
     setCurrency,
     toggleCurrency,
