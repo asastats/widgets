@@ -328,6 +328,7 @@ class TestInhouseAlertsViewsCreate:
     def _view(self, mocker, reader, post):
         view = AlertsRulesView()
         view.bundle = "BUNDLEHASH"
+        view.addresses = "ADDR_ONE ADDR_TWO"
         view.request = mocker.MagicMock(user=reader, POST=post)
         return view
 
@@ -371,7 +372,7 @@ class TestInhouseAlertsViewsCreate:
 
         view.post(view.request)
 
-        assert AlertRule.objects.get(user=reader_pro).address == "BUNDLEHASH"
+        assert AlertRule.objects.get(user=reader_pro).address == "ADDR_ONE ADDR_TWO"
 
     def test_inhouse_alerts_views_create_answers_422_on_a_bad_rule(
         self, reader_pro, mocker
@@ -1171,6 +1172,7 @@ class TestInhouseAlertsViewsRejectedFormKeepsInput:
         data.update(overrides)
         view = AlertsRulesView()
         view.bundle = "A" * 58
+        view.addresses = "A" * 58
         view.request = RequestFactory().post("/", data)
         view.request.user = reader
         return view.post(view.request).content.decode()
@@ -1345,6 +1347,7 @@ class TestInhouseAlertsViewsEdit:
     def _view(self, reader, rule, data=None):
         view = AlertsRuleEditView()
         view.bundle = self.PAGE
+        view.addresses = self.PAGE
         view.kwargs = {"page": self.PAGE, "pk": rule.pk}
         factory = RequestFactory()
         view.request = factory.post("/", data) if data else factory.get("/")

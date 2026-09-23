@@ -203,7 +203,7 @@ class AlertsRulesView(WidgetAccessMixin, AlertsContextMixin, View):
         :return: :class:`django.http.HttpResponse`
         """
         form = AlertRuleForm(
-            request.POST, user=request.user, address=self.bundle
+            request.POST, user=request.user, address=self.addresses
         )
         if form.is_valid():
             form.save()
@@ -214,7 +214,7 @@ class AlertsRulesView(WidgetAccessMixin, AlertsContextMixin, View):
             status = 422
         context = self.alerts_context(self.bundle)
         context["form"] = form if not form.is_valid() else AlertRuleForm(
-            user=request.user, address=self.bundle
+            user=request.user, address=self.addresses
         )
         return self._render(request, context, status)
 
@@ -280,7 +280,7 @@ class AlertsRuleEditView(WidgetAccessMixin, AlertsContextMixin, View):
                 "window_seconds": rule.window_seconds,
             },
             user=request.user,
-            address=self.bundle,
+            address=self.addresses,
             instance=rule,
         )
         context["editing"] = rule
@@ -296,7 +296,7 @@ class AlertsRuleEditView(WidgetAccessMixin, AlertsContextMixin, View):
         rule = self._rule(request)
         was_price_rule = rule.subject in PRICED_SUBJECTS
         form = AlertRuleForm(
-            request.POST, user=request.user, address=self.bundle, instance=rule
+            request.POST, user=request.user, address=self.addresses, instance=rule
         )
         if form.is_valid():
             form.save()
@@ -312,7 +312,7 @@ class AlertsRuleEditView(WidgetAccessMixin, AlertsContextMixin, View):
 
         context = self.alerts_context(self.bundle)
         if form.is_valid():
-            context["form"] = AlertRuleForm(user=request.user, address=self.bundle)
+            context["form"] = AlertRuleForm(user=request.user, address=self.addresses)
         else:
             context["form"] = form
             # Still editing: a rejected change must come back on the same rule
@@ -376,7 +376,7 @@ class AlertsRuleDeleteView(WidgetAccessMixin, AlertsContextMixin, View):
         if was_price_rule:
             publish_assets()
         context = self.alerts_context(self.bundle)
-        context["form"] = AlertRuleForm(user=request.user, address=self.bundle)
+        context["form"] = AlertRuleForm(user=request.user, address=self.addresses)
         return HttpResponse(
             render_to_string("alerts/_panel.html", context, request=request)
         )
