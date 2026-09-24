@@ -1,19 +1,17 @@
 {# Dust Sweep modal. Opened by a .id-dustsweep-open button carrying           #}
-{# data-address; dustsweep.js plans against that address and renders the       #}
-{# result into .id-dustsweep-panel.                                            #}
-{#                                                                             #}
-{# Anatomy is the swap modal's, deliberately: a native <dialog>, a flex shell  #}
-{# with a fixed head and foot around a scrolling panel, a segmented control    #}
-{# and one primary action. The swap modal is the design the rest of the site   #}
-{# is moving onto, so this follows it rather than inventing a second language. #}
-{#                                                                             #}
-{# What is *not* copied is the class names. A sweep is not a swap, and reusing #}
-{# .swap-* would tie this to rules that will be changed for swap reasons.      #}
-{#                                                                             #}
-{# Nothing here is a sweep decision. The threshold chips are the only input,   #}
-{# and the engine clamps whatever they send: no asset list, no creator         #}
-{# address, no fee and no disposition is server-rendered, because any of those #}
-{# would be a value a reader could edit into something we then acted on.       #}
+{# data-address; dustsweep.js plans against that address and renders the      #}
+{# result into .id-dustsweep-panel.                                           #}
+{#                                                                            #}
+{# The anatomy is the swap modal's: a native <dialog>, a flex shell with a    #}
+{# fixed head and foot around a scrolling panel, a segmented control and one  #}
+{# primary action. **The class names are not copied** - reusing .swap-* would #}
+{# tie this to rules that will be changed for swap reasons.                   #}
+{#                                                                            #}
+{# **Nothing here is a sweep decision.** The threshold chips are the only     #}
+{# input and the engine clamps whatever they send: no asset list, no creator  #}
+{# address, no fee and no disposition is server-rendered, because any of      #}
+{# those would be a value a reader could edit into something we then acted    #}
+{# on.                                                                        #}
 <dialog id="dustsweep-modal" class="dustsweep-modal">
   <div class="dustsweep-shell">
 
@@ -54,9 +52,8 @@
       </div>
     </div>
 
-    {# Three figures, because they are the three questions a reader has: what #}
-    {# do I get back, how many times must I sign, and how much of my account  #}
-    {# does this touch.                                                        #}
+{# Three figures: what do I get back, how many times must I sign, and how #}
+{# much of my account does this touch.                                    #}
     <dl class="dustsweep-summary id-dustsweep-summary"></dl>
 
     <div class="dustsweep-modes" role="tablist" aria-label="Which holdings to show">

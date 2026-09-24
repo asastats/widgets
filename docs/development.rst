@@ -154,7 +154,7 @@ naming an engine endpoint after the widget) means rework. The essentials:
   widget's own engine endpoints. Absence of a configured limit denies.
 - **The widget owns its wiring.** A widget keeps its own ``urls.py`` and ``routing.py``;
   templates and static files are found through Django's normal app discovery. The
-  manifest carries metadata and grants only — no routes, consumers, menu, or asset paths.
+  manifest carries metadata and grants only: no routes, consumers, menu, or asset paths.
 - **Conventions.** Follow the test and docstring conventions already in ``inhouse``:
   ``Test<CamelPath><Thing>`` classes, ``mocker`` fixtures without method docstrings,
   Sphinx ``:param:``/``:type:`` field lists, and the jsdom harness for JavaScript. The
@@ -176,7 +176,7 @@ rules keep it working:
   needs (e.g. ``htmx-ext-ws``), never its own htmx core. A second htmx on the page
   silently drops ``ws-connect`` and no socket opens.
 
-Pin ``channels``, ``channels_redis`` and ``redis`` to a tested set — a newer ``redis-py``
+Pin ``channels``, ``channels_redis`` and ``redis`` to a tested set: a newer ``redis-py``
 (RESP3) against an older ``channels_redis`` surfaces as a read timeout on the bus.
 
 
@@ -185,7 +185,7 @@ Engine data contract
 
 An engine-backed widget receives render-ready JSON, not Python objects. Namedtuples
 serialise to JSON arrays, so the engine emits **keyed** dicts and the widget rebuilds them
-into its display structs at the boundary — by field name, tolerant of a missing or added
+into its display structs at the boundary, by field name, tolerant of a missing or added
 field. Pin the shape with a small golden-fixture test so a rename on either side fails a
 test rather than a page. See ``inhouse.historic`` for the pattern.
 
@@ -220,10 +220,10 @@ developer, expect these steps and supply what they need:
 
 #. **Grant the engine token (engine-backed widgets).** The widget's ``engine_endpoints``
    must be present in the deployment token's ``scopes``, and every per-widget limit the
-   widget checks must be set in the token's ``limits`` — an absent limit denies. These live
+   widget checks must be set in the token's ``limits``: an absent limit denies. These live
    on the engine; a fork without the grant cannot run the widget.
 #. **Provide host settings.** Any settings the widget reads from the host (external API
-   keys, referrer addresses, and — where a widget is not a full Django app — its static and
+   keys, referrer addresses, and (where a widget is not a full Django app) its static and
    template directories) go into the frontend configuration. List them in the widget's own
    README (and runbook) so the administrator can set them.
 #. **Audit.** Publication verifies the code stays within what the manifest declares (see
@@ -232,6 +232,6 @@ developer, expect these steps and supply what they need:
    new URLconf, routing and registry are loaded.
 
 For realtime widgets, also confirm the engine and frontend share one Channels-Redis
-endpoint (see `Realtime`_ above). Widget-specific operational procedures — enabling a
-referrer, claiming fees, and the like — belong in that widget's runbook (see
+endpoint (see `Realtime`_ above). Widget-specific operational procedures, such as enabling a
+referrer or claiming fees, belong in that widget's runbook (see
 :doc:`runbooks`).

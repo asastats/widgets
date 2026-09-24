@@ -1,7 +1,7 @@
 Runbooks
 ========
 
-Operational runbooks for individual widgets — the procedures an operator or administrator
+Operational runbooks for individual widgets: the procedures an operator or administrator
 follows to configure and run a *specific* widget (enabling a referrer, claiming fees, and
 so on), as opposed to the shared rules in :doc:`widget_contract` or the build steps in
 :doc:`development`.

@@ -1,12 +1,12 @@
 Widget contract
 ===============
 
-*Version 2 — ratified.*
+*Version 2, ratified.*
 
 Model
 -----
 
-One in-process tier. Every published widget — ``inhouse`` or ``thirdparty`` — is audited
+One in-process tier. Every published widget, ``inhouse`` or ``thirdparty``, is audited
 and published by ASA Stats and runs inside the deployment's Django process under one
 security umbrella. The **audit is the trust boundary**, applied before publication: it
 verifies a widget's code stays within what its manifest declares.
@@ -16,13 +16,13 @@ ASA Stats site is one deployment; forks are others. Each holds **one** engine AP
 
 Two orthogonal manifest axes, neither affecting how a widget runs:
 
-- **origin** — ``inhouse | thirdparty``. Provenance and revenue accounting only.
-- **capability** — ``public | engine-backed``. ``public`` may call the public
+- **origin**: ``inhouse | thirdparty``. Provenance and revenue accounting only.
+- **capability**: ``public | engine-backed``. ``public`` may call the public
   ``/api/v2/`` and declared hosts; ``engine-backed`` may additionally call the privileged
   engine endpoints it declares. The grant is recorded at publication and verified by audit.
 
 
-Enforcement — three parts, three owners, two layers
+Enforcement: three parts, three owners, two layers
 ---------------------------------------------------
 
 An engine-backed request passes three independent checks:
@@ -38,31 +38,31 @@ An engine-backed request passes three independent checks:
    * - token ``scopes``
      - may this *deployment* call this endpoint?
      - engine
-     - ASA Stats — unforkable
+     - ASA Stats, unforkable
    * - token ``limits[widget]``
      - how *much* may this deployment consume?
      - engine
-     - ASA Stats — unforkable
+     - ASA Stats, unforkable
    * - ``required_permission``
      - may this *user* use the widget?
      - host
-     - deployment — forkable
+     - deployment, forkable
 
-- **scopes** (on the deployment token) — which engine endpoints the deployment may hit. A
+- **scopes** (on the deployment token): which engine endpoints the deployment may hit. A
   fork never granted ``historic:*`` cannot run historic; ``HasWidgetScope`` enforces it at
   the engine.
-- **limits[widget_id]** (on the deployment record) — an **open, per-widget bag of named
+- **limits[widget_id]** (on the deployment record): an **open, per-widget bag of named
   limits the widget defines** (e.g. ``{"historic": {"max_addresses": 10}}``). The engine
-  enforces it against the deployment. **Absence of a configured limit denies** — a
+  enforces it against the deployment. **Absence of a configured limit denies**: a
   deployment never gets unlimited resources by omission. The widget's own endpoints check
   the keys they declare; the audit confirms each engine-backed widget actually checks the
   limits it claims ("declare a limit, check a limit").
-- **required_permission** (manifest) — the user-permission bar, forkable deployment
+- **required_permission** (manifest): the user-permission bar, forkable deployment
   policy, enforced host-side against ``Profile.permission``. The engine never sees the
   user.
 
 These are independent: a fork with a high-permission token may set its users' bar to
-``0``; a modest-token fork may set a high bar. Neither caps the other — they gate
+``0``; a modest-token fork may set a high bar. Neither caps the other; they gate
 different subjects at different layers. The only hard ceiling a fork cannot raise is its
 token's ``scopes`` + ``limits`` at the engine.
 
@@ -73,14 +73,14 @@ token's ``scopes`` + ``limits`` at the engine.
 A bare integer (simple widgets) or an ordered band list keyed by resource volume
 (historic). First band whose ``max_addresses >= size`` wins; over the largest band →
 deny. ``size`` is the count of **resolved** addresses (host resolves bundle→addresses,
-then counts — so ``data`` injection happens before the check).
+then counts, so ``data`` injection happens before the check).
 
 .. code-block:: toml
 
    # simple widget
    required_permission = 500000000
 
-   # historic — reproduces the former can_access() exactly
+   # historic: reproduces the former can_access() exactly
    [[required_permission]]
    max_addresses = 1
    permission    = 23299689438      # Asastatser
@@ -96,10 +96,10 @@ Both the thresholds and the integers are manifest data a fork may change. The en
 band to ``max_addresses = 100`` is still refused by the engine at the granted ceiling.
 
 
-Manifest (``widget.toml``, one per widget) — metadata only
+Manifest (``widget.toml``, one per widget): metadata only
 ----------------------------------------------------------
 
-The manifest carries **metadata and the enforced grants** — nothing the widget can wire up
+The manifest carries **metadata and the enforced grants**: nothing the widget can wire up
 itself through ordinary Django. It does **not** contain routes, websocket consumers, menu
 entries, or asset paths (see below).
 
@@ -125,13 +125,13 @@ and a ``public`` widget must declare none.
 What the manifest does NOT contain
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-- **routes / websocket consumers** — a widget keeps its own regex ``urls.py`` and
+- **routes / websocket consumers**: a widget keeps its own regex ``urls.py`` and
   ``routing.py``. ``asastats`` already includes ``widgets/urls.py`` (at ``/widgets/``) and
   ``widgets/routing.py`` (websocket patterns); those two includes are unchanged. The
   manifest does not synthesise URLconf or Channels routing.
-- **menu** — there is no widget-driven navigation system. If a widget's link appears in a
+- **menu**: there is no widget-driven navigation system. If a widget's link appears in a
   template, that stays a template concern.
-- **assets (static/templates)** — resolved through the host's configuration for the
+- **assets (static/templates)**: resolved through the host's configuration for the
   registered widget, not declared in the manifest.
 
 These were dropped because each duplicated something the widget already does natively;
@@ -142,7 +142,7 @@ audit must actually verify.
 In-process lifecycle (host registry)
 -------------------------------------
 
-#. **Discover** — ``widgethost.registry`` scans the widgets package for
+#. **Discover**: ``widgethost.registry`` scans the widgets package for
    ``widget.toml``. **The presence of a manifest is what registers a widget**;
    discovery consults no list, and ``swap_routers()`` will offer any widget declaring
    ``category = "swap"`` whether or not anybody added its id anywhere.
@@ -159,14 +159,14 @@ In-process lifecycle (host registry)
    id, the unmounted widget became the default router for every profile that had
    never chosen one, whose entry URL then resolved to empty. A widget is hidden only
    when its manifest says so. See ``inhouse/asastats/runbook.rst``.
-#. **Validate** — manifest schema; ``engine_endpoints <=`` token ``scopes``; ``public``
+#. **Validate**: manifest schema; ``engine_endpoints <=`` token ``scopes``; ``public``
    declares no ``engine_endpoints``.
-#. **Wire (unchanged host includes)** — the widget's own ``urls.py``/``routing.py`` are
+#. **Wire (unchanged host includes)**: the widget's own ``urls.py``/``routing.py`` are
    picked up by ``asastats``'s existing ``widgets`` URL and websocket includes.
-#. **Gate (per request)** — host resolves and injects declared ``data`` (bundle→addresses
+#. **Gate (per request)**: host resolves and injects declared ``data`` (bundle→addresses
    via public ``bundle_and_addresses_from_path``), then checks ``Profile.permission``
    against ``required_permission`` for the resolved address count.
-#. **Run** — widget renders / opens its consumer; engine-backed calls go through the
+#. **Run**: widget renders / opens its consumer; engine-backed calls go through the
    host's generic ``engine_request(scope, method, path, allowed_scopes, **kw)`` using the
    single deployment token.
 
@@ -184,7 +184,7 @@ Historic mapped onto this contract
 ----------------------------------
 
 - **Open (widgets repo):** manifest; own ``urls.py``/``routing.py``; ``HistoricView`` shell
-  + host gate; templates; chart JS; slimmed ``ViewStatus`` (range/zoom math only — no
+  + host gate; templates; chart JS; slimmed ``ViewStatus`` (range/zoom math only, no
   DataFrames); thin ``consumers.py`` relaying via ``engine_request`` + the bus; vendored
   ``group_name_from_bundle`` and the pure ``check_chart_period``. The consolidated-view
   charts are assembled **host-side** from the engine's ``assets_data`` dict via the host's
@@ -205,11 +205,11 @@ Historic mapped onto this contract
 Changelog
 ---------
 
-- **v2** — manifest is metadata-only: removed ``routes``, ``consumers``, ``menu`` and
+- **v2**: manifest is metadata-only: removed ``routes``, ``consumers``, ``menu`` and
   ``assets``; widgets keep their own ``urls.py``/``routing.py``. Registration stays an
   explicit ``INHOUSE_WIDGETS``/``THIRDPARTY_WIDGETS`` list, maintained in both
   ``widgets/constants.py`` and the frontend settings. Recorded the historic charts/assets
   seam: the engine returns the ``assets_data`` dict from ``timestamp`` as keyed JSON, and
   the widget builds consolidated charts from it host-side via ``utils.charts``.
-- **v1** — ratified the three-part enforcement model (``scopes``, ``limits``,
+- **v1**: ratified the three-part enforcement model (``scopes``, ``limits``,
   ``required_permission``) and the ``required_permission`` integer-or-band schema.

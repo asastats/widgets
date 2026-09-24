@@ -12,15 +12,11 @@
 {% endpartialdef asaheader %}
 
 {% partialdef asainfo %}
-{% comment %}
-  A real definition list. These were `<span>`s with the label written into the
-  text and a `<br />` after each, so the panel announced no terms and no
-  definitions -- nothing tied "Total supply" to its number for a reader who
-  cannot see the layout. `.asa-meta` lays the pairs out in two columns; the
-  rule is in this widget's own stylesheet, since it styles what it emits.
-
-  `.copy` copies the text of the element immediately before it, so the
-  explorer link and the control stay adjacent siblings.
+{% comment %} A definition list, laid out in two columns by `.asa-meta` in this
+   widget's own stylesheet, since it styles what it emits.
+   
+   `.copy` copies the text of the element immediately before it, so the
+   explorer link and the control stay adjacent siblings.
 {% endcomment %}
 <span class="title">{{ item.info.name|escape }}</span>
 <dl class="asa-meta">
@@ -44,10 +40,8 @@
 {% endpartialdef asainfo %}
 
 {% partialdef asaprogram %}
-{% comment %}
-  One line per fact, as blocks rather than `<span>` runs separated by
-  `<br />` -- and the gap between one program and the next belongs to the list
-  that holds them, not to a trailing break inside the last one.
+{% comment %} One line per fact, as blocks rather than `<span>` runs: the gap between
+   one program and the next belongs to the list that holds them.
 {% endcomment %}
 <div class="asa">
   <div class="asar asa-program">
@@ -231,27 +225,19 @@
   <div class="historic-divider"></div>
   <div class="historic-date"><span>{{ date }}</span></div>
 
-  {% comment %}
-    The heading was the number itself, so it announced a figure with nothing
-    saying what it counts. The label is a sibling of `.pricetip` rather than
-    inside it: historic.js assigns to that element's `innerHTML` on every
-    currency switch, and would discard any markup within it.
-
-    `.htip`, not `.tooltip`: the latter is DaisyUI's, and it worked here only
-    because this widget renders inside the site's base template. `.htip` is
-    defined in the widget's own stylesheet and reads the same `data-tip`.
-
-    This is the one figure on the page whose tooltip is reachable without a
-    pointer, and the one that needs to be: every other tip says the same amount
-    in the other currency, which anyone can get by pressing the switch, but this
-    one also carries the exchange rate and that is available nowhere else. So it
-    takes focus, and `aria-describedby` points at a hidden span carrying the
-    same text -- a tip drawn as `content: attr(data-tip)` is not dependably
-    announced. `setTip` keeps that span in step on every switch.
-
-    Making every figure focusable was the alternative and would be worse: it
-    puts a tab stop on each of several dozen numbers to expose something the
-    currency switch already offers in one keystroke.
+  {% comment %} **The `sr-only` label is a sibling of `.pricetip`, not inside it**:
+     `historic.js` assigns to that element's `innerHTML` on every currency
+     switch and would discard any markup within.
+     
+     **`.htip`, not `.tooltip`.** The latter is DaisyUI's and works here only
+     because this widget renders inside the site's base template; `.htip` is
+     this widget's own and reads the same `data-tip`.
+     
+     This is the one figure whose tooltip is reachable without a pointer,
+     because it carries the exchange rate, which no other tip does. It takes
+     focus and `aria-describedby` points at a hidden span carrying the same
+     text - a tip drawn as `content: attr(data-tip)` is not dependably
+     announced, and `setTip` keeps the span in step.
   {% endcomment %}
   <h2 class="historic-total">
     <span class="sr-only">Total value:</span>
