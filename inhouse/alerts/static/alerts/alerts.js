@@ -169,6 +169,31 @@
   }
 
   /**
+   * Put the block into the state the server would render it in now.
+   *
+   * **The warning and the button label are server-rendered from
+   * `subscribed_browsers`, which was false when this page was built.** Saying
+   * "This browser is on." in the status line while the paragraph above still
+   * read "No browser is set to receive these" left the modal contradicting
+   * itself, and the button still inviting the reader to do what they had just
+   * done.
+   *
+   * Only the warning inside this block is removed. The other
+   * `.alerts-warning` on the modal belongs to a deployment that cannot send at
+   * all, and no button reaches this code in that case.
+   *
+   * @param {Element} root - the `.alerts-enable` element.
+   */
+  function markEnabled(root) {
+    var warning = root.querySelector(".alerts-warning");
+    if (warning && warning.parentNode) {
+      warning.parentNode.removeChild(warning);
+    }
+    var button = root.querySelector(".alerts-enable-btn");
+    if (button) button.textContent = "This browser is on";
+  }
+
+  /**
    * Ask permission, register the worker, subscribe, and tell the server.
    *
    * **Four things that can each say no**, and the reader is told which: the
@@ -221,6 +246,7 @@
       })
       .then(function (response) {
         if (!response.ok) throw new Error("The server refused the subscription.");
+        markEnabled(root);
         return say("This browser is on.");
       })
       .catch(function (error) {
@@ -768,6 +794,7 @@
       isApplePortable: isApplePortable,
       isInstalled: isInstalled,
       enablePush: enablePush,
+      markEnabled: markEnabled,
       vapidKeyBytes: vapidKeyBytes,
     };
   }

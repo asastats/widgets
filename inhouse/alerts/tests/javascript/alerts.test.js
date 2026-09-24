@@ -476,6 +476,10 @@ describe("turning notifications on", () => {
            data-subscribe-url="/widgets/alerts/subscribe"
            data-unsubscribe-url="/widgets/alerts/unsubscribe"
            data-worker-url="/alerts-service-worker.js">
+        <p class="alerts-warning">
+          <strong>No browser is set to receive these.</strong>
+          1 alert saved, and nothing to send it to.
+        </p>
         <button type="button" class="alerts-enable-btn id-alerts-enable">Notify</button>
         <span class="alerts-enable-state"></span>
       </div>`;
@@ -525,6 +529,14 @@ describe("turning notifications on", () => {
       expect.objectContaining({ method: "POST" })
     );
     expect(state()).toBe("This browser is on.");
+    // **The block has to agree with the status line.** Asserting only the
+    // status line let the success path stop clearing the warning without a
+    // single test noticing - `markEnabled`'s own tests kept passing, because
+    // they call it directly.
+    expect(root.querySelector(".alerts-warning")).toBeNull();
+    expect(root.querySelector(".alerts-enable-btn").textContent).toBe(
+      "This browser is on"
+    );
   });
 
   test("a refused prompt says where to change it, and does not retry", async () => {
@@ -1695,5 +1707,68 @@ describe("offering a threshold to start from", () => {
     panel();
     document.querySelector(".alerts-subject").remove();
     expect(window.asastatsAlerts.currentFigure(document)).toBe(null);
+  });
+});
+
+describe("the block after it is turned on", () => {
+  /** The `.alerts-enable` block as the modal renders it before subscribing. */
+  function block() {
+    document.body.innerHTML = `
+      <div class="alerts-enable">
+        <p class="alerts-warning">
+          <strong>No browser is set to receive these.</strong>
+          1 alert saved, and nothing to send it to.
+        </p>
+        <button type="button" class="alerts-enable-btn id-alerts-enable">
+          Notify this browser
+        </button>
+        <span class="alerts-enable-state"></span>
+      </div>`;
+    return document.querySelector(".alerts-enable");
+  }
+
+  it("takes the warning away", () => {
+    // **Reported: the modal contradicted itself.** "This browser is on." in
+    // the status line under a paragraph still reading "No browser is set to
+    // receive these" - both server-rendered from a `subscribed_browsers` that
+    // was false when the page was built.
+    const root = block();
+
+    alerts.markEnabled(root);
+
+    expect(root.querySelector(".alerts-warning")).toBeNull();
+  });
+
+  it("stops inviting the reader to do what they have just done", () => {
+    const root = block();
+
+    alerts.markEnabled(root);
+
+    expect(root.querySelector(".alerts-enable-btn").textContent).toBe(
+      "This browser is on"
+    );
+  });
+
+  it("leaves a block that has no warning alone", () => {
+    // A reader with no rules yet is invited rather than warned, so the
+    // paragraph is not rendered at all and there is nothing to remove.
+    document.body.innerHTML = `
+      <div class="alerts-enable">
+        <button type="button" class="alerts-enable-btn">Notify this browser</button>
+      </div>`;
+    const root = document.querySelector(".alerts-enable");
+
+    expect(() => alerts.markEnabled(root)).not.toThrow();
+    expect(root.querySelector(".alerts-enable-btn").textContent).toBe(
+      "This browser is on"
+    );
+  });
+
+  it("survives a block with no button", () => {
+    document.body.innerHTML = '<div class="alerts-enable"></div>';
+
+    expect(() =>
+      alerts.markEnabled(document.querySelector(".alerts-enable"))
+    ).not.toThrow();
   });
 });
