@@ -9,13 +9,13 @@ from django.utils import timezone
 
 from widgets.inhouse.alerts.evaluate import (
     SKIPPED,
-    holding_amount,
-    in_rule_currency,
     cooling_down,
     evaluate_page,
     evaluate_prices,
-    percent_move,
+    holding_amount,
+    in_rule_currency,
     payload_for,
+    percent_move,
     reading_for,
 )
 from widgets.inhouse.alerts.models import (
@@ -87,9 +87,7 @@ class TestAlertsEvaluateReading:
         assert reading_for(rule, 120.5, {999: 1.0}) is None
 
     @pytest.mark.parametrize("subject", list(SKIPPED))
-    def test_alerts_evaluate_skipped_subjects_have_no_reading(
-        self, db, reader, subject
-    ):
+    def test_alerts_evaluate_skipped_subjects_have_no_reading(self, db, reader, subject):
         rule = _rule(reader, subject=subject)
 
         assert reading_for(rule, 120.5, {1: 2.0}) is None
@@ -98,9 +96,7 @@ class TestAlertsEvaluateReading:
 class TestAlertsEvaluateCooldown:
     """Testing class for staying quiet after firing."""
 
-    def test_alerts_evaluate_a_rule_that_never_fired_is_not_cooling(
-        self, db, reader
-    ):
+    def test_alerts_evaluate_a_rule_that_never_fired_is_not_cooling(self, db, reader):
         assert cooling_down(_rule(reader), timezone.now()) is False
 
     def test_alerts_evaluate_a_rule_that_just_fired_is_cooling(self, db, reader):
@@ -162,17 +158,13 @@ class TestAlertsEvaluatePage:
 
     def test_alerts_evaluate_respects_the_cooldown(self, reader):
         now = timezone.now()
-        _rule(
-            reader, last_value="120", last_fired_at=now - timedelta(seconds=60)
-        )
+        _rule(reader, last_value="120", last_fired_at=now - timedelta(seconds=60))
 
         fired, _ = evaluate_page(PAGE, {"total": 90}, now=now)
 
         assert fired == []
 
-    def test_alerts_evaluate_does_not_push_the_cooldown_further_out(
-        self, reader
-    ):
+    def test_alerts_evaluate_does_not_push_the_cooldown_further_out(self, reader):
         """**Checked before firing, not after.** Advancing `last_fired_at` on a
         suppressed crossing would move the next legitimate alert further away
         every time the value wobbled."""
@@ -245,9 +237,7 @@ class TestAlertsEvaluatePayloadFor:
         import msgpack
 
         client = mocker.MagicMock()
-        client.get.return_value = msgpack.packb(
-            {"total": 5.0, "values": {31566704: 1.5}}
-        )
+        client.get.return_value = msgpack.packb({"total": 5.0, "values": {31566704: 1.5}})
 
         payload = payload_for(PAGE, client)
 
@@ -256,9 +246,7 @@ class TestAlertsEvaluatePayloadFor:
         # `reading_for` looks one up. A str key here would never match.
         assert payload["values"][31566704] == 1.5
 
-    def test_alerts_evaluate_returns_none_when_nothing_is_published(
-        self, mocker
-    ):
+    def test_alerts_evaluate_returns_none_when_nothing_is_published(self, mocker):
         client = mocker.MagicMock()
         client.get.return_value = None
 
@@ -375,7 +363,9 @@ class TestAlertsEvaluatePrices:
 
         assert len(evaluate_prices({31566704: 2.0})) == 1
 
-    def test_alerts_evaluate_prices_asks_once_per_asset(self, reader, django_assert_num_queries):
+    def test_alerts_evaluate_prices_asks_once_per_asset(
+        self, reader, django_assert_num_queries
+    ):
         """**One question per asset, however many readers ask it.** Two rules on
         one asset must not be two queries - that is what the `asset_id, active`
         index on the model is for."""
@@ -482,9 +472,7 @@ class TestAlertsEvaluatePricePercent:
 
         assert len(fired) == 1
 
-    def test_alerts_evaluate_price_percent_refuses_a_short_history(
-        self, reader, mocker
-    ):
+    def test_alerts_evaluate_price_percent_refuses_a_short_history(self, reader, mocker):
         """**The reading is refused, and the rule is left armed.**
 
         No point at or before the far edge means the series does not reach back
@@ -500,9 +488,7 @@ class TestAlertsEvaluatePricePercent:
         rule.refresh_from_db()
         assert float(rule.last_value) == -1
 
-    def test_alerts_evaluate_price_percent_reads_its_own_asset(
-        self, reader, mocker
-    ):
+    def test_alerts_evaluate_price_percent_reads_its_own_asset(self, reader, mocker):
         client = self._client(mocker, [b"1000:1.0"])
         self._rule(reader, asset_id=386192725, last_value="-1")
 
@@ -600,9 +586,7 @@ class TestAlertsEvaluatePercentMove:
 
         assert percent_move(PAGE, 3600, 90.0, client=client) == pytest.approx(-10.0)
 
-    def test_alerts_evaluate_percent_move_reads_the_asset_series_by_prefix(
-        self, mocker
-    ):
+    def test_alerts_evaluate_percent_move_reads_the_asset_series_by_prefix(self, mocker):
         """**One function, two series.** `asa_price_percent` compares an asset's
         price against its own history at `lvah:{asset id}`; the page subject
         compares a total against `lvth:{page}`. Same honesty rule, same read -
@@ -658,18 +642,14 @@ class TestAlertsEvaluatePercentMove:
 
         assert percent_move(PAGE, 3600, None, client=client) is None
 
-    def test_alerts_evaluate_percent_move_refuses_to_divide_by_nothing(
-        self, mocker
-    ):
+    def test_alerts_evaluate_percent_move_refuses_to_divide_by_nothing(self, mocker):
         """A page that was worth nothing and is worth something has moved by an
         undefined percentage, not by an infinite one."""
         client = self._client(mocker, [b"1000:0.0"])
 
         assert percent_move(PAGE, 3600, 110.0, client=client) is None
 
-    def test_alerts_evaluate_percent_move_survives_a_redis_that_is_away(
-        self, mocker
-    ):
+    def test_alerts_evaluate_percent_move_survives_a_redis_that_is_away(self, mocker):
         client = mocker.MagicMock()
         client.zrevrangebyscore.side_effect = OSError("no route to host")
 
@@ -724,9 +704,7 @@ class TestAlertsEvaluatePercentRules:
 
         assert len(fired) == 1
 
-    def test_alerts_evaluate_a_falling_rule_ignores_a_small_fall(
-        self, reader, mocker
-    ):
+    def test_alerts_evaluate_a_falling_rule_ignores_a_small_fall(self, reader, mocker):
         self._percent_rule(reader, last_value="0")
         client = self._client(mocker, [b"1000:100.0"])
 
@@ -772,9 +750,7 @@ class TestAlertsEvaluatePercentRules:
 
         assert fired == []
 
-    def test_alerts_evaluate_a_percent_rule_waits_out_its_window(
-        self, reader, mocker
-    ):
+    def test_alerts_evaluate_a_percent_rule_waits_out_its_window(self, reader, mocker):
         """**A 24-hour rule fires nothing for its first 24 hours**, and that is
         the correct behaviour rather than a gap to paper over."""
         rule = self._percent_rule(reader, window_seconds=86400, last_value="0")
@@ -841,9 +817,7 @@ class TestAlertsEvaluateCurrency:
 
         assert in_rule_currency(rule, None, 4.0) is None
 
-    def test_alerts_evaluate_a_subject_without_a_currency_ignores_the_unit(
-        self, reader
-    ):
+    def test_alerts_evaluate_a_subject_without_a_currency_ignores_the_unit(self, reader):
         """A percentage is a proportion however the stale control was left."""
         rule = self._rule(
             reader,
@@ -909,9 +883,7 @@ class TestAlertsEvaluateHoldingAmount:
             address=PAGE,
         )
 
-        reading = reading_for(
-            rule, 0, {}, amounts={31566704: [1_500_000_000, 6]}
-        )
+        reading = reading_for(rule, 0, {}, amounts={31566704: [1_500_000_000, 6]})
 
         assert reading == 1500.0
 
@@ -926,9 +898,7 @@ class TestAlertsEvaluateMutedCrossings:
     is answerable from these lines and from nothing else.
     """
 
-    def test_alerts_evaluate_a_muted_page_crossing_is_counted(
-        self, reader, caplog
-    ):
+    def test_alerts_evaluate_a_muted_page_crossing_is_counted(self, reader, caplog):
         now = timezone.now()
         _rule(
             reader,
@@ -943,9 +913,7 @@ class TestAlertsEvaluateMutedCrossings:
         assert "crossed inside its cooldown" in caplog.text
         assert "1 crossing(s) muted" in caplog.text
 
-    def test_alerts_evaluate_a_muted_price_crossing_is_counted(
-        self, reader, caplog
-    ):
+    def test_alerts_evaluate_a_muted_price_crossing_is_counted(self, reader, caplog):
         now = timezone.now()
         AlertRule.objects.create(
             user=reader,
@@ -962,9 +930,7 @@ class TestAlertsEvaluateMutedCrossings:
 
         assert "1 crossing(s) muted" in caplog.text
 
-    def test_alerts_evaluate_says_nothing_when_nothing_was_muted(
-        self, reader, caplog
-    ):
+    def test_alerts_evaluate_says_nothing_when_nothing_was_muted(self, reader, caplog):
         """A quiet block must stay quiet in the log, or the line is noise
         rather than a measurement."""
         _rule(reader, last_value="120")
@@ -974,9 +940,7 @@ class TestAlertsEvaluateMutedCrossings:
 
         assert "muted by a cooldown" not in caplog.text
 
-    def test_alerts_evaluate_a_muted_crossing_is_dropped_not_deferred(
-        self, reader
-    ):
+    def test_alerts_evaluate_a_muted_crossing_is_dropped_not_deferred(self, reader):
         """**Consumed, and that is the decision.**
 
         `last_value` advances whether or not the rule fired, so the crossing is

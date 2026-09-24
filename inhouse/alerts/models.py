@@ -86,9 +86,7 @@ CURRENCY_SUBJECTS = frozenset(
 PRICED_SUBJECTS = frozenset({Subject.ASA_PRICE, Subject.ASA_PRICE_PERCENT})
 
 #: Subjects expressed as a percentage move, and so require a window.
-PERCENT_SUBJECTS = frozenset(
-    {Subject.TOTAL_PERCENT, Subject.ASA_PRICE_PERCENT}
-)
+PERCENT_SUBJECTS = frozenset({Subject.TOTAL_PERCENT, Subject.ASA_PRICE_PERCENT})
 
 #: How long a fired rule stays quiet, unless a tier says otherwise.
 #:
@@ -118,16 +116,12 @@ class AlertRule(models.Model):
         on_delete=models.CASCADE,
         related_name="alert_rules",
     )
-    # 32 rather than the 16 the first four subjects fitted in: `asa_price_percent`
-    # is 17, and a subject name is descriptive by design. The column is a choice
-    # field, so the width costs nothing and running out of it again would mean
-    # another migration for a name.
+    # 32 rather than 16: `asa_price_percent` is 17 and a subject name is
+    # descriptive by design. A choice field, so the width costs nothing.
     subject = models.CharField(max_length=32, choices=Subject.choices)
 
     # **Nullable, and validated per subject rather than per column.** A
-    # portfolio rule names no asset and an asset rule names no bundle; making
-    # either mandatory at the database level would mean two tables for what is
-    # one concept to the reader.
+    # portfolio rule names no asset and an asset rule names no bundle.
     asset_id = models.BigIntegerField(null=True, blank=True)
 
     #: The asset's unit name as the reader picked it, for the sentence.
@@ -165,9 +159,7 @@ class AlertRule(models.Model):
     window_seconds = models.PositiveIntegerField(null=True, blank=True)
 
     active = models.BooleanField(default=True)
-    cooldown_seconds = models.PositiveIntegerField(
-        default=DEFAULT_COOLDOWN_SECONDS
-    )
+    cooldown_seconds = models.PositiveIntegerField(default=DEFAULT_COOLDOWN_SECONDS)
 
     # Fire state. See the module docstring: a crossing, not a level.
     last_value = models.DecimalField(
@@ -184,13 +176,9 @@ class AlertRule(models.Model):
         indexes = [
             # The per-asset evaluator's only query: which active rules name this
             # asset. Also what answers "which assets must be kept fresh".
-            models.Index(
-                fields=["asset_id", "active"], name="alert_asset_active_idx"
-            ),
+            models.Index(fields=["asset_id", "active"], name="alert_asset_active_idx"),
             # The per-bundle evaluator's: which active rules watch this page.
-            models.Index(
-                fields=["address", "active"], name="alert_address_active_idx"
-            ),
+            models.Index(fields=["address", "active"], name="alert_address_active_idx"),
             models.Index(fields=["user", "active"], name="alert_user_active_idx"),
         ]
 
@@ -297,15 +285,15 @@ class PushSubscription(models.Model):
         related_name="push_subscriptions",
     )
     # The push service's URL for this browser. Unique because the browser
-    # re-sends the same one on every visit, and a reader who signs in on a
-    # shared machine must replace the row rather than add a second.
+    # re-sends the same one on every visit, so a shared machine replaces the
+    # row rather than adding a second.
     endpoint = models.URLField(max_length=500, unique=True)
     p256dh = models.CharField(max_length=255)
     auth = models.CharField(max_length=255)
 
-    # What the reader was using, for nothing but telling two rows apart in the
-    # settings list. Never parsed to decide behaviour - see `alerts.js`, where
-    # what a browser can do is asked of the browser.
+    # For telling two rows apart in the settings list, and nothing else.
+    # **Never parsed to decide behaviour** - `alerts.js` asks the browser what
+    # it can do.
     user_agent = models.CharField(max_length=300, blank=True, default="")
 
     created_at = models.DateTimeField(auto_now_add=True)

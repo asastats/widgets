@@ -25,6 +25,23 @@ from decimal import Decimal, InvalidOperation
 
 from .models import AMOUNT_SUBJECTS, PERCENT_SUBJECTS, Subject
 
+#: How each subject reads *inside a sentence*, with the thing it watches in
+#: it.
+#:
+#: **Not `get_subject_display()`.** Those labels are picker options - they
+#: answer "what do you want to watch?" - and dropped into a sentence they
+#: name the asset where the option already said "an asset". The picker keeps
+#: its labels and a sentence gets its own phrasing, with one slot for the
+#: thing being watched.
+SENTENCES = {
+    Subject.ASA_PRICE: "{target} price",
+    Subject.ASA_PRICE_PERCENT: "{target} price change",
+    Subject.ASA_AMOUNT: "My {target} holding",
+    Subject.ASA_TOTAL: "My {target} holding's value",
+    Subject.TOTAL_VALUE: "Portfolio total for {target}",
+    Subject.TOTAL_PERCENT: "Portfolio total change for {target}",
+}
+
 logger = logging.getLogger(__name__)
 
 #: Decimals for a figure in ALGO or USD - a total, or a holding's value.
@@ -70,10 +87,9 @@ def format_price(amount):
     text = _trimmed(amount, PRICE_DECIMALS)
     if amount and not _is_zero(text):
         return text
-    # **Smaller than six places is a real ASA price, not a zero.** Rounding one
-    # away would show a threshold the reader never chose, and "0" is the single
-    # most misleading thing this could print: it reads as an asset worth
-    # nothing rather than an asset worth very little.
+    # **Smaller than six places is a real ASA price, not a zero.** Rounding
+    # one away prints "0", which reads as an asset worth nothing rather than
+    # one worth very little.
     return _trimmed(amount, STORED_DECIMALS) if amount else text
 
 
@@ -138,10 +154,9 @@ def _number(amount):
         parsed = Decimal(str(amount))
     except (InvalidOperation, ValueError, TypeError):
         return Decimal(0)
-    # **NaN and Infinity parse, and then format as themselves.** `Decimal("NaN")`
-    # is a perfectly good Decimal that renders "NaN ALGO" in a notification -
-    # which is the one outcome worse than a wrong number, because it reads as
-    # the site being broken rather than as a figure to check.
+    # **NaN and Infinity parse, and then format as themselves.**
+    # `Decimal("NaN")` renders "NaN ALGO" in a notification, which reads as the
+    # site being broken rather than as a figure to check.
     return parsed if parsed.is_finite() else Decimal(0)
 
 
@@ -186,10 +201,8 @@ def page_label(address):
     """
     from core.templatetags.core_extras import short_address  # noqa: PLC0415
 
-    # Coerced rather than guarded: `short_address` slices, so anything that is
-    # not a string raises there instead of here. A `try` around it would be a
-    # branch nothing can reach - `AlertRule.address` is a `CharField` - and an
-    # unreachable branch is worse than the one line that makes it impossible.
+    # Coerced rather than guarded: `AlertRule.address` is a `CharField`, so a
+    # `try` here would be a branch nothing can reach.
     address = str(address or "")
     if not address:
         return ""
@@ -207,15 +220,12 @@ def _sole_address(address):
     :type address: str
     :return: str or None
     """
-    # Imported here rather than at module scope: this widget is tested from the
-    # standalone widgets repo too, where the host is not importable, and the
-    # import must not be what decides whether the module loads.
+    # **Imported here, not at module scope**: this widget is also tested from
+    # the standalone widgets repo, where the host is not importable.
     from api.widgets import bundle_and_addresses_from_path  # noqa: PLC0415
 
     try:
-        _, addresses = bundle_and_addresses_from_path(
-            address, force_bundle=False
-        )
+        _, addresses = bundle_and_addresses_from_path(address, force_bundle=False)
     except Exception as error:  # noqa: BLE001 - see the docstring
         logger.warning("could not resolve %s: %s", address, error)
         return None
@@ -271,29 +281,6 @@ def asset_label(rule):
     return unit or f"#{rule.asset_id}"
 
 
-#: How each subject reads *inside a sentence*, with the thing it watches in it.
-#:
-#: **Not `get_subject_display()`, and that was the bug.** Those labels are
-#: picker options - they answer "what do you want to watch?" and read as
-#: "How much of an asset I hold". Dropped into a sentence in front of the asset
-#: they produced "How much of an asset I hold 393537671 rises above 1000000
-#: 393537671": the option's own wording, the asset named where the option
-#: already said "an asset", and then the asset again because the count carried
-#: it as a unit.
-#:
-#: So the picker keeps its labels and a sentence gets its own phrasing, with
-#: one slot for the thing being watched. The two are edited apart on purpose:
-#: a good option is rarely a good subject.
-SENTENCES = {
-    Subject.ASA_PRICE: "{target} price",
-    Subject.ASA_PRICE_PERCENT: "{target} price change",
-    Subject.ASA_AMOUNT: "My {target} holding",
-    Subject.ASA_TOTAL: "My {target} holding's value",
-    Subject.TOTAL_VALUE: "Portfolio total for {target}",
-    Subject.TOTAL_PERCENT: "Portfolio total change for {target}",
-}
-
-
 def subject_phrase(rule):
     """Return how `rule`'s subject reads in front of its direction.
 
@@ -306,8 +293,8 @@ def subject_phrase(rule):
     """
     target = asset_label(rule) if rule.needs_asset else page_label(rule.address)
     form = SENTENCES.get(rule.subject)
-    return form.format(target=target) if form else (
-        f"{rule.get_subject_display()} {target}"
+    return (
+        form.format(target=target) if form else (f"{rule.get_subject_display()} {target}")
     )
 
 
@@ -325,27 +312,17 @@ def describe(rule):
     if rule.subject in PERCENT_SUBJECTS:
         amount = format_percent(rule.threshold)
     elif rule.subject in AMOUNT_SUBJECTS:
-        # **A count of the asset, in its own units, and the unit is not
-        # repeated here.** It used to be, which read "My ASASTATS holding rises
-        # above 1,000,000 ASASTATS" - the subject already names the asset, so
-        # saying it again is the sentence stuttering rather than being precise.
-        # No currency either: "I hold more than a million" is true whatever one
-        # is worth, which is the whole point of the subject.
+        # A count in the asset's own units. **The unit is not repeated** - the
+        # subject already names the asset - and there is no currency, because
+        # "I hold more than a million" is true whatever one is worth.
         amount = format_count(rule.threshold)
     elif rule.subject == Subject.ASA_PRICE:
         amount = f"{format_price(rule.threshold)} {currency}"
     else:
-        # **A total or a holding's value, named in the reader's own currency**,
-        # because that is what the rule is compared in now. It used to be
-        # converted to ALGO when the rule was written, so a dollar threshold
-        # was shown back as an ALGO figure the reader never typed.
-        #
-        # The final arm rather than a `CURRENCY_SUBJECTS` test: a subject that
-        # is neither a proportion nor a count nor a price is money by
-        # elimination, and testing for it left an `else` no subject could reach.
+        # **Named in the reader's own currency**, which is what the rule is
+        # compared in. The final arm rather than a `CURRENCY_SUBJECTS` test: a
+        # subject that is neither a proportion nor a count nor a price is money
+        # by elimination, and testing for it leaves an unreachable `else`.
         amount = f"{format_value(rule.threshold)} {currency}"
 
-    return (
-        f"{subject_phrase(rule)} "
-        f"{rule.get_direction_display().lower()} {amount}"
-    )
+    return f"{subject_phrase(rule)} " f"{rule.get_direction_display().lower()} {amount}"

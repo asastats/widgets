@@ -20,16 +20,15 @@ import json
 import logging
 import time
 
-from api.widgets import bundle_and_addresses_from_path
 from django.http import HttpResponse
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 from django.views.generic.base import TemplateView
+
+from api.widgets import bundle_and_addresses_from_path
 from utils.clients import redis_instance
 from utils.constants.core import LIVEREFRESH_MAX_FRAGMENTS as MAX_FRAGMENTS
-from utils.constants.core import (
-    LIVEREFRESH_RELOAD_COOLDOWN_SECONDS as RELOAD_COOLDOWN,
-)
+from utils.constants.core import LIVEREFRESH_RELOAD_COOLDOWN_SECONDS as RELOAD_COOLDOWN
 from utils.layouts import layout_for_user
 from walletauth.gating import is_linked_to_user
 from widgethost.enforcement import WidgetAccessMixin
@@ -263,74 +262,48 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         :return: :class:`HttpResponse`
         """
         client = redis_instance()
-        # One timestamp for one poll. Read twice, the heartbeat and the paid
-        # mark carry different scores for the same event, and the two sets age
-        # out of step - by microseconds, but for no reason at all.
+        # One timestamp for one poll, so the heartbeat and the paid mark
+        # carry the same score and the two sets cannot age out of step.
         now = time.time()
         warm = self._heartbeat(client, now)
 
-        # **Read first, charge later.** What is left decides two things that
-        # must be answered before the payload is looked at - whether this reader
-        # is paying, and whether they have run out - and neither of them may
-        # cost the reader time. `left` spends nothing.
+        # **Read first, charge later.** What is left decides whether this
+        # reader is paying and whether they have run out, both of which are
+        # answered before the payload is read. `left` spends nothing.
         remaining_seconds = self._left(client)
 
         if not warm:
-            # **Over this reader's warm-set cap**, so this page is not being
-            # kept alive for them and cannot move. Charging for it would be the
-            # same defect as billing a reader for a page admission control had
-            # shed - see the branch below, which exists because that happened.
-            #
-            # Nor is it marked paid: `lvq` lifts a page over the engine's
-            # admission budget, and asking the engine to prioritise a page we
-            # have deliberately not subscribed would be asking for work we just
-            # decided not to want.
-            #
-            # 204 rather than the spent response: they have not run out of
-            # anything, and their other tabs are still live. The page simply
-            # goes static, which is exactly what a shed page does.
+            # **Over this reader's warm-set cap**, so the page is not kept
+            # alive for them and cannot move: not charged, and not marked paid
+            # either, since `lvq` would ask the engine to prioritise a page we
+            # deliberately did not subscribe. 204 rather than the spent
+            # response - they have run out of nothing, and their other tabs are
+            # still live.
             return self._with_left(HttpResponse(status=204), remaining_seconds)
 
         if remaining_seconds is None:
-            # **No daily limit means this reader is paying for it**, and the
-            # engine needs to know before capacity runs out rather than after.
-            # Same score and the same 90-second ageing as `lvx`, so a page stops
-            # counting as paid 90 s after the last subscriber closes it and
-            # nothing has to expire it on purpose.
+            # **No daily limit means this reader is paying for it.** Same
+            # score and 90-second ageing as `lvx`, so a page stops counting as
+            # paid 90 s after the last subscriber closes it.
             #
-            # **Marked before the payload is looked at, deliberately.** This is
-            # what lifts a page over the admission budget, and a page that is
-            # not admitted is never published - so deciding it on whether
-            # something has been published would make a shed page's shedding
-            # permanent.
+            # **Marked before the payload is read.** This is what lifts a page
+            # over the admission budget, and an unadmitted page is never
+            # published - so gating the mark on something having been published
+            # would make a shed page's shedding permanent.
             client.zadd(PAID_KEY, {self.addresses: now})
         elif remaining_seconds <= 0:
-            # Told before the payload is read, and not folded into the "nothing
-            # published" branch below: a reader who is out must be *told* so the
-            # widget stops polling and `address.js` takes the plain reload back
-            # up. Answering them with a 204 would leave them with neither.
+            # Told before the payload is read, and never folded into the 204
+            # below: a reader who is out must be told, or the widget keeps
+            # polling and `address.js` never takes the plain reload back up.
             return self._spent_response()
 
         payload = self._payload(client)
         if payload is None:
-            # **Nothing published, so nothing is charged.**
-            #
-            # The pass has not reached this page yet, the reader has only just
-            # asked for it, or - the case that made this a bug rather than an
-            # edge - the page was shed by admission control and its payload
-            # aged out of the 120 s TTL behind it. On 2026-09-16 the overnight
-            # rotation shed 528 of 978 wanted pages at once, and every reader of
-            # one of those was being billed wall-clock seconds for a page that
-            # could not move.
-            #
-            # A deployment whose engine publishes nothing at all is the same
-            # shape: a fork can host this widget - it reads its own Redis and
-            # spends none of our API - but with no live pass behind it the
-            # payload never arrives, and charging an allowance down to zero for
-            # a feature that never produced a figure is indefensible.
-            #
-            # `left` reads the balance without spending, so the badge still
-            # shows the truth while the reader waits.
+            # **Nothing published, so nothing is charged.** The pass may not
+            # have reached this page, or it was shed by admission control and
+            # its payload aged out behind it; a deployment with no live pass at
+            # all is the same shape. `left` reads the balance without spending,
+            # so the badge still shows the truth while the reader waits.
             return self._with_left(HttpResponse(status=204), remaining_seconds)
 
         # Delivered, so charged. This is the only call that spends.
@@ -350,8 +323,8 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         payload, sending = self._chunked(payload)
 
         # **`sending` first**, because a resync can outlive the block that
-        # started it: the total settles while values are still going out, and
-        # answering 204 then would strand the rest of them.
+        # started it: the total settles while values are still going out, and a
+        # 204 then would strand the rest of them.
         if not sending and payload.get("total") == self._last_total():
             return self._regrouping(
                 self._with_left(HttpResponse(status=204), remaining_seconds), regroup
@@ -387,8 +360,8 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         if not wanted:
             return response
         # Merged rather than assigned: `_with_left` has usually written the
-        # allowance into this header already, and overwriting it would stop the
-        # badge for as long as a regroup is pending.
+        # allowance into this header, and overwriting it would stop the badge
+        # for as long as a regroup is pending.
         triggers = json.loads(response.get("HX-Trigger") or "{}")
         triggers["liverefresh:regroup"] = {}
         response["HX-Trigger"] = json.dumps(triggers)
@@ -527,37 +500,21 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         if not rendered or not published or rendered == published:
             return None
 
-        # **Only the asset *set* needs the page rebuilt; the counter does not.**
+        # **Only the asset *set* reaches this far; the counter does not.** The
+        # counter steps on every block that strikes the account, so comparing
+        # whole fingerprints rebuilds a transacting account's page on almost
+        # every block to correct figures the fragments already carry.
         #
-        # A fingerprint is `<counter>:<digest>`. The counter steps on every block
-        # that strikes the account while the digest covers which assets are held,
-        # so comparing whole fingerprints rebuilt a transacting account's page on
-        # almost every block - costing the reader their scroll, their filters and
-        # every section they had open - to correct figures the fragments carry.
+        # **Narrowing it is only safe while a position is addressable and
+        # published**: `pq-<pid>` and `pv-<pid>` on the page, `positions` in the
+        # payload, and a handler carrying the new figure up to the
+        # `.position`'s own `data-value`. Without all three, the positions
+        # inside a row freeze while the total above them stays live.
         #
-        # **This was tried on 2026-09-19 and reverted within the hour, and the
-        # reason is the bar for putting it back.** Fragments reached a row's
-        # aggregate and nothing inside it: a row's positions - "Wallet balance",
-        # a farm, a lend - rendered with no id, so nothing addressed them and the
-        # rebuild was the only thing that ever corrected one. Removing it froze
-        # every position while the total above it stayed live, which is a page
-        # disagreeing with itself about money. Observed as 1 USDC between two
-        # watched pages: the sender's "Wallet balance" sat at 3.7552 until F5.
-        #
-        # What makes it safe now is that a position is addressable and published:
-        # `pq-<pid>` and `pv-<pid>` on the page, `positions` in the payload, and
-        # a handler that carries the new figure up to the `.position`'s own
-        # `data-value` so the band keeps agreeing with its rows. Narrowing this
-        # again without all three is how the same bug comes back.
-        #
-        # Two cases still rebuild, and both are right to. A genuinely new asset
-        # has no row for a fragment to land in. A position the page could not
-        # name - three on the reference bundle are indistinguishable - gets no
-        # id and no fragment, so its figure waits for the next rebuild.
-        # **A position arriving is handled a level down, by `_regroup_wanted`.**
-        # It changes a row inside a row the page already has, so one venue group
-        # is re-rendered and the reader keeps their scroll, their filters and
-        # every section they had open. Only the asset set reaches this far.
+        # Two cases still rebuild. A genuinely new asset has no row for a
+        # fragment to land in, and a position the page could not name gets no id
+        # and no fragment. A position *arriving* is handled a level down by
+        # `_regroup_wanted`, which re-renders one venue group.
         if _digest(rendered) == _digest(published):
             return None
 
@@ -567,48 +524,40 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         now = time.time()
         last = self.request.session.get(self._reload_key())
 
-        # **A gap clears it, and that is what makes this a cooldown rather than
-        # a deadline.** The stamp lives in the session, so it survived the tab
-        # being closed: a reader who was told to reload, closed the window,
-        # transacted and came back was refused the reload they now genuinely
-        # needed, and sat on stale rows until the clock ran out. Reported
-        # 2026-09-18 as "it took 60 seconds and an F5" - this constant, to the
-        # second.
+        # **A gap clears it, which is what makes this a cooldown rather than a
+        # deadline.** The stamp lives in the session and so survives the tab
+        # being closed, which would otherwise refuse a reader the reload they
+        # came back genuinely needing.
         #
-        # Keying on the fingerprint instead does not work, and the loop above is
-        # why: the counter steps on every block that strikes the account, so in
-        # a runaway the fingerprint is *different* on every pass and a
-        # fingerprint key would wave every reload through - which is the bug
-        # this was written for.
+        # **Keying on the fingerprint instead does not work.** The counter steps
+        # on every block that strikes the account, so in a runaway the
+        # fingerprint differs on every pass and a fingerprint key waves every
+        # reload through - the bug this was written for.
         #
-        # What separates the two cases is not what changed but how continuously.
-        # A runaway is found out of date on essentially every poll, so this gap
-        # never opens; a closed window is not polling at all, so it opens at
-        # once. Recorded here rather than on every poll deliberately: the
-        # question is when this reader was last *found stale*, and a page that
-        # has been in sync for ten minutes has no cooldown worth keeping.
+        # What separates the two cases is how continuously, not what changed: a
+        # runaway is found stale on essentially every poll so the gap never
+        # opens, while a closed window is not polling at all. Recorded here and
+        # not on every poll, because the question is when this reader was last
+        # *found stale*.
         stale = self.request.session.get(self._stale_key())
         if stale and now - stale > RELOAD_COOLDOWN:
             last = None
         self.request.session[self._stale_key()] = now
 
-        # **The detector's input, before anything is trusted.** A reader
-        # reported a page reloading within seconds of being opened, and nothing
-        # recorded which two fingerprints disagreed - so the cause could only be
-        # reasoned about, which is how a day went on the last live-page
-        # detector. One line per decision, and a reload is rare enough that this
-        # stays quiet on a healthy page: if it is not quiet, that is the finding.
+        # **The detector's input, before anything is trusted.** One line per
+        # decision; a reload is rare enough that this stays quiet on a healthy
+        # page, and if it is not quiet that is the finding.
         logger.info(
             "live reload %s: page %s engine %s (%s), %s",
             self.bundle[:6],
             rendered,
             published,
-            "assets differ"
-            if _digest(rendered) != _digest(published)
-            else "same assets",
-            "held by the cooldown"
-            if last and now - last < RELOAD_COOLDOWN
-            else "ordered",
+            "assets differ" if _digest(rendered) != _digest(published) else "same assets",
+            (
+                "held by the cooldown"
+                if last and now - last < RELOAD_COOLDOWN
+                else "ordered"
+            ),
         )
 
         if last and now - last < RELOAD_COOLDOWN:
@@ -706,11 +655,10 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # and msgpack refuses integer keys by default.
         payload = msgpack.unpackb(raw, strict_map_key=False)
 
-        # **Derived when the engine did not send it**, which is any block
-        # published by an engine older than the one that added the field. The
-        # two services deploy separately, so that window is real rather than
-        # hypothetical - and the band reads every figure it shows off this
-        # payload, so a missing key is a figure the reader watches go blank.
+        # **Derived when the engine did not send it.** The two services deploy
+        # separately, so a payload from an older engine is a real case, and the
+        # band reads every figure it shows off this payload - a missing key is
+        # a figure the reader watches go blank.
         if not payload.get("pricealgo") and payload.get("priceusdc"):
             payload["pricealgo"] = 1 / payload["priceusdc"]
         return payload
@@ -783,18 +731,16 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         :return: two-tuple of (payload, bool)
         """
         # **Integer keys out, string keys in the session.** The values map is
-        # keyed by asset id and `_payload` decodes it with `strict_map_key=False`
-        # to keep those integers - the fragments are addressed by them. A session
-        # round-trips through JSON, which has no integer keys, so what is carried
-        # comes back as `"31566704"` and has to be turned back before it can
-        # merge with, or be ordered against, the `31566704` a later payload
-        # brings.
+        # keyed by asset id and the fragments are addressed by those integers,
+        # but a session round-trips through JSON, which has none - so a carried
+        # key comes back as `"31566704"` and has to be turned back before it can
+        # merge with the `31566704` a later payload brings.
         carry = self.request.session.get(self._carry_key()) or {}
         merged = {_asset_key(key): _bundle(held) for key, held in carry.items()}
 
-        # What this block brings, overlaying the backlog per field: an asset
-        # whose value moved again mid-resync supersedes the carried value, but
-        # must not erase an amount or a position still waiting behind it.
+        # Overlaid per field: an asset whose value moved again mid-resync
+        # supersedes the carried value, but must not erase an amount or a
+        # position still waiting behind it.
         fresh = []
         for field, brought in (
             ("value", (payload.get("values") or {}).items()),
@@ -815,10 +761,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
 
         # **What moved this block goes first, and the backlog fills the rest.**
         # Ordering the whole queue by asset id would make a holding the reader
-        # has just watched change wait its turn behind nine hundred that did
-        # not - which is the complaint this whole mechanism is answering, not a
-        # detail of it. A transfer a reader made themselves has to show up on
-        # the next poll.
+        # just watched change wait behind nine hundred that did not.
         seen, ordered = set(), []
         for key in fresh:
             if key not in seen:
@@ -830,11 +773,9 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         )
 
         # **The first asset that does not fit closes the poll**, rather than
-        # being stepped over to top the budget up with cheaper ones behind it.
-        # Skipping it would be free here and starve it indefinitely: a holding
-        # with thirty positions would be passed by on every poll that had a
-        # handful of ordinary values to spend the remainder on, and would be the
-        # one row on the page that never came right.
+        # being stepped over for cheaper ones behind it. Skipping would starve
+        # it indefinitely: a holding with thirty positions would be passed by on
+        # every poll with ordinary values to spend the remainder on.
         going, waiting, spent, full = {}, {}, 0, False
         for key in ordered:
             held = merged[key]
@@ -861,10 +802,9 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         context["addresses"] = self.addresses
         context["bundle"] = self.bundle
         # **The same helper the address page keys its cache entry on.** The
-        # fragments address ids only one layout renders, so serving the wrong
-        # set means every swap lands nowhere - and htmx says so, loudly, on
-        # every poll. Deriving it here rather than trusting a parameter keeps
-        # the two from ever disagreeing about which markup this reader holds.
+        # fragments address ids only one layout renders, so the wrong set means
+        # every swap lands nowhere. Derived here rather than taken from a
+        # parameter, so the two cannot disagree.
         context["layout"] = layout_for_user(getattr(self.request, "user", None))
         context["positions"] = _named_positions(context.get("payload"))
         return context
@@ -877,33 +817,24 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # **`force_bundle=False`, because the engine does not hash a single
         # address.** Its pass publishes under
         # `bundle_from_addresses(addresses) if " " in addresses else addresses`
-        # - the raw address when there is only one, the hash when there are
-        # several. Hashing unconditionally here asked for a key nothing writes.
-        #
-        # The failure had the worst possible shape: the poll still ran, still
-        # heartbeated, so the engine went on re-pricing the page every block -
-        # and every response was a 204, so the reader saw a live indicator over
-        # a page that never moved and nothing anywhere logged a problem. A
-        # bundle worked throughout, because both sides hash those.
+        # - the raw address for one, the hash for several. Hashing
+        # unconditionally here asks for a key nothing writes, and the failure is
+        # silent: the poll still heartbeats, so every response is a 204 over a
+        # live indicator and nothing logs a problem.
         self.bundle, self.addresses = bundle_and_addresses_from_path(
             self.kwargs.get("value") or self.args[0], force_bundle=False
         )
         if not self.manifest_test_func(len(self.addresses.split())):
             return False
 
-        # **The free tier may only watch an address it has connected.**
+        # **The free tier may only watch an address it has connected.** The
+        # free allowance is spent per address so that farming accounts buys
+        # nothing; without this, an abuser needs no accounts at all, only a list
+        # of other people's addresses, each arriving with a fresh allowance.
         #
-        # The free allowance is spent per address so that farming accounts buys
-        # nothing, and this is the other half of that: without it, an abuser
-        # needs no accounts at all, only a list of other people's addresses, and
-        # every one of them arrives with a fresh two hours. Requiring the wallet
-        # signature means the addresses a reader can spend are the addresses
-        # they control, and those are the ones already holding their portfolio.
-        #
-        # Self-scoped by `linked_addresses_for_user`, which only ever reads the
-        # requesting user's own rows - never an oracle for whose address this
-        # is. Paid tiers are unaffected: watching an address you do not own is
-        # a perfectly ordinary thing to buy.
+        # Self-scoped by `linked_addresses_for_user`, which reads only the
+        # requesting user's own rows and is never an oracle for whose address
+        # this is. Paid tiers are unaffected.
         profile = getattr(self.request.user, "profile", None)
         if requires_linked_address(getattr(profile, "permission", 0) or 0):
             return all(
@@ -1069,9 +1000,9 @@ class LiveRegroupView(LiveRefreshView):
         context = self.get_context_data(changed=changed, holdings=holdings, **kwargs)
         response = self.render_to_response(context)
         # What the page has caught up to, so the next poll stops asking. Taken
-        # from the snapshot rather than from what was last published: rendering
-        # one fingerprint's rows and claiming another's is how a page ends up
-        # wrong with no mismatch left to find it.
+        # from the snapshot and never from what was last published: rendering
+        # one fingerprint's rows while claiming another's leaves a page wrong
+        # with no mismatch left to find it.
         response["HX-Trigger"] = json.dumps(
             {"liverefresh:regrouped": {"holdings": holdings}}
         )

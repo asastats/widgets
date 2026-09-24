@@ -68,9 +68,7 @@ def view(mocker, client):
     instance.request.GET = {}
     instance.kwargs = {}
 
-    mocker.patch(
-        "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
-    )
+    mocker.patch("widgets.inhouse.liverefresh.views.redis_instance", return_value=client)
     yield instance
     client.delete(warmset.key_for(instance.request.user.pk))
 
@@ -88,9 +86,7 @@ def keys_written(spy):
 class TestWarmSetPoll:
     """A page over the reader's cap is not kept alive, and costs them nothing."""
 
-    def test_a_second_page_over_the_cap_is_not_heartbeated(
-        self, mocker, view, client
-    ):
+    def test_a_second_page_over_the_cap_is_not_heartbeated(self, mocker, view, client):
         """**The hole this closes.** An Asastatser may watch one address.
 
         Their second tab passes its own size-1 access check, so before the warm
@@ -134,9 +130,7 @@ class TestWarmSetPoll:
 
         published = f"{PAYLOAD_PREFIX}:{view.bundle}"
         client.set(published, msgpack.packb({"total": 5.0, "values": {1: 2.0}}))
-        spend = mocker.patch(
-            "widgets.inhouse.liverefresh.views.spend", return_value=None
-        )
+        spend = mocker.patch("widgets.inhouse.liverefresh.views.spend", return_value=None)
         fill_the_slot(view, client)
         try:
             view.get(view.request)
@@ -155,9 +149,7 @@ class TestWarmSetPoll:
 
         published = f"{PAYLOAD_PREFIX}:{view.bundle}"
         client.set(published, msgpack.packb({"total": 5.0, "values": {1: 2.0}}))
-        spend = mocker.patch(
-            "widgets.inhouse.liverefresh.views.spend", return_value=None
-        )
+        spend = mocker.patch("widgets.inhouse.liverefresh.views.spend", return_value=None)
         try:
             view.get(view.request)
 
@@ -190,9 +182,7 @@ class TestWarmSetPoll:
 
         assert SUBSCRIBED_KEY in keys_written(spy)
 
-    def test_the_slot_frees_when_the_other_tab_stops_polling(
-        self, mocker, view, client
-    ):
+    def test_the_slot_frees_when_the_other_tab_stops_polling(self, mocker, view, client):
         """A closed tab gives its slot up, and the waiting page starts working.
 
         Nothing expires it on purpose: the score simply ages past

@@ -16,9 +16,7 @@ class TestHistoricViewsHistoricView:
             "widgets.inhouse.historic.views.bundle_and_addresses_from_path",
             return_value=("BUNDLE", "A1 A2"),
         )
-        gate = mocker.patch.object(
-            HistoricView, "manifest_test_func", return_value=True
-        )
+        gate = mocker.patch.object(HistoricView, "manifest_test_func", return_value=True)
         assert view.test_func() is True
         assert view.bundle == "BUNDLE"
         assert view.addresses == "A1 A2"
@@ -78,9 +76,7 @@ class TestHistoricViewsHistoricView:
         assert view.handle_no_permission() == "subscriptions"
         redirect.assert_called_once_with("subscriptions")
 
-    def test_historic_views_historic_view_handle_no_permission_passthrough(
-        self, mocker
-    ):
+    def test_historic_views_historic_view_handle_no_permission_passthrough(self, mocker):
         view = HistoricView()
         mocker.patch(
             "django.contrib.auth.mixins.AccessMixin.handle_no_permission",

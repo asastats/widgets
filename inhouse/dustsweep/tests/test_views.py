@@ -86,9 +86,7 @@ class TestInhouseDustsweepViewsDustSweepView:
         )
         assert view.get_context_data()["linked_addresses"] == ["ADDR_TWO"]
 
-    def test_inhouse_dustsweep_views_sweep_view_passes_no_sweep_parameters(
-        self, mocker
-    ):
+    def test_inhouse_dustsweep_views_sweep_view_passes_no_sweep_parameters(self, mocker):
         """Nothing a sweep decides on is handed to the browser.
 
         No threshold, no fee, no asset list, no creator addresses. Every one of
@@ -243,9 +241,7 @@ class TestInhouseDustsweepViewsDustSweepPlanView:
         )
         response = view.post(view.request)
         assert response.status_code == 503
-        assert json.loads(response.content) == {
-            "error": "RESTRICT_TO_ADMIN, so no group"
-        }
+        assert json.loads(response.content) == {"error": "RESTRICT_TO_ADMIN, so no group"}
 
     def test_inhouse_dustsweep_views_plan_refusal_without_a_detail(self, mocker):
         view = self._view(mocker)

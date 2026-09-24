@@ -1,0 +1,26 @@
+[tool.black]
+# 90 rather than black's own 88, which is the width this repository already
+# reads at. Set here as well as in the host's pyproject.toml because this
+# submodule is also checked out standalone, where that file is not present.
+line-length = 90
+
+[tool.isort]
+profile = "black"
+line_length = 90
+# The same list the host repository uses. A widget module imports from `utils`,
+# `api` and `walletauth`, and if the two configs disagreed about whether those
+# are first-party then formatting here and formatting from the host would each
+# undo the other's import grouping.
+known_first_party = [
+    "api",
+    "config",
+    "core",
+    "historic",
+    "nameservice",
+    "permissiondapp",
+    "utils",
+    "walletauth",
+    "widgethost",
+    "widgets",
+]
+skip_glob = ["*/migrations/*", "docs/*"]

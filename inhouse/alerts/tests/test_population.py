@@ -47,9 +47,7 @@ class TestAlertsPopulationPublish:
         assert key == RULES_KEY
         assert list(mapping) == ["BUNDLE"]
 
-    def test_alerts_population_removes_a_page_with_no_rules(
-        self, reader, mocker
-    ):
+    def test_alerts_population_removes_a_page_with_no_rules(self, reader, mocker):
         client = mocker.MagicMock()
 
         assert publish_page("BUNDLE", client) is False
@@ -98,9 +96,7 @@ class TestAlertsPopulationPublish:
         assert client.zadd.called is False
         assert client.zrem.called is False
 
-    def test_alerts_population_survives_a_redis_that_is_away(
-        self, reader, mocker
-    ):
+    def test_alerts_population_survives_a_redis_that_is_away(self, reader, mocker):
         """**A rule the reader has written must be stored** whatever the engine
         can currently hear. The next write repairs the set."""
         client = mocker.MagicMock()
@@ -118,12 +114,8 @@ class TestAlertsPopulationPublish:
 
         assert "could not publish the alert population" in caplog.text
 
-    def test_alerts_population_makes_its_own_client_when_given_none(
-        self, reader, mocker
-    ):
-        instance = mocker.patch(
-            "widgets.inhouse.alerts.population.redis_instance"
-        )
+    def test_alerts_population_makes_its_own_client_when_given_none(self, reader, mocker):
+        instance = mocker.patch("widgets.inhouse.alerts.population.redis_instance")
         _rule(reader)
 
         publish_page("BUNDLE")
@@ -203,9 +195,7 @@ class TestAlertsPopulationAssets:
 
         assert publish_assets(client) == 1
 
-    def test_alerts_population_publishes_a_percentage_rules_asset(
-        self, reader, mocker
-    ):
+    def test_alerts_population_publishes_a_percentage_rules_asset(self, reader, mocker):
         """**The subject that cannot be answered without this set.**
 
         `asa_price_percent` compares an asset's price against its own history,
@@ -290,12 +280,8 @@ class TestAlertsPopulationAssets:
 
         assert "could not publish the alert assets" in caplog.text
 
-    def test_alerts_population_makes_its_own_client_when_given_none(
-        self, reader, mocker
-    ):
-        instance = mocker.patch(
-            "widgets.inhouse.alerts.population.redis_instance"
-        )
+    def test_alerts_population_makes_its_own_client_when_given_none(self, reader, mocker):
+        instance = mocker.patch("widgets.inhouse.alerts.population.redis_instance")
 
         publish_assets()
 

@@ -77,9 +77,7 @@ class Migration(migrations.Migration):
                     models.Index(
                         fields=["address", "active"], name="alert_address_active_idx"
                     ),
-                    models.Index(
-                        fields=["user", "active"], name="alert_user_active_idx"
-                    ),
+                    models.Index(fields=["user", "active"], name="alert_user_active_idx"),
                 ],
             },
         ),

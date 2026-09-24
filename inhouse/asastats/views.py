@@ -20,12 +20,13 @@ for every router.
 import json
 import logging
 
-from api.client import BackendError, engine_request
-from api.widgets import bundle_and_addresses_from_path
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 from django.views.generic.base import TemplateView, View
+
+from api.client import BackendError, engine_request
+from api.widgets import bundle_and_addresses_from_path
 from walletauth.gating import (
     algorand_addresses_for_user,
     is_linked_to_user,
@@ -138,18 +139,11 @@ class _RouterEndpoint(WidgetAccessMixin, View):
         # The fee tier is judged on ASASTATS summed across every address this
         # user has linked, and this is the only layer that knows which those
         # are - the engine authenticates a *deployment*, not a reader. Set here
-        # rather than sent by the page for the same reason as `address`: the
-        # browser's value is discarded, so nobody can claim a whale's tier by
-        # editing a request. The engine still decides the discount itself, from
-        # holdings it reads against these addresses.
-        payload["linked_addresses"] = sorted(
-            algorand_addresses_for_user(request.user)
-        )
-        # `.json()` because `engine_request` hands back the `requests.Response`
-        # rather than a decoded body - passing the response object itself made
-        # every call 500 with "In order to allow non-dict objects to be
-        # serialized set the safe parameter to False", which reads like a
-        # serialization setting and is really a missing decode.
+        # and never taken from the body, so nobody can claim a whale's tier by
+        # editing a request; the engine still reads the holdings itself.
+        payload["linked_addresses"] = sorted(algorand_addresses_for_user(request.user))
+        # `.json()` because `engine_request` hands back the
+        # `requests.Response` rather than a decoded body.
         try:
             answered = engine_request(
                 self.scope,
@@ -159,10 +153,9 @@ class _RouterEndpoint(WidgetAccessMixin, View):
                 json=payload,
             ).json()
         except BackendError as error:
-            # The engine refuses for reasons a reader can act on - a restricted
-            # deployment cannot build a group for anyone, and says so. Letting
-            # that escape turns a 503 and one useful sentence into a 500 and a
-            # stack trace, so the status and the detail are passed through.
+            # The engine refuses for reasons a reader can act on, so the
+            # status and detail are passed through: letting it escape turns a
+            # 503 and one useful sentence into a 500 and a stack trace.
             logger.info("asastats router refused: %s", error)
             return JsonResponse(
                 {"error": error.detail or "the router is unavailable"},

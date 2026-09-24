@@ -5,14 +5,10 @@ from django.urls import re_path
 from .views import LiveRefreshView, LiveRegroupView
 
 urlpatterns = [
-    # The venue groups whose positions changed. Before the poll's own pattern,
-    # which would otherwise never let `regroup` past: `\w` does not match the
-    # slash, but a 40-character value followed by one is not what the poll
-    # matches either, and ordering this first says which is meant rather than
-    # relying on that.
-    #
-    # POST rather than GET because the page sends what it is carrying, which is
-    # one line per position and belongs in a body.
+    # The venue groups whose positions changed. **Before the poll's pattern**,
+    # so the ordering says which is meant rather than relying on `\w` not
+    # matching a slash. POST because the page sends one line per position,
+    # which belongs in a body.
     re_path(
         r"^(\w{40}|\w{58})/regroup$",
         LiveRegroupView.as_view(),

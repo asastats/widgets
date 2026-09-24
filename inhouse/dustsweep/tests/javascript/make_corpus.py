@@ -90,9 +90,7 @@ CORPUS = {
     "fee_over_the_limit": axfer(fee=10_001),
     "fee_of_five_algo": axfer(fee=5_000_000),
     # a forfeit to somebody who is not the creator, for S2
-    "forfeit_to_a_stranger": axfer(
-        index=FORFEIT_ASSET, close_assets_to=STRANGER
-    ),
+    "forfeit_to_a_stranger": axfer(index=FORFEIT_ASSET, close_assets_to=STRANGER),
 }
 
 json.dump(

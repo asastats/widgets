@@ -99,9 +99,7 @@ class TestAlertsSendPush:
         assert send_push(subscription, {"title": "hi"}) is False
         assert PushSubscription.objects.filter(pk=subscription.pk).exists() is False
 
-    def test_alerts_push_keeps_a_subscription_that_merely_failed(
-        self, reader, mocker
-    ):
+    def test_alerts_push_keeps_a_subscription_that_merely_failed(self, reader, mocker):
         """A 503 is the push service having a bad minute, not the browser going
         away. Deleting on it would unsubscribe readers during an outage."""
         mocker.patch("pywebpush.WebPushException", _Gone)
@@ -111,9 +109,7 @@ class TestAlertsSendPush:
         assert send_push(subscription, {"title": "hi"}) is False
         assert PushSubscription.objects.filter(pk=subscription.pk).exists() is True
 
-    def test_alerts_push_does_not_send_without_keys(
-        self, reader, mocker, settings
-    ):
+    def test_alerts_push_does_not_send_without_keys(self, reader, mocker, settings):
         """A fork with no keys still runs the site and still stores rules."""
         settings.VAPID_PRIVATE_KEY = ""
         webpush = mocker.patch("pywebpush.webpush")

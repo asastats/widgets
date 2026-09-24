@@ -56,10 +56,8 @@ def send_push(subscription, payload):
         return False
 
     # **Imported here, not at module scope.** `pywebpush` pulls in aiohttp and
-    # its own crypto stack, which is a second of import time this module does
-    # not owe to a request that will never send anything - and a deployment
-    # without the package should fail when it tries to send, not when Django
-    # starts.
+    # its own crypto stack, and a deployment without the package should fail
+    # when it tries to send rather than when Django starts.
     from pywebpush import WebPushException, webpush  # noqa: PLC0415
 
     try:
@@ -72,9 +70,8 @@ def send_push(subscription, payload):
     except WebPushException as error:
         status = getattr(getattr(error, "response", None), "status_code", None)
         if status in GONE_STATUSES:
-            # The browser is not coming back to this endpoint. Forget it, and
-            # say so at info: this is the ordinary end of a subscription's life,
-            # not a fault.
+            # The browser is not coming back. Info rather than a warning:
+            # this is the ordinary end of a subscription's life.
             logger.info("push subscription gone (%s), removing", status)
             subscription.delete()
             return False

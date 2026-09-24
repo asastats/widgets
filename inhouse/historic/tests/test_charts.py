@@ -27,7 +27,8 @@ class TestWidgetsHistoricCharts:
             mocker.MagicMock(),
         )
         mocked_consolidated = mocker.patch(
-            "widgets.inhouse.historic.charts.prepare_consolidated_charts_from_assets_data",
+            "widgets.inhouse.historic.charts"
+            ".prepare_consolidated_charts_from_assets_data",
             return_value=(distchart, ratiochart, consolidated),
         )
         returned = consolidated_view_charts_from_assets_data(assets_data)

@@ -29,10 +29,7 @@ class TestInhouseAsastatsUrls:
         """The second half of building a group, for wallets that rewrite it."""
         url = urls.urlpatterns[2]
         assert isinstance(url, URLPattern)
-        assert (
-            url.lookup_str
-            == "widgets.inhouse.asastats.views.AsastatsReauthorizeView"
-        )
+        assert url.lookup_str == "widgets.inhouse.asastats.views.AsastatsReauthorizeView"
         assert url.name == "asastats_reauthorize"
         assert str(url.pattern) == r"^reauthorize$"
 

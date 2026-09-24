@@ -153,9 +153,7 @@ class TestHistoricConsumersProcessForTimestamp:
         engine.return_value.json.return_value = {"type": "show_update"}
         render = mocker.patch("widgets.inhouse.historic.consumers.render_to_string")
 
-        async_to_sync(consumer._process_for_timestamp)(
-            {"x-val": "100", "label": "ALGO"}
-        )
+        async_to_sync(consumer._process_for_timestamp)({"x-val": "100", "label": "ALGO"})
 
         render.assert_not_called()
         sent = [call.kwargs.get("text_data") for call in consumer.send.call_args_list]
@@ -188,9 +186,7 @@ class TestHistoricConsumersProcessForTimestamp:
             return_value="<div></div>",
         )
 
-        async_to_sync(consumer._process_for_timestamp)(
-            {"x-val": "100", "label": "ALGO"}
-        )
+        async_to_sync(consumer._process_for_timestamp)({"x-val": "100", "label": "ALGO"})
 
         # Engine timestamp result is rebuilt into display structs and charted.
         deserialize.assert_called_once_with({})
@@ -239,9 +235,7 @@ class TestHistoricConsumersConnect:
             return_value="historic_BUNDLE",
         )
         load = mocker.patch.object(HistoricConsumer, "_load_statuses")
-        altogether = mocker.patch.object(
-            HistoricConsumer, "historic_process_altogether"
-        )
+        altogether = mocker.patch.object(HistoricConsumer, "historic_process_altogether")
         async_to_sync(consumer.connect)()
         consumer.channel_layer.group_add.assert_awaited_once_with(
             "historic_BUNDLE", "channel"

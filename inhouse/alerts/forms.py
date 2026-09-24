@@ -97,10 +97,8 @@ class AlertRuleForm(forms.Form):
 
         :return: :class:`decimal.Decimal`
         """
-        # No try/except around the comparison: `DecimalField.clean` has already
-        # run and rejected anything that is not a number, so `value` is a
-        # `Decimal` and comparing one to zero cannot raise. A guard here would
-        # be a branch no test could reach.
+        # No try/except: `DecimalField.clean` has already rejected anything
+        # that is not a number, so a guard here is a branch no test can reach.
         value = self.cleaned_data["threshold"]
         if value <= 0:
             raise forms.ValidationError("A threshold has to be more than zero.")
@@ -138,10 +136,9 @@ class AlertRuleForm(forms.Form):
             if not cleaned.get("asset_id"):
                 self.add_error("asset_id", "Choose an asset to watch.")
         else:
-            # A portfolio rule names no asset. Cleared rather than rejected: the
-            # modal keeps the field mounted while the reader switches subject,
-            # and refusing a leftover value would be a puzzle rather than a
-            # correction.
+            # Cleared rather than rejected: the modal keeps the field mounted
+            # while the reader switches subject, so a leftover value is not the
+            # reader's mistake.
             cleaned["asset_id"] = None
 
         if subject in {s.value for s in PERCENT_SUBJECTS}:
@@ -149,9 +146,7 @@ class AlertRuleForm(forms.Form):
                 self.add_error("window_seconds", "Choose a period.")
             threshold = cleaned.get("threshold")
             if threshold is not None and threshold > MAX_PERCENT:
-                self.add_error(
-                    "threshold", "A percentage move cannot be more than 100."
-                )
+                self.add_error("threshold", "A percentage move cannot be more than 100.")
         else:
             cleaned["window_seconds"] = None
 
@@ -200,14 +195,11 @@ class AlertRuleForm(forms.Form):
         profile = getattr(self.user, "profile", None)
         allowed = rules_allowed(getattr(profile, "permission", 0))
         if not allowed:
-            raise forms.ValidationError(
-                "Alerts are available from the Asastatser tier."
-            )
-        # **An edit spends no slot, and this is not a nicety.** The rule being
-        # edited is already among the kept ones, so counting it would refuse
-        # every edit made by a reader at their limit - the reader most likely
-        # to want to change a rule rather than add one, and with no way to see
-        # why the form kept saying they were full.
+            raise forms.ValidationError("Alerts are available from the Asastatser tier.")
+        # **An edit spends no slot.** The rule being edited is already among
+        # the kept ones, so counting it refuses every edit by a reader at their
+        # limit - the reader most likely to be changing a rule rather than
+        # adding one.
         kept = AlertRule.objects.filter(user=self.user, active=True)
         if self.instance is not None:
             kept = kept.exclude(pk=self.instance.pk)
@@ -247,34 +239,26 @@ class AlertRuleForm(forms.Form):
             for name, value in fields.items():
                 setattr(rule, name, value)
             # **An edited rule re-arms rather than carrying its old reading.**
-            #
             # `last_value` describes a comparison against the *previous*
-            # threshold. Keeping it across an edit makes the rule fire on the
-            # difference between two rules rather than on a crossing: move a
-            # "falls below 100" to 50 while the last reading was 90, and the
-            # rule is suddenly on the other side of its own line through no
-            # movement at all.
-            #
-            # So the edited rule behaves like a new one - it arms on its next
-            # reading - which is also what the reader means by changing it.
+            # threshold, so keeping it would fire on the difference between two
+            # rules rather than on a crossing.
             rule.last_value = None
             rule.last_fired_at = None
             rule.save()
-        # **After the row exists, never before.** `publish_page` asks the
-        # database what it should publish, so telling the engine first would
-        # publish the state that has not happened yet - and it returns None
-        # rather than raising when Redis is away, because a rule the reader has
-        # written must be stored whatever the engine can currently hear.
+        # **After the row exists, never before**: `publish_page` asks the
+        # database what to publish. It returns None rather than raising when
+        # Redis is away, because a rule the reader has written must be stored
+        # whatever the engine can currently hear.
         publish_page(self.address)
-        # The asset set only changes for a *priced* subject, and this is the
-        # only thing that puts an asset in front of the periodic task - an
-        # `asa_total` rule names an asset too and is answered by the live pass.
+        # The only thing that puts an asset in front of the periodic price
+        # task; an `asa_total` rule names an asset too and is answered by the
+        # live pass instead.
         #
-        # `PRICED_SUBJECTS` rather than `ASA_PRICE`: `asa_price_percent` needs
-        # the asset priced as well, and more urgently, because its series only
-        # exists because the price task writes to it. An asset missing from
-        # `lvra` means an empty `lvah`, which means every reading refused -
-        # silently, and looking exactly like a rule that has not crossed yet.
+        # **`PRICED_SUBJECTS` rather than `ASA_PRICE`**: `asa_price_percent`
+        # needs the asset priced as well, and its series exists only because
+        # that task writes to it. An asset missing from `lvra` means an empty
+        # `lvah`, which refuses every reading silently - looking exactly like a
+        # rule that has not crossed yet.
         if rule.subject in PRICED_SUBJECTS:
             publish_assets()
         return rule

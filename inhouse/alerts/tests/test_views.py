@@ -37,9 +37,7 @@ from widgets.inhouse.alerts.views import (
 
 def _reader(tier="Professional", email="views@example.com"):
     """Return a user whose profile sits at `tier`."""
-    user = get_user_model().objects.create_user(
-        username=email, email=email, password="x"
-    )
+    user = get_user_model().objects.create_user(username=email, email=email, password="x")
     profile = user.profile
     profile.permission = SUBSCRIPTION_TIER_PERMISSIONS[tier]
     profile.save()
@@ -72,9 +70,7 @@ class TestInhouseAlertsViewsGate:
         "view_class",
         [AlertsView, AlertsRulesView, AlertsRuleDeleteView, AlertsRuleEditView],
     )
-    def test_inhouse_alerts_views_test_func_resolves_and_gates(
-        self, mocker, view_class
-    ):
+    def test_inhouse_alerts_views_test_func_resolves_and_gates(self, mocker, view_class):
         """**All four, because all four take a page in the URL.** A view that
         skipped the resolver would accept whatever was in the path, and the
         manifest gate is what bands the widget by address count.
@@ -139,9 +135,7 @@ class TestInhouseAlertsViewsContext:
 
         assert view.alerts_context("B")["rules_left"] == 0
 
-    def test_inhouse_alerts_views_context_marks_an_unentitled_reader(
-        self, mocker
-    ):
+    def test_inhouse_alerts_views_context_marks_an_unentitled_reader(self, mocker):
         """Zero is both "not subscribed" and "used them all", and the modal says
         different things about each - so the context distinguishes them."""
         view = AlertsView()
@@ -197,9 +191,7 @@ class TestInhouseAlertsViewsDelete:
         view.kwargs = {"pk": rule.pk}
         view.bundle = "B"
         view.request = mocker.MagicMock(user=reader)
-        mocker.patch(
-            "widgets.inhouse.alerts.views.render_to_string", return_value=""
-        )
+        mocker.patch("widgets.inhouse.alerts.views.render_to_string", return_value="")
         mocker.patch("widgets.inhouse.alerts.views.publish_page")
         publish = mocker.patch("widgets.inhouse.alerts.views.publish_assets")
 
@@ -207,9 +199,7 @@ class TestInhouseAlertsViewsDelete:
 
         assert publish.called is republished
 
-    def test_inhouse_alerts_views_delete_removes_the_readers_own_rule(
-        self, mocker
-    ):
+    def test_inhouse_alerts_views_delete_removes_the_readers_own_rule(self, mocker):
         reader = _reader()
         rule = _rule(reader)
         view = AlertsRuleDeleteView()
@@ -218,17 +208,13 @@ class TestInhouseAlertsViewsDelete:
         # `self.request` is what Django's `setup()` would have set; the
         # mixin reads it rather than the argument, as every CBV does.
         view.request = mocker.MagicMock(user=reader)
-        mocker.patch(
-            "widgets.inhouse.alerts.views.render_to_string", return_value=""
-        )
+        mocker.patch("widgets.inhouse.alerts.views.render_to_string", return_value="")
 
         view.post(view.request)
 
         assert AlertRule.objects.filter(pk=rule.pk).exists() is False
 
-    def test_inhouse_alerts_views_delete_refuses_another_readers_rule(
-        self, mocker
-    ):
+    def test_inhouse_alerts_views_delete_refuses_another_readers_rule(self, mocker):
         """**A 404, which is also the right answer**: the rule is not theirs to
         know about, so "not found" is both the safe response and the true one.
         """
@@ -280,9 +266,7 @@ class TestInhouseAlertsViewsModal:
 
         assert context["rules_capped"] is False
 
-    def test_inhouse_alerts_views_modal_says_when_the_allowance_is_spent(
-        self, mocker
-    ):
+    def test_inhouse_alerts_views_modal_says_when_the_allowance_is_spent(self, mocker):
         """**The number needs a sentence next to it at the limit.**
 
         "0 of 5 left" on its own reads as something being broken. The reason and
@@ -304,9 +288,7 @@ class TestInhouseAlertsViewsModal:
         assert context["rules_capped"] is True
         assert context["more_rules_available"] is True
 
-    def test_inhouse_alerts_views_modal_offers_the_top_tier_no_upgrade(
-        self, mocker
-    ):
+    def test_inhouse_alerts_views_modal_offers_the_top_tier_no_upgrade(self, mocker):
         """A Cluster reader at their cap already has the largest allowance sold.
 
         Sending them to the plans page is an invitation to buy what they have,
@@ -334,9 +316,7 @@ class TestInhouseAlertsViewsCreate:
         view.request = mocker.MagicMock(user=reader, POST=post)
         return view
 
-    def test_inhouse_alerts_views_create_stores_and_answers_200(
-        self, reader_pro, mocker
-    ):
+    def test_inhouse_alerts_views_create_stores_and_answers_200(self, reader_pro, mocker):
         rendered = mocker.patch(
             "widgets.inhouse.alerts.views.render_to_string", return_value="<div/>"
         )
@@ -359,9 +339,7 @@ class TestInhouseAlertsViewsCreate:
     def test_inhouse_alerts_views_create_stores_the_page_it_was_made_from(
         self, reader_pro, mocker
     ):
-        mocker.patch(
-            "widgets.inhouse.alerts.views.render_to_string", return_value=""
-        )
+        mocker.patch("widgets.inhouse.alerts.views.render_to_string", return_value="")
         view = self._view(
             mocker,
             reader_pro,
@@ -381,9 +359,7 @@ class TestInhouseAlertsViewsCreate:
         assert stored == bundle_from_addresses("ADDR_ONE ADDR_TWO")
         assert " " not in stored
 
-    def test_inhouse_alerts_views_create_survives_a_long_bundle(
-        self, reader_pro, mocker
-    ):
+    def test_inhouse_alerts_views_create_survives_a_long_bundle(self, reader_pro, mocker):
         """**Reported as an internal server error on 2026-09-24.**
 
         `address` is 128 characters. Three addresses joined are 176, so the
@@ -392,9 +368,7 @@ class TestInhouseAlertsViewsCreate:
         nothing about it was a capacity problem. The page key is 58 characters
         at most whatever the bundle holds.
         """
-        mocker.patch(
-            "widgets.inhouse.alerts.views.render_to_string", return_value=""
-        )
+        mocker.patch("widgets.inhouse.alerts.views.render_to_string", return_value="")
         view = self._view(
             mocker,
             reader_pro,
@@ -416,9 +390,7 @@ class TestInhouseAlertsViewsCreate:
         """**422, not 400.** The request was well-formed and the values were
         not, which is the distinction htmx's own error handling makes - and a
         400 would read as "the browser sent nonsense" in a log."""
-        mocker.patch(
-            "widgets.inhouse.alerts.views.render_to_string", return_value=""
-        )
+        mocker.patch("widgets.inhouse.alerts.views.render_to_string", return_value="")
         view = self._view(
             mocker,
             reader_pro,
@@ -495,9 +467,7 @@ class TestInhouseAlertsViewsSubscribe:
     def _body(self, endpoint="https://push.example/abc"):
         return {"endpoint": endpoint, "keys": {"p256dh": "p", "auth": "a"}}
 
-    def test_inhouse_alerts_views_subscribe_stores_the_browser(
-        self, reader_pro, mocker
-    ):
+    def test_inhouse_alerts_views_subscribe_stores_the_browser(self, reader_pro, mocker):
         view = self._view(mocker, reader_pro, self._body())
 
         response = view.post(view.request)
@@ -507,9 +477,7 @@ class TestInhouseAlertsViewsSubscribe:
         assert stored.endpoint == "https://push.example/abc"
         assert (stored.p256dh, stored.auth) == ("p", "a")
 
-    def test_inhouse_alerts_views_subscribe_is_idempotent(
-        self, reader_pro, mocker
-    ):
+    def test_inhouse_alerts_views_subscribe_is_idempotent(self, reader_pro, mocker):
         """**A browser re-sends the same subscription on every visit.** Creating
         would hit the unique constraint or pile up rows, so the same endpoint
         must update rather than add."""
@@ -587,9 +555,7 @@ class TestInhouseAlertsViewsSubscribe:
         self, reader_pro, mocker
     ):
         view = AlertsSubscribeView()
-        view.request = mocker.MagicMock(
-            user=reader_pro, body=b"{not json", META={}
-        )
+        view.request = mocker.MagicMock(user=reader_pro, body=b"{not json", META={})
 
         assert view.post(view.request).status_code == 400
 
@@ -609,14 +575,10 @@ class TestInhouseAlertsViewsUnsubscribe:
 
     def _view(self, mocker, reader, body):
         view = AlertsUnsubscribeView()
-        view.request = mocker.MagicMock(
-            user=reader, body=json.dumps(body).encode()
-        )
+        view.request = mocker.MagicMock(user=reader, body=json.dumps(body).encode())
         return view
 
-    def test_inhouse_alerts_views_unsubscribe_removes_the_row(
-        self, reader_pro, mocker
-    ):
+    def test_inhouse_alerts_views_unsubscribe_removes_the_row(self, reader_pro, mocker):
         PushSubscription.objects.create(
             user=reader_pro, endpoint="https://push.example/x", p256dh="p", auth="a"
         )
@@ -637,17 +599,13 @@ class TestInhouseAlertsViewsUnsubscribe:
         PushSubscription.objects.create(
             user=other, endpoint="https://push.example/theirs", p256dh="p", auth="a"
         )
-        view = self._view(
-            mocker, reader_pro, {"endpoint": "https://push.example/theirs"}
-        )
+        view = self._view(mocker, reader_pro, {"endpoint": "https://push.example/theirs"})
 
         view.post(view.request)
 
         assert PushSubscription.objects.count() == 1
 
-    def test_inhouse_alerts_views_unsubscribe_is_idempotent(
-        self, reader_pro, mocker
-    ):
+    def test_inhouse_alerts_views_unsubscribe_is_idempotent(self, reader_pro, mocker):
         """A browser unsubscribing twice, or one whose row was already removed
         as gone, is not an error to report back."""
         view = self._view(mocker, reader_pro, {"endpoint": "https://push.example/x"})
@@ -675,14 +633,12 @@ class TestInhouseAlertsViewsSignature:
 
     def _request(self, mocker, body=b'{"page": "X"}', offered=None, secret="s3"):
         if offered is None:
-            offered = "sha256=" + hmac.new(
-                secret.encode(), body, hashlib.sha256
-            ).hexdigest()
+            offered = (
+                "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+            )
         return mocker.MagicMock(body=body, META={SIGNATURE_HEADER: offered})
 
-    def test_inhouse_alerts_views_signature_accepts_our_own(
-        self, mocker, settings
-    ):
+    def test_inhouse_alerts_views_signature_accepts_our_own(self, mocker, settings):
         settings.ALERTS_WEBHOOK_SECRET = "s3"
 
         assert signature_ok(self._request(mocker)) is True
@@ -694,16 +650,14 @@ class TestInhouseAlertsViewsSignature:
 
         assert signature_ok(self._request(mocker, secret="other")) is False
 
-    def test_inhouse_alerts_views_signature_covers_the_body(
-        self, mocker, settings
-    ):
+    def test_inhouse_alerts_views_signature_covers_the_body(self, mocker, settings):
         """**Signed over the bytes, so changing the page invalidates it.** A
         signature over anything less is a token, and a token replayed with a
         different page notifies the wrong readers."""
         settings.ALERTS_WEBHOOK_SECRET = "s3"
-        offered = "sha256=" + hmac.new(
-            b"s3", b'{"page": "X"}', hashlib.sha256
-        ).hexdigest()
+        offered = (
+            "sha256=" + hmac.new(b"s3", b'{"page": "X"}', hashlib.sha256).hexdigest()
+        )
 
         request = mocker.MagicMock(
             body=b'{"page": "Y"}', META={SIGNATURE_HEADER: offered}
@@ -711,9 +665,7 @@ class TestInhouseAlertsViewsSignature:
 
         assert signature_ok(request) is False
 
-    def test_inhouse_alerts_views_signature_refuses_when_unset(
-        self, mocker, settings
-    ):
+    def test_inhouse_alerts_views_signature_refuses_when_unset(self, mocker, settings):
         """**An empty secret must not mean "skip the check".**
 
         The router monitor this copies signs only when it has a secret, which is
@@ -725,9 +677,7 @@ class TestInhouseAlertsViewsSignature:
 
         # Signed correctly for the empty secret, which is the request an
         # attacker would send if the branch were missing.
-        offered = "sha256=" + hmac.new(
-            b"", b'{"page": "X"}', hashlib.sha256
-        ).hexdigest()
+        offered = "sha256=" + hmac.new(b"", b'{"page": "X"}', hashlib.sha256).hexdigest()
         request = mocker.MagicMock(
             body=b'{"page": "X"}', META={SIGNATURE_HEADER: offered}
         )
@@ -795,9 +745,7 @@ class TestInhouseAlertsViewsRepriced:
 
         assert payload.called is False
 
-    def test_inhouse_alerts_views_repriced_refuses_malformed_json(
-        self, mocker, settings
-    ):
+    def test_inhouse_alerts_views_repriced_refuses_malformed_json(self, mocker, settings):
         settings.ALERTS_WEBHOOK_SECRET = "s3"
 
         assert self._post(mocker, b"{not json").status_code == 400
@@ -809,9 +757,7 @@ class TestInhouseAlertsViewsRepriced:
 
         assert self._post(mocker, {}).status_code == 400
 
-    def test_inhouse_alerts_views_repriced_accepts_an_empty_body(
-        self, mocker, settings
-    ):
+    def test_inhouse_alerts_views_repriced_accepts_an_empty_body(self, mocker, settings):
         """`request.body` is empty rather than absent on a POST with no content,
         and `json.loads(b"")` raises - so the view reads `or "{}"`, and this is
         the path that proves it answers 400 rather than 500."""
@@ -823,9 +769,7 @@ class TestInhouseAlertsViewsRepriced:
         self, mocker, settings
     ):
         settings.ALERTS_WEBHOOK_SECRET = "s3"
-        mocker.patch(
-            "widgets.inhouse.alerts.views.payload_for", return_value=None
-        )
+        mocker.patch("widgets.inhouse.alerts.views.payload_for", return_value=None)
         evaluate = mocker.patch("widgets.inhouse.alerts.views.evaluate_page")
 
         response = self._post(mocker, {"page": "X"})
@@ -838,9 +782,7 @@ class TestInhouseAlertsViewsRepriced:
         self, mocker, settings, caplog
     ):
         settings.ALERTS_WEBHOOK_SECRET = "s3"
-        mocker.patch(
-            "widgets.inhouse.alerts.views.payload_for", return_value=None
-        )
+        mocker.patch("widgets.inhouse.alerts.views.payload_for", return_value=None)
 
         self._post(mocker, {"page": "X"})
 
@@ -858,9 +800,7 @@ class TestInhouseAlertsViewsRepriced:
             "widgets.inhouse.alerts.views.evaluate_page",
             return_value=([rule], 0),
         )
-        notify = mocker.patch(
-            "widgets.inhouse.alerts.views.notify", return_value=2
-        )
+        notify = mocker.patch("widgets.inhouse.alerts.views.notify", return_value=2)
 
         response = self._post(mocker, {"page": "X"})
 
@@ -885,9 +825,7 @@ class TestInhouseAlertsViewsRepriced:
             "widgets.inhouse.alerts.views.evaluate_page",
             return_value=([rule], 0),
         )
-        notify = mocker.patch(
-            "widgets.inhouse.alerts.views.notify", return_value=1
-        )
+        notify = mocker.patch("widgets.inhouse.alerts.views.notify", return_value=1)
 
         self._post(mocker, {"page": "X"})
 
@@ -904,9 +842,7 @@ class TestInhouseAlertsViewsRepriced:
         mocker.patch(
             "widgets.inhouse.alerts.views.payload_for", return_value={"total": 1}
         )
-        mocker.patch(
-            "widgets.inhouse.alerts.views.evaluate_page", return_value=([], 3)
-        )
+        mocker.patch("widgets.inhouse.alerts.views.evaluate_page", return_value=([], 3))
 
         with caplog.at_level(logging.INFO):
             self._post(mocker, {"page": "X"})
@@ -936,9 +872,7 @@ class TestInhouseAlertsViewsPriced:
         request = mocker.MagicMock(body=raw, META={SIGNATURE_HEADER: offered})
         return AlertsPricedView().post(request)
 
-    def test_inhouse_alerts_views_priced_refuses_an_unsigned_call(
-        self, mocker, settings
-    ):
+    def test_inhouse_alerts_views_priced_refuses_an_unsigned_call(self, mocker, settings):
         """**The body is an answer here, not a trigger.** The website acts on a
         number it cannot check against anything, so the signature is the whole
         of the trust."""
@@ -956,9 +890,7 @@ class TestInhouseAlertsViewsPriced:
 
         assert evaluate.called is False
 
-    def test_inhouse_alerts_views_priced_refuses_malformed_json(
-        self, mocker, settings
-    ):
+    def test_inhouse_alerts_views_priced_refuses_malformed_json(self, mocker, settings):
         settings.ALERTS_WEBHOOK_SECRET = "s3"
 
         assert self._post(mocker, b"{not json").status_code == 400
@@ -1006,9 +938,7 @@ class TestInhouseAlertsViewsPriced:
 
         assert evaluate.call_args.args[0] == {1: None}
 
-    def test_inhouse_alerts_views_priced_drops_an_unusable_entry(
-        self, mocker, settings
-    ):
+    def test_inhouse_alerts_views_priced_drops_an_unusable_entry(self, mocker, settings):
         """One bad entry must not cost every other reader their alerts."""
         settings.ALERTS_WEBHOOK_SECRET = "s3"
         evaluate = mocker.patch(
@@ -1023,9 +953,7 @@ class TestInhouseAlertsViewsPriced:
         self, mocker, settings, caplog
     ):
         settings.ALERTS_WEBHOOK_SECRET = "s3"
-        mocker.patch(
-            "widgets.inhouse.alerts.views.evaluate_prices", return_value=[]
-        )
+        mocker.patch("widgets.inhouse.alerts.views.evaluate_prices", return_value=[])
 
         self._post(mocker, {"prices": {"nonsense": "x"}})
 
@@ -1036,12 +964,8 @@ class TestInhouseAlertsViewsPriced:
     ):
         settings.ALERTS_WEBHOOK_SECRET = "s3"
         rule = _rule(reader_pro)
-        mocker.patch(
-            "widgets.inhouse.alerts.views.evaluate_prices", return_value=[rule]
-        )
-        notify = mocker.patch(
-            "widgets.inhouse.alerts.views.notify", return_value=2
-        )
+        mocker.patch("widgets.inhouse.alerts.views.evaluate_prices", return_value=[rule])
+        notify = mocker.patch("widgets.inhouse.alerts.views.notify", return_value=2)
 
         response = self._post(mocker, {"prices": {"1": 1.0}})
 
@@ -1060,12 +984,8 @@ class TestInhouseAlertsViewsPriced:
         no address to send the reader to."""
         settings.ALERTS_WEBHOOK_SECRET = "s3"
         rule = _rule(reader_pro)
-        mocker.patch(
-            "widgets.inhouse.alerts.views.evaluate_prices", return_value=[rule]
-        )
-        notify = mocker.patch(
-            "widgets.inhouse.alerts.views.notify", return_value=1
-        )
+        mocker.patch("widgets.inhouse.alerts.views.evaluate_prices", return_value=[rule])
+        notify = mocker.patch("widgets.inhouse.alerts.views.notify", return_value=1)
 
         self._post(mocker, {"prices": {"1": 1.0}})
 
@@ -1086,9 +1006,7 @@ class TestInhouseAlertsViewsPriced:
         )
         _rule(reader, subject=Subject.ASA_PRICE, asset_id=1, last_value="2")
         settings.ALERTS_WEBHOOK_SECRET = "s3"
-        notify = mocker.patch(
-            "widgets.inhouse.alerts.views.notify", return_value=1
-        )
+        notify = mocker.patch("widgets.inhouse.alerts.views.notify", return_value=1)
 
         self._post(mocker, {"prices": {"1": 0.5}, "depths": {"1": 340.0}})
 
@@ -1106,9 +1024,7 @@ class TestInhouseAlertsViewsPriced:
         )
         _rule(reader, subject=Subject.ASA_PRICE, asset_id=1, last_value="2")
         settings.ALERTS_WEBHOOK_SECRET = "s3"
-        notify = mocker.patch(
-            "widgets.inhouse.alerts.views.notify", return_value=1
-        )
+        notify = mocker.patch("widgets.inhouse.alerts.views.notify", return_value=1)
 
         self._post(mocker, {"prices": {"1": 0.5}})
 
@@ -1129,9 +1045,7 @@ class TestInhouseAlertsViewsPriced:
         settings.ALERTS_WEBHOOK_SECRET = "s3"
         mocker.patch("widgets.inhouse.alerts.views.notify", return_value=1)
 
-        response = self._post(
-            mocker, {"prices": {"1": 0.5}, "depths": {"1": "deep"}}
-        )
+        response = self._post(mocker, {"prices": {"1": 0.5}, "depths": {"1": "deep"}})
 
         assert json.loads(response.content)["fired"] == 1
 
@@ -1145,9 +1059,7 @@ class TestInhouseAlertsViewsPriced:
         mocker.patch(
             "widgets.inhouse.alerts.views.evaluate_prices", return_value=[one, two]
         )
-        notify = mocker.patch(
-            "widgets.inhouse.alerts.views.notify", return_value=1
-        )
+        notify = mocker.patch("widgets.inhouse.alerts.views.notify", return_value=1)
 
         self._post(mocker, {"prices": {"1": 1.0}})
 
@@ -1169,9 +1081,7 @@ class TestInhouseAlertsViewsLiveFlag:
         view.request = mocker.MagicMock(user=_reader(email="live@example.com"))
         return view.alerts_context("B")
 
-    def test_inhouse_alerts_views_is_not_live_without_a_secret(
-        self, mocker, settings
-    ):
+    def test_inhouse_alerts_views_is_not_live_without_a_secret(self, mocker, settings):
         """**Without the shared secret both receiving endpoints refuse every
         call**, so no rule can fire however complete the code is. A modal that
         took rules without saying so would promise what the deployment cannot
@@ -1276,9 +1186,7 @@ class TestInhouseAlertsViewsUndeliverableRules:
         view.request = mocker.MagicMock(user=user)
         return view.alerts_context("B")
 
-    def test_inhouse_alerts_views_rules_without_a_browser_are_visible(
-        self, mocker
-    ):
+    def test_inhouse_alerts_views_rules_without_a_browser_are_visible(self, mocker):
         reader = _reader(email="nobrowser@example.com")
         _rule(reader)
 
@@ -1324,9 +1232,7 @@ class TestInhouseAlertsViewsUndeliverableRules:
         assert float(rule.last_value) == 120, "left exactly as it was"
         assert rule.last_fired_at is None, "and no cooldown started"
 
-    def test_inhouse_alerts_views_the_held_crossing_survives_subscribing(
-        self, mocker
-    ):
+    def test_inhouse_alerts_views_the_held_crossing_survives_subscribing(self, mocker):
         """The whole point of holding: the alert a reader was promised arrives
         once they turn a browser on."""
         from widgets.inhouse.alerts.evaluate import evaluate_page
@@ -1353,7 +1259,7 @@ class TestInhouseAlertsViewsUndeliverableRules:
         assert len(fired) == 1
 
     def test_inhouse_alerts_views_holding_is_said_in_the_log(self, mocker, caplog):
-        """"My alert never fired" is the question this answers."""
+        """ "My alert never fired" is the question this answers."""
         import logging
 
         from widgets.inhouse.alerts.evaluate import evaluate_page
@@ -1399,12 +1305,8 @@ class TestInhouseAlertsViewsEdit:
             address=self.PAGE,
         )
 
-    @pytest.mark.parametrize(
-        "subject", [Subject.ASA_PRICE, Subject.ASA_PRICE_PERCENT]
-    )
-    def test_inhouse_alerts_views_edit_republishes_the_asset_set(
-        self, mocker, subject
-    ):
+    @pytest.mark.parametrize("subject", [Subject.ASA_PRICE, Subject.ASA_PRICE_PERCENT])
+    def test_inhouse_alerts_views_edit_republishes_the_asset_set(self, mocker, subject):
         """**An edit can add the first price rule for an asset.**
 
         `lvra` is what puts an asset in front of the periodic price task, and
@@ -1418,9 +1320,7 @@ class TestInhouseAlertsViewsEdit:
         """
         reader = _reader(email=f"edit-assets-{subject}@example.com")
         rule = self._rule_for(reader)
-        publish = mocker.patch(
-            "widgets.inhouse.alerts.views.publish_assets"
-        )
+        publish = mocker.patch("widgets.inhouse.alerts.views.publish_assets")
         mocker.patch("widgets.inhouse.alerts.views.publish_page")
         mocker.patch("widgets.inhouse.alerts.forms.publish_assets")
         mocker.patch("widgets.inhouse.alerts.forms.publish_page")
@@ -1440,9 +1340,7 @@ class TestInhouseAlertsViewsEdit:
 
         assert publish.called is True
 
-    def test_inhouse_alerts_views_edit_leaves_the_asset_set_alone_otherwise(
-        self, mocker
-    ):
+    def test_inhouse_alerts_views_edit_leaves_the_asset_set_alone_otherwise(self, mocker):
         """A total rule edited into another total rule names no asset, and
         recomputing the set would be a query for an answer that cannot have
         changed."""

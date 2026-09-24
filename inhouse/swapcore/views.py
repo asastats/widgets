@@ -9,11 +9,12 @@ widget; only this generic data is consolidated.
 
 import json
 
-from api.client import fetch_account_holdings, fetch_asset_matches
 from django.utils.decorators import method_decorator
 from django.utils.safestring import mark_safe
 from django.views.decorators.cache import never_cache
 from django.views.generic.base import TemplateView
+
+from api.client import fetch_account_holdings, fetch_asset_matches
 from walletauth.gating import is_linked_to_user
 from widgethost.enforcement import WidgetAccessMixin
 

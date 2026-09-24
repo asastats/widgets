@@ -8,6 +8,7 @@ from django.conf import settings
 from django.template.loader import get_template, render_to_string
 
 from api.client import engine_request
+
 from .charts import consolidated_view_charts_from_assets_data
 from .helpers import check_chart_period, group_name_from_bundle
 from .manifest import MANIFEST
@@ -98,9 +99,7 @@ class HistoricConsumer(AsyncWebsocketConsumer):
         :var close_code: unique code of the event that caused connection closing
         :type close_code: int
         """
-        await self.channel_layer.group_discard(
-            self.bundle_group_name, self.channel_name
-        )
+        await self.channel_layer.group_discard(self.bundle_group_name, self.channel_name)
 
     async def receive(self, text_data):
         """Parse provided `text_data` and call routine related to message type.

@@ -14,7 +14,10 @@ import pytest
 from django.template.loader import render_to_string
 
 SAMPLE_PATH = (
-    Path(__file__).parent.parent.parent / "utils" / "tests" / "sample_serialized_540A5.json"
+    Path(__file__).parent.parent.parent
+    / "utils"
+    / "tests"
+    / "sample_serialized_540A5.json"
 )
 
 
@@ -38,18 +41,14 @@ class TestLiveRegroupRendering:
         """Every asset in the sample, not one: a partial that raises on the
         third asaitem is a partial that works in a test and takes a page's
         positions away in production."""
-        html = render_to_string(
-            "liverefresh/regroup.html", {"changed": asaitems}
-        )
+        html = render_to_string("liverefresh/regroup.html", {"changed": asaitems})
 
         assert html.count('class="program-groups"') == len(asaitems)
 
     def test_liveregroup_addresses_the_group_the_page_rendered(self, asaitems):
         """`pg-f<asset>` is the id the address page puts on `.program-groups`,
         and an out-of-band swap that names anything else lands nowhere."""
-        html = render_to_string(
-            "liverefresh/regroup.html", {"changed": asaitems[:1]}
-        )
+        html = render_to_string("liverefresh/regroup.html", {"changed": asaitems[:1]})
 
         assert f'id="pg-f{asaitems[0]["asset"]["id"]}"' in html
         assert 'hx-swap-oob="true"' in html

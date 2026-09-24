@@ -19,13 +19,14 @@ are shared and live in :mod:`widgets.inhouse.swapcore.views`.
 
 import json
 
-from api.client import BackendError, engine_request
 from django.conf import settings
-from api.widgets import bundle_and_addresses_from_path
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 from django.views.generic.base import TemplateView, View
+
+from api.client import BackendError, engine_request
+from api.widgets import bundle_and_addresses_from_path
 from walletauth.gating import is_linked_to_user, linked_addresses_for_user
 from widgethost.enforcement import WidgetAccessMixin
 

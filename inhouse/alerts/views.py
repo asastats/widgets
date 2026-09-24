@@ -16,7 +16,6 @@ import hmac
 import json
 import logging
 
-from api.widgets import bundle_and_addresses_from_path, page_key_from_addresses
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
@@ -26,6 +25,8 @@ from django.utils.functional import cached_property
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import TemplateView, View
+
+from api.widgets import bundle_and_addresses_from_path, page_key_from_addresses
 from widgethost.enforcement import WidgetAccessMixin
 
 from .display import describe, disclosure
@@ -44,6 +45,9 @@ from .push import notify, push_configured
 from .tiers import more_rules_available, rules_allowed
 
 logger = logging.getLogger(__name__)
+
+#: Header the engine signs its body with, mirroring the router monitor's.
+SIGNATURE_HEADER = "HTTP_X_ASASTATS_ALERTS_SIGNATURE"
 
 
 class AlertsContextMixin:
@@ -79,30 +83,20 @@ class AlertsContextMixin:
         :type address: str
         :return: dict
         """
-        # **The page's own numbers, for the reader to aim at.** A threshold is
-        # only meaningful next to what the figure is now, and the pass already
-        # published both: `total` is the page's ALGO total and `priceusdc` is
-        # what one ALGO is worth, which is also the rate a USD threshold is
-        # converted at.
-        #
-        # None when the page has never been re-priced - it is in no live set -
-        # and the template then shows no reference rather than a zero, which
-        # would read as "your portfolio is worth nothing".
+        # The page's own numbers, so a threshold is shown next to what the
+        # figure is now. **None when the page has never been re-priced**, and
+        # the template then shows no reference rather than a zero.
         published = payload_for(address) or {}
 
         user = self.request.user
         profile = getattr(user, "profile", None)
         allowed = rules_allowed(getattr(profile, "permission", 0))
         rules = list(
-            AlertRule.objects.filter(user=user, active=True).order_by(
-                "-created_at"
-            )
+            AlertRule.objects.filter(user=user, active=True).order_by("-created_at")
         )
-        # **Described here rather than in the template.** `describe` resolves a
-        # single-address bundle back to its address, which is a cache read - and
-        # a template filter doing that would hide a round trip per row behind
-        # `{{ rule }}`. Attached to the instances the template already has, so
-        # the list stays one query.
+        # **Described here rather than in the template**, because `describe`
+        # resolves a bundle back to its address and a template filter would
+        # hide that round trip per row.
         for rule in rules:
             rule.description = describe(rule)
         return {
@@ -111,11 +105,9 @@ class AlertsContextMixin:
             "rules_allowed": allowed,
             "rules_kept": len(rules),
             "rules_left": max(0, allowed - len(rules)),
-            # **At the cap, and whether that cap can be raised.** Two separate
-            # questions: the first decides whether to explain the number, the
-            # second whether the explanation ends in a link. See
-            # `tiers.more_rules_available` for why the top tier gets prose
-            # instead of an upsell.
+            # Two separate questions: whether to explain the number, and
+            # whether the explanation ends in a link. See
+            # `tiers.more_rules_available`.
             "rules_capped": allowed > 0 and len(rules) >= allowed,
             "more_rules_available": more_rules_available(
                 getattr(profile, "permission", 0)
@@ -126,35 +118,23 @@ class AlertsContextMixin:
             "windows": WINDOW_CHOICES,
             "units": UNIT_CHOICES,
             "widget_id": MANIFEST.id,
-            # The public key is not secret - a subscription is bound to it, so
-            # the browser must have it. The private one never leaves the server.
+            # The public key is not secret: the browser binds a subscription
+            # to it. The private one never leaves the server.
             "vapid_public_key": settings.VAPID_PUBLIC_KEY,
-            # Whether this deployment can send at all. A fork with no keys still
-            # stores rules; the modal says so rather than offering a button that
-            # cannot work.
+            # Whether this deployment can send at all. A fork with no keys
+            # still stores rules, and the modal says so rather than offering a
+            # button that cannot work.
             "push_configured": push_configured(),
-            # Whether anything can reach this deployment to say a rule fired.
             # Without the shared secret both receiving endpoints refuse every
-            # call, so no rule can fire however complete the code is - and the
-            # modal says so rather than promising what this site cannot do.
-            "alerts_live": bool(
-                getattr(settings, "ALERTS_WEBHOOK_SECRET", "")
-            ),
-            "subscribed_browsers": PushSubscription.objects.filter(
-                user=user
-            ).count(),
+            # call, so no rule can fire however complete the code is.
+            "alerts_live": bool(getattr(settings, "ALERTS_WEBHOOK_SECRET", "")),
+            "subscribed_browsers": PushSubscription.objects.filter(user=user).count(),
             # Both in ALGO, as every threshold is stored.
             "current_total": published.get("total"),
             # **ALGO per USD, not ALGO's price in USD.** `priceusdc` is how
-            # much ALGO one dollar buys - about 4 when ALGO is $0.25 - which is
-            # what the address page labels "ALGO/USD" and what
-            # `account_totals` divides a total by. It is carried under a name
-            # that says the direction, because calling it "algo_usd" is how
-            # this widget came to convert it backwards in three places.
-            #
-            # Nothing converts a threshold with it any more; it is here so the
-            # modal can show the reader what their figure is worth in the other
-            # currency.
+            # much ALGO one dollar buys - about 4 when ALGO is $0.25 - and the
+            # name says the direction on purpose. Nothing converts a threshold
+            # with it; the modal shows the reader the other currency.
             "algo_per_usd": published.get("priceusdc"),
         }
 
@@ -222,9 +202,7 @@ class AlertsRulesView(WidgetAccessMixin, AlertsContextMixin, View):
 
         :return: :class:`django.http.HttpResponse`
         """
-        form = AlertRuleForm(
-            request.POST, user=request.user, address=self.page
-        )
+        form = AlertRuleForm(request.POST, user=request.user, address=self.page)
         if form.is_valid():
             form.save()
             status = 200
@@ -233,8 +211,10 @@ class AlertsRulesView(WidgetAccessMixin, AlertsContextMixin, View):
             # were not, which is what htmx's own error handling distinguishes.
             status = 422
         context = self.alerts_context(self.bundle)
-        context["form"] = form if not form.is_valid() else AlertRuleForm(
-            user=request.user, address=self.page
+        context["form"] = (
+            form
+            if not form.is_valid()
+            else AlertRuleForm(user=request.user, address=self.page)
         )
         return self._render(request, context, status)
 
@@ -280,9 +260,7 @@ class AlertsRuleEditView(WidgetAccessMixin, AlertsContextMixin, View):
     addresses = None
 
     def _rule(self, request):
-        return get_object_or_404(
-            AlertRule, pk=self.kwargs["pk"], user=request.user
-        )
+        return get_object_or_404(AlertRule, pk=self.kwargs["pk"], user=request.user)
 
     def get(self, request, *args, **kwargs):
         """Put the rule in the form so the reader can change it.
@@ -320,9 +298,8 @@ class AlertsRuleEditView(WidgetAccessMixin, AlertsContextMixin, View):
         )
         if form.is_valid():
             form.save()
-            # The page it names cannot change - the modal is opened from one -
-            # but the assets can: an edit may add the first price rule for an
-            # asset, or remove the last.
+            # The page cannot change, but the assets can: an edit may add the
+            # first price rule for an asset, or remove the last.
             if was_price_rule or form.cleaned_data["subject"] in PRICED_SUBJECTS:
                 publish_assets()
             publish_page(rule.address)
@@ -377,22 +354,17 @@ class AlertsRuleDeleteView(WidgetAccessMixin, AlertsContextMixin, View):
 
         :return: :class:`django.http.HttpResponse`
         """
-        rule = get_object_or_404(
-            AlertRule, pk=self.kwargs["pk"], user=request.user
-        )
+        rule = get_object_or_404(AlertRule, pk=self.kwargs["pk"], user=request.user)
         address = rule.address
         was_price_rule = rule.subject in PRICED_SUBJECTS
         rule.delete()
-        # **The page's own address, not this view's bundle.** A rule stores the
-        # page it was made from, and a reader may be deleting it from somewhere
-        # else entirely - the modal lists every rule they keep, not just the
-        # ones belonging to the page they happen to be on. Publishing
-        # `self.bundle` here would leave the real page in `lvr` with no rules
-        # and take one out that still has some.
+        # **The rule's own page, not this view's bundle.** The modal lists
+        # every rule the reader keeps, so a rule may be deleted from somewhere
+        # else entirely - publishing `self.bundle` would leave the real page in
+        # `lvr` with no rules and take out one that still has some.
         publish_page(address)
-        # **Recomputed, not decremented.** The asset may still be named by
-        # somebody else's rule, and `publish_assets` asks the database rather
-        # than assuming - the same argument `publish_page` makes for pages.
+        # **Recomputed, not decremented**: the asset may still be named by
+        # somebody else's rule.
         if was_price_rule:
             publish_assets()
         context = self.alerts_context(self.bundle)
@@ -455,9 +427,8 @@ class AlertsSubscribeView(WidgetAccessMixin, View):
                 "user": request.user,
                 "p256dh": keys["p256dh"],
                 "auth": keys["auth"],
-                # Truncated rather than validated: it is shown to the reader to
-                # tell two browsers apart and is never parsed to decide
-                # anything, so its only requirement is fitting the column.
+                # Truncated rather than validated: it is never parsed, so its
+                # only requirement is fitting the column.
                 "user_agent": request.META.get("HTTP_USER_AGENT", "")[:300],
             },
         )
@@ -501,8 +472,8 @@ class AlertsUnsubscribeView(WidgetAccessMixin, View):
         PushSubscription.objects.filter(
             user=request.user, endpoint=body.get("endpoint") or ""
         ).delete()
-        # Idempotent: a browser unsubscribing twice, or one whose row was
-        # already removed as gone, is not an error to report back.
+        # Idempotent: unsubscribing twice, or after the row was removed as
+        # gone, is not an error to report back.
         return JsonResponse({"ok": True})
 
     def test_func(self):
@@ -511,10 +482,6 @@ class AlertsUnsubscribeView(WidgetAccessMixin, View):
         :return: Boolean
         """
         return self.manifest_test_func(1)
-
-
-#: Header the engine signs its body with, mirroring the router monitor's.
-SIGNATURE_HEADER = "HTTP_X_ASASTATS_ALERTS_SIGNATURE"
 
 
 def signature_ok(request):
@@ -542,9 +509,9 @@ def signature_ok(request):
         logger.warning("alerts webhook called with no secret configured")
         return False
     offered = request.META.get(SIGNATURE_HEADER, "")
-    expected = "sha256=" + hmac.new(
-        secret.encode(), request.body, hashlib.sha256
-    ).hexdigest()
+    expected = (
+        "sha256=" + hmac.new(secret.encode(), request.body, hashlib.sha256).hexdigest()
+    )
     return hmac.compare_digest(offered, expected)
 
 
@@ -585,9 +552,9 @@ class AlertsRepricedView(View):
 
         payload = payload_for(page)
         if payload is None:
-            # The pass said it re-priced this page and published nothing we can
-            # read. Not an error to report back at the engine - it did its part
-            # - but it is the shape of a Redis problem, so it is logged.
+            # The pass re-priced this page and published nothing readable.
+            # Not the engine's fault to report back, but the shape of a Redis
+            # problem, so it is logged.
             logger.warning("alerts: nothing published for %s", page)
             return JsonResponse({"ok": True, "fired": 0, "notified": 0})
 
@@ -600,9 +567,7 @@ class AlertsRepricedView(View):
             )
 
         notified = _notify_all(fired, f"/{page}")
-        return JsonResponse(
-            {"ok": True, "fired": len(fired), "notified": notified}
-        )
+        return JsonResponse({"ok": True, "fired": len(fired), "notified": notified})
 
 
 def _body_for(rule):
@@ -632,16 +597,13 @@ def _notify_all(fired, url):
             rule.user,
             {
                 "title": "ASA Stats",
-                # **The liquidity behind the price, where there is one to
-                # name.** A price from shallow pools moves several percent on
-                # one swap and back, so the reader is told what a trade could
-                # absorb and judges for themselves - see `display.disclosure`
-                # and `notifications/DESIGN.md`. Absent for every subject that
-                # is not an asset price, and absent when the engine did not
-                # send a depth.
+                # The liquidity behind the price, so a reader can judge a
+                # move that came out of a shallow pool. See
+                # `display.disclosure`. Absent for any subject that is not an
+                # asset price, and when the engine sent no depth.
                 "body": _body_for(rule),
-                # Per rule, so two alerts on one page replace neither. A shared
-                # tag would silently collapse them into the last one.
+                # Per rule: a shared tag collapses two alerts on one page into
+                # the last one.
                 "tag": f"alert-{rule.pk}",
                 "url": url,
             },
@@ -683,9 +645,8 @@ class AlertsPricedView(View):
             return JsonResponse({"error": "No prices sent."}, status=400)
 
         # **Keys arrive as strings and the rules store integers.** JSON has no
-        # integer keys, so a body that round-trips through `json.dumps` comes
-        # back with `"31566704"` - and `prices.get(rule.asset_id)` would then
-        # miss every asset silently, which reads exactly like "nothing moved".
+        # integer keys, so `prices.get(rule.asset_id)` would miss every asset
+        # silently, which reads exactly like "nothing moved".
         readings = {}
         for key, value in prices.items():
             try:
@@ -694,12 +655,10 @@ class AlertsPricedView(View):
                 logger.warning("alerts: unusable price for asset %r", key)
 
         # **Optional, because the two repos sync separately.** An engine that
-        # has not caught up sends no `depths` and every price rule still fires;
-        # the reader is told less, not nothing. Same reason it is a second map
-        # rather than a richer `prices`.
-        # **ALGO per USD, for a rule the reader wrote in dollars.** The page
-        # subjects read it from the payload; this call is the only one that
-        # would otherwise have no rate at all.
+        # has not caught up sends no `depths` and every price rule still fires.
+        # Same reason it is a second map rather than a richer `prices`.
+        # `rate` is ALGO per USD, for a rule written in dollars: the page
+        # subjects read it from the payload, and this call has no other source.
         algo_per_usd = body.get("algo_per_usd")
 
         depths = {}
@@ -709,9 +668,7 @@ class AlertsPricedView(View):
             except (TypeError, ValueError):
                 logger.warning("alerts: unusable depth for asset %r", key)
 
-        fired = evaluate_prices(
-            readings, depths=depths, algo_per_usd=algo_per_usd
-        )
+        fired = evaluate_prices(readings, depths=depths, algo_per_usd=algo_per_usd)
         notified = _notify_all(fired, "/")
         return JsonResponse(
             {

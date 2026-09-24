@@ -126,9 +126,7 @@ class TestAlertsDisplayNumbers:
 class TestAlertsDisplayPageLabel:
     """Testing class for naming the page a rule watches."""
 
-    def test_alerts_display_a_single_address_bundle_shows_the_address(
-        self, mocker
-    ):
+    def test_alerts_display_a_single_address_bundle_shows_the_address(self, mocker):
         """**Every page is a bundle, including one address.**
 
         A reader who set a rule on their own address was told about
@@ -310,9 +308,7 @@ class TestAlertsDisplayTheAssetAndItsCurrency:
 
         assert describe(rule).endswith("falls below 0.5 USD")
 
-    def test_alerts_display_describes_an_amount_in_the_assets_own_units(
-        self, reader
-    ):
+    def test_alerts_display_describes_an_amount_in_the_assets_own_units(self, reader):
         """**No currency at all.** A count of the asset is not money, so the
         figure is followed by the asset rather than by ALGO or USD."""
         rule = _rule(
@@ -345,9 +341,7 @@ class TestAlertsDisplayTheAssetAndItsCurrency:
             Subject.ASA_PRICE_PERCENT: "HOG price change rises above 1000%",
             Subject.ASA_AMOUNT: "My HOG holding rises above 1,000",
             Subject.ASA_TOTAL: "My HOG holding's value rises above 1000.00 ALGO",
-            Subject.TOTAL_VALUE: (
-                f"Portfolio total for {page} rises above 1000.00 ALGO"
-            ),
+            Subject.TOTAL_VALUE: (f"Portfolio total for {page} rises above 1000.00 ALGO"),
             Subject.TOTAL_PERCENT: (
                 f"Portfolio total change for {page} rises above 1000%"
             ),
@@ -402,9 +396,7 @@ class TestAlertsDisplayTheAssetAndItsCurrency:
         "threshold",
         ["0", "-1000000", "1E+30", "1e-30", "NaN", "Infinity", "-Infinity", "abc"],
     )
-    def test_alerts_display_groups_whatever_a_threshold_turns_out_to_be(
-        self, threshold
-    ):
+    def test_alerts_display_groups_whatever_a_threshold_turns_out_to_be(self, threshold):
         """**The invariant that makes a guard unnecessary, asserted directly.**
 
         `format_count` groups the whole part with `int()`, unguarded: `_number`
@@ -449,8 +441,6 @@ class TestAlertsDisplayTheAssetAndItsCurrency:
         assert describe(rule).endswith("1,234,567.25")
 
     def test_alerts_display_describes_an_amount_with_no_unit_stored(self, reader):
-        rule = _rule(
-            reader, subject=Subject.ASA_AMOUNT, asset_id=7, threshold="1000"
-        )
+        rule = _rule(reader, subject=Subject.ASA_AMOUNT, asset_id=7, threshold="1000")
 
         assert describe(rule) == "My #7 holding rises above 1,000"

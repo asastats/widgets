@@ -2,6 +2,9 @@
 
 from enum import IntEnum
 
+#: How many bars a progress readout draws.
+BARS_COUNT = 16
+
 
 class ProcessPhase(IntEnum):
     """Processing phases reported by the engine over the progress bus."""
@@ -13,6 +16,3 @@ class ProcessPhase(IntEnum):
     FETCHED = 4
     CHECKED = 5
     PROCESSED = 6
-
-
-BARS_COUNT = 16

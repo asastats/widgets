@@ -37,9 +37,7 @@ class TestBaseUserPassesTestMixin(BaseView):
         assert issubclass(BaseUserPassesTestMixin, UserPassesTestMixin)
 
     # # test_func
-    def test_widgets_baseuserpassestestmixin_test_func_for_anonymouns_user(
-        self, mocker
-    ):
+    def test_widgets_baseuserpassestestmixin_test_func_for_anonymouns_user(self, mocker):
         # Setup view
         view = BaseUserPassesTestMixin()
         view = self.setup_view(view, self.request)

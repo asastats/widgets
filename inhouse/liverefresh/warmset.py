@@ -206,8 +206,8 @@ def touch(user_pk, addresses, cap, client, now, evict=True):
         return [], []
 
     held = _scored(user_pk, client, now)
-    # The union is the accounting, and it is why members are addresses: an
-    # address already warm for this reader costs nothing to ask for again.
+    # The union is the accounting, which is why members are addresses: one
+    # already warm for this reader costs nothing to ask for again.
     over = len((held.keys() | set(addresses))) - cap
 
     if over <= 0:
@@ -216,24 +216,18 @@ def touch(user_pk, addresses, cap, client, now, evict=True):
         return list(addresses), []
 
     if not evict:
-        # Refuse whole. Touching the ones that happen to fit would admit part
-        # of a bundle and leave the caller with an answer about addresses it
-        # did not ask about on their own.
+        # Refuse whole: admitting the addresses that happen to fit answers a
+        # question about part of a bundle that nobody asked.
         return [], []
 
-    # **Only genuinely idle addresses may be evicted, and this is the part the
-    # design note got wrong.** It said the browser should evict least-recently-
-    # used and never refuse. But an evicted tab is not told: it polls again
-    # three seconds later, re-claims the budget and evicts the other tab in
-    # turn, so two tabs over the cap would ping-pong for ever and each would
-    # update at half rate. The cap would bound nothing and the reader would see
-    # two pages both stuttering.
+    # **Only genuinely idle addresses may be evicted.** An evicted tab is
+    # never told, so it polls again three seconds later and evicts the other in
+    # turn - two tabs over the cap ping-pong for ever, each updating at half
+    # rate, and the cap bounds nothing.
     #
     # So a page being actively polled keeps what it holds, and only addresses
-    # nobody has asked about for `IDLE_SECONDS` can be taken. That is still
-    # least-recently-used - it is LRU among the entries where "least recently"
-    # means something - and it is stable: whoever is over the cap goes static
-    # and stays static until a tab is closed, rather than both flickering.
+    # nobody has asked about for `IDLE_SECONDS` can be taken. Whoever is over
+    # the cap goes static and stays static until a tab is closed.
     idle = sorted(
         (
             (score, address)
@@ -242,10 +236,9 @@ def touch(user_pk, addresses, cap, client, now, evict=True):
         )
     )
     if len(idle) < over:
-        # Nothing stale enough to take. This page simply does not get warmed -
-        # it goes static, which is what a shed page already does and is a far
-        # better failure than an error on a tab the reader may not be looking
-        # at. No exception, no status code, nothing for them to see.
+        # Nothing stale enough to take, so this page is not warmed and goes
+        # static - what a shed page already does. No exception and no status
+        # code: the reader may not be looking at this tab.
         return [], []
 
     evicted = [address for _, address in idle[:over]]

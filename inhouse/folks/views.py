@@ -5,9 +5,10 @@ partials (fresh holdings + asset search) are shared and live in
 :mod:`widgets.inhouse.swapcore.views`.
 """
 
-from api.widgets import bundle_and_addresses_from_path
 from django.conf import settings
 from django.views.generic.base import TemplateView
+
+from api.widgets import bundle_and_addresses_from_path
 from walletauth.gating import linked_addresses_for_user
 from widgethost.enforcement import WidgetAccessMixin
 

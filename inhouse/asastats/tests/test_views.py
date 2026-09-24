@@ -2,8 +2,9 @@
 
 import json
 
-from api.client import BackendError
 from django.contrib.auth.models import AnonymousUser
+
+from api.client import BackendError
 from widgets.inhouse.asastats.views import (
     AsastatsGroupView,
     AsastatsQuoteView,
@@ -15,9 +16,7 @@ from widgets.inhouse.asastats.views import (
 class TestInhouseAsastatsViewsAsastatsSwapView:
     """Testing class for :py:class:`...views.AsastatsSwapView`."""
 
-    def test_inhouse_asastats_views_swap_view_test_func_resolves_and_gates(
-        self, mocker
-    ):
+    def test_inhouse_asastats_views_swap_view_test_func_resolves_and_gates(self, mocker):
         view = AsastatsSwapView()
         view.args = ["abcdef"]
         resolver = mocker.patch(
@@ -110,9 +109,7 @@ class TestInhouseAsastatsViewsRouterEndpoint:
         assert path == "/api/v2/internal/router/quote/"
         assert "router:quote" in allowed
 
-    def test_inhouse_asastats_views_endpoint_overrides_the_body_address(
-        self, mocker
-    ):
+    def test_inhouse_asastats_views_endpoint_overrides_the_body_address(self, mocker):
         """The gated address wins, so a tampered body cannot route for another.
 
         `test_func` has already checked the query-string address is linked to
@@ -254,9 +251,7 @@ class TestInhouseAsastatsViewsRouterEndpoint:
         )
         response = view.post(view.request)
         assert response.status_code == 503
-        assert json.loads(response.content) == {
-            "error": "RESTRICT_TO_ADMIN, so no group"
-        }
+        assert json.loads(response.content) == {"error": "RESTRICT_TO_ADMIN, so no group"}
 
     def test_inhouse_asastats_views_endpoint_refusal_without_a_detail(self, mocker):
         """A backend that answers with no JSON body still gets a usable status.

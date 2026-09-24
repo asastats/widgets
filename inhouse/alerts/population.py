@@ -65,15 +65,12 @@ def publish_assets(client=None):
     from .models import PRICED_SUBJECTS, AlertRule  # noqa: PLC0415
 
     # **The priced subjects only, though three name an asset.** `asa_total` is
-    # "my holding of this asset on this page" and is answered by the live pass
-    # out of what it already published, so an asset that appears only in
-    # `asa_total` rules must not make the price task fetch anything. See
-    # `models.PRICED_SUBJECTS`, which is also what the evaluator reads.
+    # answered by the live pass out of what it already published, so an asset
+    # named only by those rules must not make the price task fetch anything.
+    # See `models.PRICED_SUBJECTS`, which the evaluator reads too.
     wanted = sorted(
         asset_id
-        for asset_id in AlertRule.objects.filter(
-            subject__in=PRICED_SUBJECTS, active=True
-        )
+        for asset_id in AlertRule.objects.filter(subject__in=PRICED_SUBJECTS, active=True)
         .values_list("asset_id", flat=True)
         .distinct()
         if asset_id
@@ -81,9 +78,8 @@ def publish_assets(client=None):
 
     try:
         client = client or redis_instance()
-        # Delete and rewrite rather than diff: the set is small - it is bounded
-        # by the per-tier rule caps - and a diff would need the old membership
-        # read back, which is a round trip to save nothing.
+        # Delete and rewrite rather than diff: the set is bounded by the
+        # per-tier rule caps, and a diff costs a round trip to save nothing.
         pipeline = client.pipeline()
         pipeline.delete(RULE_ASSETS_KEY)
         if wanted:

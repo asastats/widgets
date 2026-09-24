@@ -15,6 +15,7 @@ caller's wallet rather than of the trade, and is why the manifest's
 """
 
 from django.conf import settings
+
 from widgethost.swap_views import BaseSwapShellView
 
 from .manifest import MANIFEST

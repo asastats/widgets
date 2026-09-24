@@ -34,9 +34,8 @@ never fire is the worst outcome this file could produce.
 import logging
 import time
 
-from django.utils import timezone
-
 from django.db.models import Exists, OuterRef
+from django.utils import timezone
 
 from .models import (
     CURRENCY_SUBJECTS,
@@ -139,8 +138,9 @@ def in_rule_currency(rule, algo_figure, algo_per_usd):
     return float(algo_figure) / float(algo_per_usd)
 
 
-def reading_for(rule, total, values, client=None, now=None, amounts=None,
-                algo_per_usd=None):
+def reading_for(
+    rule, total, values, client=None, now=None, amounts=None, algo_per_usd=None
+):
     """Return what `rule` watches, from a published payload, or None.
 
     :param rule: the rule being evaluated
@@ -158,17 +158,15 @@ def reading_for(rule, total, values, client=None, now=None, amounts=None,
     if rule.subject == Subject.TOTAL_VALUE:
         return in_rule_currency(rule, total, algo_per_usd)
     if rule.subject == Subject.TOTAL_PERCENT:
-        # The one reading that is not in the payload: it needs two totals, and
-        # the payload carries one. See `percent_move` for why a short history
-        # answers None rather than answering over a shorter period.
+        # The one reading not in the payload: it needs two totals and the
+        # payload carries one. See `percent_move`.
         return percent_move(
             rule.address, rule.window_seconds, total, client=client, now=now
         )
     if rule.subject == Subject.ASA_TOTAL:
-        # **A missing asset is not a zero.** The pass publishes the holdings it
-        # priced; an asset absent from this block's payload was not re-priced,
-        # which is different from being worth nothing. Reading it as zero would
-        # fire every "falls below" rule the reader has.
+        # **A missing asset is not a zero.** An asset absent from this block's
+        # payload was not re-priced, and reading that as zero fires every
+        # "falls below" rule the reader has.
         return in_rule_currency(rule, values.get(rule.asset_id), algo_per_usd)
     if rule.subject == Subject.ASA_AMOUNT:
         return holding_amount(amounts, rule.asset_id)
@@ -206,8 +204,7 @@ def holding_amount(amounts, asset_id):
         return None
 
 
-def percent_move(page, window_seconds, total, client=None, now=None,
-                 prefix=HISTORY_KEY):
+def percent_move(page, window_seconds, total, client=None, now=None, prefix=HISTORY_KEY):
     """Return how far `total` has moved over the window, as a percentage.
 
     **The window is honoured or the question is refused.** This returns None
@@ -244,9 +241,8 @@ def percent_move(page, window_seconds, total, client=None, now=None,
     edge = (time.time() if now is None else now) - window_seconds
     try:
         client = client or redis_instance()
-        # The newest point no younger than the far edge. `zrevrangebyscore` with
-        # a limit of one is the whole read - the series may hold two thousand
-        # points and exactly one of them answers this.
+        # The newest point no younger than the far edge: `zrevrangebyscore`
+        # with a limit of one is the whole read.
         members = client.zrevrangebyscore(
             f"{prefix}:{page}", edge, "-inf", start=0, num=1
         )
@@ -262,7 +258,7 @@ def percent_move(page, window_seconds, total, client=None, now=None,
         return None
     if then == 0:
         # A page that was worth nothing and is worth something has moved by an
-        # undefined percentage, not by an infinite one.
+        # undefined percentage, not an infinite one.
         return None
     return (float(total) - then) / then * 100
 
@@ -354,8 +350,7 @@ def evaluate_page(address, payload, now=None, client=None, unix_now=None):
     total = payload.get("total")
     values = payload.get("values") or {}
     # **Both already in the payload**, which is why two of the five subjects
-    # cost nothing: the pass publishes an amount per changed asset with the
-    # decimals to read it by, and `priceusdc` for the band across the top.
+    # cost nothing.
     amounts = payload.get("amounts") or {}
     # `priceusdc` is ALGO per USD, despite the name. See `in_rule_currency`.
     algo_per_usd = payload.get("priceusdc")
@@ -368,8 +363,8 @@ def evaluate_page(address, payload, now=None, client=None, unix_now=None):
             skipped += 1
             continue
         if not rule.deliverable:
-            # Left exactly as it was, so the crossing is still there when a
-            # browser is turned on.
+            # Left as it was, so the crossing is still there when a browser is
+            # turned on.
             held += 1
             continue
 
@@ -409,8 +404,9 @@ def evaluate_page(address, payload, now=None, client=None, unix_now=None):
     return fired, skipped
 
 
-def evaluate_prices(prices, now=None, client=None, unix_now=None, depths=None,
-                    algo_per_usd=None):
+def evaluate_prices(
+    prices, now=None, client=None, unix_now=None, depths=None, algo_per_usd=None
+):
     """Return the `asa_price` rules that just crossed, and record what was seen.
 
     The per-asset half, and the only evaluator here that is not per-page. It
@@ -454,17 +450,16 @@ def evaluate_prices(prices, now=None, client=None, unix_now=None, depths=None,
             held += 1
             continue
         value = prices.get(rule.asset_id)
-        # **Converted here rather than at creation.** An `asa_price` rule
-        # written in dollars stays in dollars; a percentage has no currency and
-        # is left alone. See `in_rule_currency`.
+        # **Converted here rather than at creation.** A rule written in
+        # dollars stays in dollars; a percentage has no currency. See
+        # `in_rule_currency`.
         if rule.subject == Subject.ASA_PRICE:
             value = in_rule_currency(rule, value, algo_per_usd)
         if rule.subject == Subject.ASA_PRICE_PERCENT:
-            # **The same honesty rule as `total_percent`**, on the series the
-            # price task keeps: compared against the newest point at or before
-            # the window's far edge, or refused. A 24-hour rule reports nothing
-            # for its first 24 hours rather than reporting a shorter move under
-            # a longer name.
+            # **The same honesty rule as `total_percent`**: compared against
+            # the newest point at or before the window's far edge, or refused.
+            # A 24-hour rule reports nothing for its first 24 hours rather than
+            # a shorter move under a longer name.
             value = percent_move(
                 rule.asset_id,
                 rule.window_seconds,
@@ -473,10 +468,9 @@ def evaluate_prices(prices, now=None, client=None, unix_now=None, depths=None,
                 now=unix_now,
                 prefix=ASSET_HISTORY_KEY,
             )
-        # **A price the engine could not compute arrives as None, not as zero.**
-        # An asset with no pool left prices at nothing, and reading that as a
-        # collapse to zero would fire every "falls below" rule naming it at
-        # once - which is precisely the asset most likely to have rules on it.
+        # **A price the engine could not compute arrives as None, not zero.**
+        # Reading it as a collapse to zero fires every "falls below" rule
+        # naming that asset at once.
         if value is None:
             continue
 
@@ -489,10 +483,8 @@ def evaluate_prices(prices, now=None, client=None, unix_now=None, depths=None,
             )
         elif rule.crossed(value):
             rule.last_fired_at = now
-            # **Attached at the moment it fires**, because depth is a property
-            # of the moment rather than of the rule: an asset that is deep
-            # today can be thin next month, so a rule cannot carry it. On the
-            # instance rather than in the row - it describes this firing.
+            # **Attached at the moment it fires**, because depth belongs to
+            # the moment rather than the rule. On the instance, not in the row.
             rule.depth_algo = depths.get(rule.asset_id)
             fired.append(rule)
         rule.last_value = value
@@ -531,6 +523,5 @@ def payload_for(address, client=None):
     if not raw:
         return None
     # `strict_map_key=False` because the values map is keyed by asset id as an
-    # integer, which is how the fragments address it and how `reading_for`
-    # looks it up.
+    # integer, which is how `reading_for` looks it up.
     return msgpack.unpackb(raw, strict_map_key=False)

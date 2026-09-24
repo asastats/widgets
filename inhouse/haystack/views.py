@@ -8,6 +8,7 @@ non-secret client config.
 """
 
 from django.conf import settings
+
 from widgethost.swap_views import BaseSwapShellView
 
 from .manifest import MANIFEST

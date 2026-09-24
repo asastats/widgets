@@ -3,6 +3,7 @@
 import json
 import logging
 import time
+
 import msgpack
 import pytest
 from django.http import HttpResponse
@@ -73,9 +74,7 @@ class TestLiveRefreshViewPoll:
 
         # By key, not by call order: a paying reader's poll also marks `lvq`,
         # so `call_args` is whichever landed last.
-        beats = {
-            call.args[0]: call.args[1] for call in client.zadd.call_args_list
-        }
+        beats = {call.args[0]: call.args[1] for call in client.zadd.call_args_list}
         assert list(beats[SUBSCRIBED_KEY]) == [ADDRESS]
 
     def test_liverefresh_poll_heartbeats_even_with_nothing_published(self, mocker):
@@ -115,9 +114,7 @@ class TestLiveRefreshViewPoll:
         readable bytes that nobody can read."""
         view = _view(mocker)
         client = mocker.MagicMock()
-        client.get.return_value = msgpack.packb(
-            {"total": 5.0, "values": {31566704: 2.5}}
-        )
+        client.get.return_value = msgpack.packb({"total": 5.0, "values": {31566704: 2.5}})
         mocker.patch(
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
@@ -201,9 +198,7 @@ class TestLiveRefreshViewGate:
         view.request = mocker.MagicMock()
         # A paid reader, so the free tier's linked-address requirement - tested
         # on its own below - does not stand in for the manifest here.
-        view.request.user.profile.permission = SUBSCRIPTION_TIER_PERMISSIONS[
-            "Asastatser"
-        ]
+        view.request.user.profile.permission = SUBSCRIPTION_TIER_PERMISSIONS["Asastatser"]
         mocker.patch(
             "widgets.inhouse.liverefresh.views.bundle_and_addresses_from_path",
             return_value=("HASH", f"{ADDRESS} {ADDRESS}"),
@@ -216,9 +211,7 @@ class TestLiveRefreshViewGate:
 
         gate.assert_called_once_with(2)
 
-    def test_liverefresh_the_free_tier_may_only_watch_what_it_has_linked(
-        self, mocker
-    ):
+    def test_liverefresh_the_free_tier_may_only_watch_what_it_has_linked(self, mocker):
         """**The half that stops an abuser needing no accounts at all.**
 
         The free allowance hangs on the address so that farming accounts buys
@@ -439,8 +432,13 @@ class TestLiveRefreshOlderEngine:
         view = _view(mocker)
         client = mocker.MagicMock()
         client.get.return_value = msgpack.packb(
-            {"total": 6.0, "totalusdc": 12.0, "priceusdc": 0.5,
-             "pricealgo": 1.9999, "values": {}}
+            {
+                "total": 6.0,
+                "totalusdc": 12.0,
+                "priceusdc": 0.5,
+                "pricealgo": 1.9999,
+                "values": {},
+            }
         )
 
         payload = view._payload(client)
@@ -472,8 +470,9 @@ class TestLiveRefreshOlderEngine:
         total from `undefined`. Quoting contains the damage to the key that is
         actually missing.
         """
-        from core.tests.dom import parse
         from django.template.loader import render_to_string
+
+        from core.tests.dom import parse
 
         html = render_to_string(
             "liverefresh/fragments.html",
@@ -522,7 +521,6 @@ class TestLiveRefreshAddressLimits:
     def test_liverefresh_an_untiered_reader_clears_one_address(self):
         """The free band, which is what makes the allowance reachable at all."""
         from widgethost.manifest import addresses_limit_for_permission
-
         from widgets.inhouse.liverefresh.manifest import MANIFEST
 
         assert addresses_limit_for_permission(MANIFEST.required_permission, 0) == 1
@@ -531,7 +529,6 @@ class TestLiveRefreshAddressLimits:
         """One address is the taste. A free reader asking for a bundle is
         refused by the manifest before the allowance is ever consulted."""
         from widgethost.manifest import can_access
-
         from widgets.inhouse.liverefresh.manifest import MANIFEST
 
         assert can_access(0, MANIFEST.required_permission, 1) is True
@@ -540,7 +537,6 @@ class TestLiveRefreshAddressLimits:
     def test_liverefresh_bands_are_the_agreed_address_counts(self):
         from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
         from widgethost.manifest import addresses_limit_for_permission
-
         from widgets.inhouse.liverefresh.manifest import MANIFEST
 
         for tier, expected in self.EXPECTED.items():
@@ -559,7 +555,6 @@ class TestLiveRefreshAddressLimits:
         """
         from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
         from widgethost.manifest import can_access
-
         from widgets.inhouse.liverefresh.manifest import MANIFEST
 
         professional = SUBSCRIPTION_TIER_PERMISSIONS["Professional"]
@@ -581,15 +576,13 @@ class TestLiveRefreshAddressLimits:
         """
         from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
         from widgethost.manifest import can_access
-
         from widgets.inhouse.liverefresh.manifest import MANIFEST
 
         professional = SUBSCRIPTION_TIER_PERMISSIONS["Professional"]
 
         # Each tab passes on its own, and nothing sums them.
         assert all(
-            can_access(professional, MANIFEST.required_permission, 5)
-            for _ in range(5)
+            can_access(professional, MANIFEST.required_permission, 5) for _ in range(5)
         )
 
 
@@ -627,12 +620,8 @@ class TestLiveRefreshPageKey:
         """
         view = _view(mocker)
         view.kwargs = {"value": self.ADDRESS}
-        resolver = mocker.patch(
-            self.RESOLVER, return_value=(self.ADDRESS, self.ADDRESS)
-        )
-        mocker.patch.object(
-            LiveRefreshView, "manifest_test_func", return_value=True
-        )
+        resolver = mocker.patch(self.RESOLVER, return_value=(self.ADDRESS, self.ADDRESS))
+        mocker.patch.object(LiveRefreshView, "manifest_test_func", return_value=True)
 
         view.test_func()
 
@@ -654,9 +643,7 @@ class TestLiveRefreshPageKey:
             self.RESOLVER,
             return_value=("540A5D8CEC896E073F9170AF0A962503E69147CF", pair),
         )
-        mocker.patch.object(
-            LiveRefreshView, "manifest_test_func", return_value=True
-        )
+        mocker.patch.object(LiveRefreshView, "manifest_test_func", return_value=True)
 
         view.test_func()
 
@@ -700,7 +687,8 @@ class TestLiveRefreshViewHoldingsChanged:
         and throwing the reader's scroll position and open rows away on every
         one of them would be worse than not updating at all."""
         view = _view(mocker, holdings="beef1234")
-        self._published(mocker, {"total": 5.0, "values": {1: 2.0}, "holdings": "beef1234"})
+        payload = {"total": 5.0, "values": {1: 2.0}, "holdings": "beef1234"}
+        self._published(mocker, payload)
         rendered = mocker.patch.object(
             LiveRefreshView, "render_to_response", return_value=HttpResponse()
         )
@@ -746,9 +734,7 @@ class TestLiveRefreshViewHoldingsChanged:
         total exactly where it was - and the 204 shortcut would then leave the
         reader on a page whose rows are wrong. The holdings check comes first
         for that reason."""
-        view = _view(
-            mocker, session={"liverefresh:HASH": 5.0}, holdings="beef1234"
-        )
+        view = _view(mocker, session={"liverefresh:HASH": 5.0}, holdings="beef1234")
         self._published(mocker, {"total": 5.0, "values": {}, "holdings": "cafe5678"})
 
         response = view.get(view.request)
@@ -1012,8 +998,10 @@ class TestLiveRefreshAllowance:
         capacity, per_second = 2 * 60 * 60.0, (15 * 60) / WEEK
 
         assert LiveAllowanceBucket.refilled(0, WEEK, capacity, per_second) == 900.0
-        assert LiveAllowanceBucket.refilled(0, WEEK * 100, capacity, per_second) == capacity
-        assert LiveAllowanceBucket.refilled(capacity, WEEK * 9, capacity, per_second) == capacity
+        refilled = LiveAllowanceBucket.refilled(0, WEEK * 100, capacity, per_second)
+        assert refilled == capacity
+        refilled = LiveAllowanceBucket.refilled(capacity, WEEK * 9, capacity, per_second)
+        assert refilled == capacity
         # A clock that steps backwards must not refund anything.
         assert LiveAllowanceBucket.refilled(500, -10, capacity, per_second) == 500
 
@@ -1033,9 +1021,7 @@ class TestLiveRefreshSpentResponse:
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
         mocker.patch("widgets.inhouse.liverefresh.views.left", return_value=-1.0)
-        mocker.patch(
-            "widgets.inhouse.liverefresh.views.spend", return_value=-1.0
-        )
+        mocker.patch("widgets.inhouse.liverefresh.views.spend", return_value=-1.0)
 
         response = view.get(view.request)
 
@@ -1051,9 +1037,7 @@ class TestLiveRefreshSpentResponse:
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
         mocker.patch("widgets.inhouse.liverefresh.views.left", return_value=0.0)
-        mocker.patch(
-            "widgets.inhouse.liverefresh.views.spend", return_value=0.0
-        )
+        mocker.patch("widgets.inhouse.liverefresh.views.spend", return_value=0.0)
 
         view.get(view.request)
 
@@ -1108,9 +1092,7 @@ class TestLiveRefreshPaidPriority:
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
         mocker.patch("widgets.inhouse.liverefresh.views.left", return_value=600.0)
-        mocker.patch(
-            "widgets.inhouse.liverefresh.views.spend", return_value=600.0
-        )
+        mocker.patch("widgets.inhouse.liverefresh.views.spend", return_value=600.0)
 
         view.get(view.request)
 
@@ -1126,9 +1108,7 @@ class TestLiveRefreshPaidPriority:
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
         mocker.patch("widgets.inhouse.liverefresh.views.left", return_value=-1.0)
-        mocker.patch(
-            "widgets.inhouse.liverefresh.views.spend", return_value=-1.0
-        )
+        mocker.patch("widgets.inhouse.liverefresh.views.spend", return_value=-1.0)
 
         view.get(view.request)
 
@@ -1386,9 +1366,7 @@ class TestLiveRefreshAllowanceEdges:
         assert left(0, ADDRESS, 42, client) == pytest.approx(90.0, abs=1.0)
 
     @pytest.mark.django_db
-    def test_liverefresh_left_falls_back_when_the_cached_balance_is_garbled(
-        self, mocker
-    ):
+    def test_liverefresh_left_falls_back_when_the_cached_balance_is_garbled(self, mocker):
         """Same fallback as `spend`, reached the same way and separately, since
         a badge that read zero would tell a reader they were out when they are
         not."""
@@ -1472,12 +1450,8 @@ class TestLiveRefreshUrls:
 
         from widgets.inhouse.liverefresh import urls
 
-        entry = next(
-            entry for entry in urls.urlpatterns if entry.name == "liverefresh"
-        )
-        assert entry.lookup_str == (
-            "widgets.inhouse.liverefresh.views.LiveRefreshView"
-        )
+        entry = next(entry for entry in urls.urlpatterns if entry.name == "liverefresh")
+        assert entry.lookup_str == ("widgets.inhouse.liverefresh.views.LiveRefreshView")
         pattern = re.compile(str(entry.pattern))
         assert pattern.match(ADDRESS)  # 58, an address
         assert pattern.match("A" * 40)  # 40, a bundle hash
@@ -1495,9 +1469,7 @@ class TestLiveRefreshUrls:
 
         entry = urls.urlpatterns[0]
         assert entry.name == "liverefresh-regroup"
-        assert entry.lookup_str == (
-            "widgets.inhouse.liverefresh.views.LiveRegroupView"
-        )
+        assert entry.lookup_str == ("widgets.inhouse.liverefresh.views.LiveRegroupView")
         pattern = re.compile(str(entry.pattern))
         assert pattern.match(f"{ADDRESS}/regroup")
         assert pattern.match("A" * 40 + "/regroup")
@@ -1600,9 +1572,7 @@ class TestLiveRefreshChunksALargeResync:
         self._rendered(mocker, view, self._payload(150))
         # Exactly what a cache-backed session does to it.
         carried = view.request.session["liverefresh:carry:HASH"]
-        view.request.session["liverefresh:carry:HASH"] = json.loads(
-            json.dumps(carried)
-        )
+        view.request.session["liverefresh:carry:HASH"] = json.loads(json.dumps(carried))
 
         rendered = self._rendered(mocker, view, self._payload(0))
 
@@ -1622,9 +1592,7 @@ class TestLiveRefreshChunksALargeResync:
         sent = rendered.call_args.args[0]["payload"]["values"]
         assert sent[1249] == 99.0
 
-    def test_liverefresh_does_not_answer_204_while_it_still_owes_values(
-        self, mocker
-    ):
+    def test_liverefresh_does_not_answer_204_while_it_still_owes_values(self, mocker):
         """**A resync outlives the block that started it.** The total settles
         while values are still going out, and 204 then would strand them."""
         view = _view(mocker, session={})
@@ -1863,18 +1831,14 @@ class TestLiveRefreshCountsEveryFragmentAgainstTheBudget:
         assert context["payload"]["values"] == {31566704: 12.5}
         assert not view.request.session.get("liverefresh:carry:HASH")
 
-    def test_liverefresh_a_zero_value_is_sent_and_not_mistaken_for_absent(
-        self, mocker
-    ):
+    def test_liverefresh_a_zero_value_is_sent_and_not_mistaken_for_absent(self, mocker):
         """**Zero is a real published figure**, and the one that matters most: it
         is how the pass says a holding went away, since a fragment cannot delete
         a row. Splitting the payload on `is not None` rather than on truthiness
         is what keeps it - `if held["value"]` would silently drop every row that
         just went to zero, leaving the stale figure on the page.
         """
-        packed = msgpack.packb(
-            {"total": 5.0, "values": {1: 0.0}, "amounts": {1: [0, 6]}}
-        )
+        packed = msgpack.packb({"total": 5.0, "values": {1: 0.0}, "amounts": {1: [0, 6]}})
         view = _view(mocker, session={})
 
         context = self._rendered(mocker, view, packed)
@@ -1976,9 +1940,7 @@ class TestLiveRefreshReloadCooldown:
         assert "HX-Refresh" not in response
         assert "liverefresh:reloaded:HASH" not in view.request.session
 
-    def test_liverefresh_a_position_fragment_carries_the_id_its_row_has(
-        self, mocker
-    ):
+    def test_liverefresh_a_position_fragment_carries_the_id_its_row_has(self, mocker):
         """**The join this whole design rests on.**
 
         The engine cannot name a position - the live pass never serializes one,
@@ -2088,9 +2050,7 @@ class TestLiveRefreshReloadCooldown:
 
         assert response["HX-Refresh"] == "true"
 
-    def test_liverefresh_a_fingerprint_without_a_counter_is_compared_whole(
-        self, mocker
-    ):
+    def test_liverefresh_a_fingerprint_without_a_counter_is_compared_whole(self, mocker):
         """A page rendered before the counter existed, or any shape without a
         separator. Comparing it against itself works; guessing does not."""
         view = _view(mocker, session={}, holdings="bare-old-form")
@@ -2098,9 +2058,7 @@ class TestLiveRefreshReloadCooldown:
         assert "HX-Refresh" not in self._poll(mocker, view, holdings="bare-old-form")
         assert self._poll(mocker, view, holdings="different")["HX-Refresh"] == "true"
 
-    def test_liverefresh_a_reader_who_went_away_is_not_still_cooling_off(
-        self, mocker
-    ):
+    def test_liverefresh_a_reader_who_went_away_is_not_still_cooling_off(self, mocker):
         """**Closing the tab is not polling, and the stamp outlived it.**
 
         Reported 2026-09-18: swap, close the window, swap again, come back - and
@@ -2177,18 +2135,14 @@ class TestLiveRefreshPositionsHalf:
         value fragment reaches only an element that exists, and there is none."""
         view = _view(mocker, holdings="4:assets:before")
 
-        assert view._regroup_wanted(
-            view.request, {"holdings": "5:assets:after"}
-        ) is True
+        assert view._regroup_wanted(view.request, {"holdings": "5:assets:after"}) is True
 
     def test_liverefresh_regroup_is_not_wanted_when_the_positions_stand(self, mocker):
         """A price move, which is most blocks. The counter differing is not a
         row arriving: it steps on every block that strikes the account."""
         view = _view(mocker, holdings="4:assets:same")
 
-        assert view._regroup_wanted(
-            view.request, {"holdings": "9:assets:same"}
-        ) is False
+        assert view._regroup_wanted(view.request, {"holdings": "9:assets:same"}) is False
 
     @pytest.mark.parametrize(
         "rendered,published",
@@ -2306,9 +2260,7 @@ class TestLiveRegroupViewReads:
         """The widget writes the fingerprint it caught up to back onto the page.
         Doing that from a snapshot that cannot say which one it is would leave
         wrong rows with nothing left to notice them."""
-        mocker.patch(
-            "api.live.stamped_snapshot", return_value=({"asaitems": []}, "")
-        )
+        mocker.patch("api.live.stamped_snapshot", return_value=({"asaitems": []}, ""))
 
         assert _snapshot_account("HASH", ADDRESS) == (None, "")
 
@@ -2450,9 +2402,7 @@ class TestLiveRegroupViewPost:
         mocker.patch(
             "widgets.inhouse.liverefresh.views.layout_for_user", return_value="classic"
         )
-        snapshot = mocker.patch(
-            "widgets.inhouse.liverefresh.views._snapshot_account"
-        )
+        snapshot = mocker.patch("widgets.inhouse.liverefresh.views._snapshot_account")
 
         assert view.post(view.request).status_code == 204
         snapshot.assert_not_called()

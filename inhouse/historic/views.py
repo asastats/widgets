@@ -1,13 +1,14 @@
 """Module containing historic widget's views."""
 
-from api.client import engine_request
-from api.widgets import bundle_and_addresses_from_path
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
 from django.utils.safestring import mark_safe
 from django.views.generic.base import RedirectView, TemplateView
+
+from api.client import engine_request
+from api.widgets import bundle_and_addresses_from_path
 from widgethost.enforcement import WidgetAccessMixin
 from widgethost.manifest import addresses_limit_for_permission
 
@@ -67,9 +68,7 @@ class HistoricView(WidgetAccessMixin, TemplateView):
                 self.request.user.profile.permission,
             )
             if limit:
-                messages.error(
-                    self.request, mark_safe(ADDRESSES_LIMIT_ERROR % (limit,))
-                )
+                messages.error(self.request, mark_safe(ADDRESSES_LIMIT_ERROR % (limit,)))
                 return redirect("home")
 
             return redirect("subscriptions")

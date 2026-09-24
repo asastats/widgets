@@ -12,9 +12,7 @@ from widgets.inhouse.alerts.models import AlertRule, Direction, Subject
 
 def _reader(tier="Professional", email="form@example.com"):
     """Return a user whose profile sits at `tier`."""
-    user = get_user_model().objects.create_user(
-        username=email, email=email, password="x"
-    )
+    user = get_user_model().objects.create_user(username=email, email=email, password="x")
     profile = user.profile
     profile.permission = SUBSCRIPTION_TIER_PERMISSIONS[tier]
     profile.save()
@@ -165,7 +163,9 @@ class TestAlertRuleFormAllowance:
         assert form.is_valid() is False
         assert "5" in str(form.errors)
 
-    def test_alerts_forms_an_inactive_rule_does_not_count(self, ):
+    def test_alerts_forms_an_inactive_rule_does_not_count(
+        self,
+    ):
         """Deactivating is how a reader keeps a rule without spending a slot,
         so counting the inactive ones would make that meaningless."""
         reader = _reader(tier="Asastatser")
@@ -214,12 +214,8 @@ class TestAlertRuleFormSave:
 
         assert form.save().address == "BUNDLEHASH"
 
-    @pytest.mark.parametrize(
-        "subject", [Subject.ASA_PRICE, Subject.ASA_PRICE_PERCENT]
-    )
-    def test_alerts_forms_publish_the_asset_for_a_priced_subject(
-        self, mocker, subject
-    ):
+    @pytest.mark.parametrize("subject", [Subject.ASA_PRICE, Subject.ASA_PRICE_PERCENT])
+    def test_alerts_forms_publish_the_asset_for_a_priced_subject(self, mocker, subject):
         """**`lvra` is the only thing that puts an asset in front of the price
         task**, so a stored rule the engine was never told about is a rule that
         cannot fire.
@@ -387,4 +383,3 @@ class TestAlertRuleFormUnits:
 
         assert form.is_valid(), form.errors
         assert form.save().asset_unit == "USDC"
-

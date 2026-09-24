@@ -4,6 +4,7 @@ import json
 
 from django.http import HttpResponse
 from django.test import RequestFactory
+
 from widgets.inhouse.swapcore.views import (
     SwapAssetsView,
     SwapHoldingsView,
@@ -127,9 +128,7 @@ class TestInhouseSwapcoreViewsSwapAssetsView:
         assert view.test_func() is True
         gate.assert_called_once_with(1)
 
-    def test_inhouse_swapcore_views_swap_assets_view_get_context_data_query(
-        self, mocker
-    ):
+    def test_inhouse_swapcore_views_swap_assets_view_get_context_data_query(self, mocker):
         view = SwapAssetsView()
         view.request = mocker.MagicMock()
         view.request.GET.get.return_value = "usdc"
@@ -142,9 +141,7 @@ class TestInhouseSwapcoreViewsSwapAssetsView:
         assert context["query"] == "usdc"
         assert context["assets"] == assets
 
-    def test_inhouse_swapcore_views_swap_assets_view_get_context_data_empty(
-        self, mocker
-    ):
+    def test_inhouse_swapcore_views_swap_assets_view_get_context_data_empty(self, mocker):
         view = SwapAssetsView()
         view.request = mocker.MagicMock()
         view.request.GET.get.return_value = "  "

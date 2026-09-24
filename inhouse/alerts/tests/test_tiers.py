@@ -2,12 +2,12 @@
 
 import pytest
 
+from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
 from widgets.inhouse.alerts.tiers import (
     ALERT_RULES_PER_TIER,
     more_rules_available,
     rules_allowed,
 )
-from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
 
 
 class TestAlertRulesPerTier:
@@ -68,9 +68,7 @@ class TestAlertRulesPerTier:
     def test_alerts_tiers_admit_more_the_higher_the_tier(self):
         """A ladder that dipped would be a pricing bug, and the table is
         hand-written, so nothing but this notices."""
-        ordered = sorted(
-            SUBSCRIPTION_TIER_PERMISSIONS.items(), key=lambda item: item[1]
-        )
+        ordered = sorted(SUBSCRIPTION_TIER_PERMISSIONS.items(), key=lambda item: item[1])
         counts = [ALERT_RULES_PER_TIER[name] for name, _ in ordered]
 
         assert counts == sorted(counts)

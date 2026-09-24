@@ -46,8 +46,9 @@ is therefore a pause that needs no separate mechanism - what is not polled is
 not charged.
 """
 
-from core.models import LiveAllowanceBucket
 from django.utils import timezone
+
+from core.models import LiveAllowanceBucket
 from utils.constants.core import LIVEREFRESH_POLL_SECONDS
 from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
 
@@ -308,6 +309,4 @@ def left(permission, address, user_id, cache_client):
     row = LiveAllowanceBucket.objects.filter(key=identity).first()
     if row is None:
         return float(band["capacity"])
-    return max(
-        0.0, row.current_balance(float(band["capacity"]), band["per_week"] / WEEK)
-    )
+    return max(0.0, row.current_balance(float(band["capacity"]), band["per_week"] / WEEK))

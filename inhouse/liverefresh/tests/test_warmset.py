@@ -80,9 +80,7 @@ class TestCapFor:
             (3236067977500 * 2, 20),
         ],
     )
-    def test_cap_for_returns_widest_band_the_reader_clears(
-        self, permission, expected
-    ):
+    def test_cap_for_returns_widest_band_the_reader_clears(self, permission, expected):
         """The cap is the reverse of the manifest's own question."""
         assert warmset.cap_for(permission, BANDS) == expected
 
@@ -100,9 +98,7 @@ class TestTouch:
 
     def test_touch_admits_within_the_cap(self, client, reader):
         """The ordinary case: room for everything asked for."""
-        admitted, evicted = warmset.touch(
-            reader, [ADDR_A, ADDR_B], 5, client, NOW
-        )
+        admitted, evicted = warmset.touch(reader, [ADDR_A, ADDR_B], 5, client, NOW)
 
         assert sorted(admitted) == sorted([ADDR_A, ADDR_B])
         assert evicted == []
@@ -130,13 +126,9 @@ class TestTouch:
 
         assert admitted == [ADDR_C]
         assert evicted == [ADDR_A]
-        assert sorted(warmset.members(reader, client, later)) == sorted(
-            [ADDR_B, ADDR_C]
-        )
+        assert sorted(warmset.members(reader, client, later)) == sorted([ADDR_B, ADDR_C])
 
-    def test_touch_does_not_evict_a_tab_that_is_still_polling(
-        self, client, reader
-    ):
+    def test_touch_does_not_evict_a_tab_that_is_still_polling(self, client, reader):
         """**The ping-pong this design was nearly shipped with.**
 
         An evicted tab is never told it was evicted: it polls again three
@@ -185,9 +177,7 @@ class TestTouch:
         """Refusing is for the full case, not for every API call."""
         warmset.touch(reader, [ADDR_A], 3, client, NOW)
 
-        admitted, _ = warmset.touch(
-            reader, [ADDR_B], 3, client, NOW + 1, evict=False
-        )
+        admitted, _ = warmset.touch(reader, [ADDR_B], 3, client, NOW + 1, evict=False)
 
         assert admitted == [ADDR_B]
 

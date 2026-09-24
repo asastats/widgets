@@ -6,9 +6,9 @@ from django.contrib.auth import get_user_model
 from widgets.inhouse.alerts.models import (
     ASSET_SUBJECTS,
     DEFAULT_COOLDOWN_SECONDS,
+    PERCENT_SUBJECTS,
     AlertRule,
     Direction,
-    PERCENT_SUBJECTS,
     Subject,
 )
 
@@ -76,9 +76,7 @@ class TestAlertRuleCrossing:
 
         assert rule.crossed("0.04") is False
 
-    def test_alerts_models_touching_the_threshold_is_not_yet_a_crossing(
-        self, reader
-    ):
+    def test_alerts_models_touching_the_threshold_is_not_yet_a_crossing(self, reader):
         """**The boundary, which decides whether a rule can fire twice.**
 
         Landing exactly on the threshold counts as "not yet past", so the next
@@ -99,15 +97,11 @@ class TestAlertRuleCrossing:
 class TestAlertRuleShape:
     """Testing class for what each subject requires."""
 
-    @pytest.mark.parametrize(
-        "subject", [Subject.ASA_PRICE, Subject.ASA_TOTAL]
-    )
+    @pytest.mark.parametrize("subject", [Subject.ASA_PRICE, Subject.ASA_TOTAL])
     def test_alerts_models_asset_subjects_need_an_asset(self, reader, subject):
         assert _rule(reader, subject=subject).needs_asset is True
 
-    @pytest.mark.parametrize(
-        "subject", [Subject.TOTAL_VALUE, Subject.TOTAL_PERCENT]
-    )
+    @pytest.mark.parametrize("subject", [Subject.TOTAL_VALUE, Subject.TOTAL_PERCENT])
     def test_alerts_models_portfolio_subjects_need_no_asset(self, reader, subject):
         assert _rule(reader, subject=subject).needs_asset is False
 
@@ -150,9 +144,7 @@ class TestAlertRulePersistence:
     def test_alerts_models_a_portfolio_rule_stores_no_asset(self, reader):
         """The columns are nullable per subject rather than split across two
         tables, because it is one concept to the reader."""
-        rule = _rule(
-            reader, subject=Subject.TOTAL_VALUE, asset_id=None, address="BUNDLE"
-        )
+        rule = _rule(reader, subject=Subject.TOTAL_VALUE, asset_id=None, address="BUNDLE")
         rule.save()
 
         assert AlertRule.objects.get(pk=rule.pk).asset_id is None

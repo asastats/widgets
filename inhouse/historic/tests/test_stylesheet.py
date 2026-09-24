@@ -36,7 +36,6 @@ for anything else.
 """
 
 import re
-
 from pathlib import Path
 
 import pytest
@@ -149,9 +148,7 @@ def _rule(css, name):
     :type name: str
     :return: str declarations, or "" when the class is never styled
     """
-    found = re.search(
-        r"\.%s[\s,{][^{}]*\{([^}]*)\}" % re.escape(name), css
-    )
+    found = re.search(r"\.%s[\s,{][^{}]*\{([^}]*)\}" % re.escape(name), css)
     return found.group(1) if found else ""
 
 
@@ -174,13 +171,13 @@ def test_the_category_label_is_quieter_than_its_figure(stylesheet):
     """
     label = _rule(stylesheet, "cons-text")
 
-    assert "display: block" in label, (
-        "the label must be its own line, or the figure sits beside it"
-    )
+    assert (
+        "display: block" in label
+    ), "the label must be its own line, or the figure sits beside it"
     assert "font-size" in label, "the label must be smaller than its figure"
-    assert "opacity" in label or "color" in label, (
-        "the label must be quieter than its figure"
-    )
+    assert (
+        "opacity" in label or "color" in label
+    ), "the label must be quieter than its figure"
 
 
 def test_the_category_figure_carries_the_weight(stylesheet):
@@ -199,12 +196,12 @@ def test_the_progress_bars_have_something_to_show(stylesheet):
     track = _rule(stylesheet, "progress")
 
     assert "height" in track, "the track has no height, so nothing can show in it"
-    assert "position: relative" in track, (
-        "the fills are absolutely positioned, so the track must contain them"
-    )
-    assert "background" in _rule(stylesheet, "determinate"), (
-        "the fill has no colour, so a part-finished phase looks like an empty one"
-    )
+    assert (
+        "position: relative" in track
+    ), "the fills are absolutely positioned, so the track must contain them"
+    assert "background" in _rule(
+        stylesheet, "determinate"
+    ), "the fill has no colour, so a part-finished phase looks like an empty one"
 
 
 def test_the_loading_bar_is_a_bar_only_while_there_is_work(stylesheet):
@@ -221,9 +218,7 @@ def test_the_loading_bar_is_a_bar_only_while_there_is_work(stylesheet):
     `.progress` itself is right and it is `.historic-progress` alone that must
     show nothing.
     """
-    idle = re.search(
-        r"\.historic-progress:not\(\.progress\)[^{]*\{([^}]*)\}", stylesheet
-    )
+    idle = re.search(r"\.historic-progress:not\(\.progress\)[^{]*\{([^}]*)\}", stylesheet)
     assert idle, "the loading bar has no idle state, so it animates forever"
     assert "display: none" in idle.group(1) or "height: 0" in idle.group(1)
 
@@ -265,16 +260,16 @@ def test_the_total_can_be_reached_and_read_without_a_pointer(stylesheet):
     """
     markup = (WIDGET / "templates" / "historic" / "assets.html").read_text()
 
-    assert 'class="pricetip htip" tabindex="0"' in markup, (
-        "the total cannot be focused, so its tooltip is pointer-only"
-    )
+    assert (
+        'class="pricetip htip" tabindex="0"' in markup
+    ), "the total cannot be focused, so its tooltip is pointer-only"
     assert 'aria-describedby="id-total-tip"' in markup
-    assert 'id="id-total-tip" class="sr-only"' in markup, (
-        "aria-describedby points at an element that is not there"
-    )
-    assert ":focus-visible::after" in stylesheet, (
-        "the tip is revealed on hover only, so focusing it shows nothing"
-    )
+    assert (
+        'id="id-total-tip" class="sr-only"' in markup
+    ), "aria-describedby points at an element that is not there"
+    assert (
+        ":focus-visible::after" in stylesheet
+    ), "the tip is revealed on hover only, so focusing it shows nothing"
 
 
 def test_the_tooltip_can_be_placed_below_its_figure(stylesheet):
@@ -378,7 +373,9 @@ def test_every_class_in_the_templates_is_styled_or_declared(stylesheet):
 
     assert not orphans, (
         "these classes are used in the templates and styled nowhere:\n  "
-        + "\n  ".join(f"{name}: {', '.join(files)}" for name, files in sorted(orphans.items()))
+        + "\n  ".join(
+            f"{name}: {', '.join(files)}" for name, files in sorted(orphans.items())
+        )
         + "\n\nEither give each a rule in style.css, or add it to "
         "DELIBERATELY_UNSTYLED with the reason its absence is intended."
     )
@@ -428,7 +425,9 @@ def test_every_class_in_the_script_is_styled_or_declared(stylesheet):
 
     assert not orphans, (
         "these classes are written by the script and styled nowhere:\n  "
-        + "\n  ".join(f"{name}: {', '.join(files)}" for name, files in sorted(orphans.items()))
+        + "\n  ".join(
+            f"{name}: {', '.join(files)}" for name, files in sorted(orphans.items())
+        )
         + "\n\nEither give each a rule in style.css, or add it to "
         "DELIBERATELY_UNSTYLED with the reason its absence is intended."
     )
@@ -451,9 +450,7 @@ def test_no_rule_outlives_its_markup(stylesheet):
     used = set(_classes_used())
 
     orphans = sorted(
-        name
-        for name in styled
-        if name not in used and name not in RULES_WITHOUT_MARKUP
+        name for name in styled if name not in used and name not in RULES_WITHOUT_MARKUP
     )
 
     assert not orphans, (
@@ -474,6 +471,6 @@ def test_the_allowlist_does_not_outlive_the_markup():
 
     stale = sorted(name for name in DELIBERATELY_UNSTYLED if name not in used)
 
-    assert not stale, (
-        f"DELIBERATELY_UNSTYLED names classes no markup uses any more: {stale}"
-    )
+    assert (
+        not stale
+    ), f"DELIBERATELY_UNSTYLED names classes no markup uses any more: {stale}"

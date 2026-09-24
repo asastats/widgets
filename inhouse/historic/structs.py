@@ -61,7 +61,7 @@ class UpdateStatus:
         return int(value * 100)
 
     def _is_finished_phase(self, phase):
-        """Retun phase's integer representation if provided `phase` represents an ended state.
+        """Return the phase's integer value when `phase` is an ended state.
 
         :param phase: phase identifier
         :type phase: int

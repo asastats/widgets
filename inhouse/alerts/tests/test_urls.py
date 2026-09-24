@@ -86,9 +86,7 @@ class TestInhouseAlertsUrls:
         in the URL would be the one part of the request the signature did not
         cover, which is the whole point of signing the body."""
         pattern = str(
-            next(
-                p for p in urls.urlpatterns if p.name == "alerts_repriced"
-            ).pattern
+            next(p for p in urls.urlpatterns if p.name == "alerts_repriced").pattern
         )
 
         assert "58" not in pattern and "40" not in pattern
@@ -119,9 +117,7 @@ class TestInhouseAlertsUrls:
         in the path would imply otherwise and give three ways to say one thing.
         """
         pattern = str(
-            next(
-                p for p in urls.urlpatterns if p.name == "alerts_subscribe"
-            ).pattern
+            next(p for p in urls.urlpatterns if p.name == "alerts_subscribe").pattern
         )
 
         assert "58" not in pattern and "40" not in pattern
