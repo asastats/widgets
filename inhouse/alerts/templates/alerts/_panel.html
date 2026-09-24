@@ -140,6 +140,13 @@
       <span class="alerts-field-label">Asset</span>
       <input type="hidden" name="asset_id" class="alerts-asset-id"
              value="{{ form.asset_id.value|default_if_none:'' }}">
+      {# **The unit the picker showed, inside the field and beside the id.** #}
+      {# The notification is built server-side where this widget has no asset #}
+      {# lookup, so "USDC" travels with the rule rather than being fetched.   #}
+      {# `chooseAsset` scopes its lookup to `.alerts-asset-field`, so an input #}
+      {# outside it is one the picker silently never writes.                  #}
+      <input type="hidden" name="asset_unit" class="alerts-asset-unit"
+             value="{{ form.asset_unit.value|default_if_none:'' }}">
       <button type="button" class="alerts-assetbtn id-alerts-assetbtn"
               aria-expanded="false">
         <img class="alerts-assetbtn-icon" alt="" hidden
@@ -199,13 +206,6 @@
       </span>
       <input type="hidden" name="threshold_unit" class="alerts-unit-value"
              value="{{ form.threshold_unit.value|default:'algo' }}">
-      {# **The unit the picker showed, posted with the id.** The notification #}
-      {# is built server-side where this widget has no asset lookup at all, so #}
-      {# "USDC" has to travel with the rule rather than be fetched later. The  #}
-      {# rate that used to ride here is gone: nothing converts a threshold at  #}
-      {# creation any more.                                                    #}
-      <input type="hidden" name="asset_unit" class="alerts-asset-unit"
-             value="{{ form.asset_unit.value|default_if_none:'' }}">
       {% comment %} What the figure is now, so a threshold has something to aim
          at. Absent when the page has never been re-priced. `alerts.js` fills it
          per subject and keeps it in the chosen unit. {% endcomment %}

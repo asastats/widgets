@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
 from utils.helpers import bundle_from_addresses
+from widgets.inhouse.alerts.forms import AlertRuleForm
 from widgets.inhouse.alerts.models import (
     AlertRule,
     Direction,
@@ -1607,3 +1608,80 @@ class TestInhouseAlertsViewsEdit:
         assert response.status_code == 422
         assert "Save changes" in html
         assert AlertRule.objects.filter(user=reader).count() == 1
+
+
+class TestInhouseAlertsPanelDom:
+    """The markup `alerts.js` reaches into, asserted against the template."""
+
+    def _panel(self):
+        """Render the panel with the form on it.
+
+        `rules_left` is what decides whether the form is rendered at all, and a
+        panel without it says only "remove one to make room" - 445 characters
+        with none of the markup this is about.
+        """
+        from django.template.loader import render_to_string
+
+        from widgets.inhouse.alerts.models import Direction, Subject
+
+        return render_to_string(
+            "alerts/_panel.html",
+            {
+                "form": AlertRuleForm(user=None, address="A" * 58),
+                "address": "A" * 58,
+                "rules": [],
+                "rules_left": 5,
+                "rules_allowed": 5,
+                "subjects": Subject.choices,
+                "directions": Direction.choices,
+                "windows": (),
+                "units": (("algo", "ALGO"), ("usd", "USD")),
+            },
+        )
+
+    def test_inhouse_alerts_panel_keeps_the_unit_inside_the_asset_field(self):
+        """**The picker writes the unit, and it writes it inside the field.**
+
+        `chooseAsset` does `field.querySelector(".alerts-asset-unit")` where
+        `field` is the row's `.alerts-asset-field` - so an input rendered
+        outside it is one the picker never finds. It was rendered forty lines
+        away, inside the threshold label, and `if (unit)` swallowed the miss:
+        every rule stored a blank unit and every notification named the asset
+        by its id. Reported 2026-09-24 as an alert still reading "#393537671".
+
+        The jest fixture had it in the right place, which is why the suite was
+        green throughout. This asserts the template instead.
+        """
+        from html.parser import HTMLParser
+
+        class Nesting(HTMLParser):
+            """Record the depth at which the two elements appear."""
+
+            def __init__(self):
+                super().__init__()
+                self.depth = 0
+                self.field_depth = None
+                self.unit_inside = False
+
+            def handle_starttag(self, tag, attrs):
+                classes = dict(attrs).get("class", "")
+                if "alerts-asset-field" in classes:
+                    self.field_depth = self.depth
+                if "alerts-asset-unit" in classes and self.field_depth is not None:
+                    self.unit_inside = self.depth > self.field_depth
+                if tag not in ("input", "img", "br", "hr", "meta", "link"):
+                    self.depth += 1
+
+            def handle_endtag(self, tag):
+                if tag not in ("input", "img", "br", "hr", "meta", "link"):
+                    self.depth -= 1
+                    if self.field_depth is not None and self.depth == self.field_depth:
+                        self.field_depth = None
+
+        parser = Nesting()
+        parser.feed(self._panel())
+
+        assert parser.unit_inside, (
+            "`.alerts-asset-unit` must be inside `.alerts-asset-field`, or "
+            "`chooseAsset` cannot reach it and every rule stores a blank unit"
+        )
