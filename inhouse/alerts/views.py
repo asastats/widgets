@@ -16,12 +16,13 @@ import hmac
 import json
 import logging
 
-from api.widgets import bundle_and_addresses_from_path
+from api.widgets import bundle_and_addresses_from_path, page_key_from_addresses
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from django.utils.decorators import method_decorator
+from django.utils.functional import cached_property
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import TemplateView, View
@@ -47,6 +48,25 @@ logger = logging.getLogger(__name__)
 
 class AlertsContextMixin:
     """Shared context: what this reader keeps, and what is left."""
+
+    @cached_property
+    def page(self):
+        """Return the key the engine publishes this page under.
+
+        A rule is stored against it and `payload_for` reads it back, so it has
+        to be what the live pass writes - the bundle hash for several addresses
+        and the address itself for one.
+
+        **A property rather than something `test_func` assigns.** It was the
+        latter, `self.addresses` was passed to the form by mistake, and every
+        rule on a multi-address bundle was stored under a joined address list:
+        a key nothing publishes, so the rule never fired, and past 128
+        characters it could not be saved at all. Derived where it is used, it
+        cannot be left unset by a caller that reaches the form another way.
+
+        :return: str
+        """
+        return page_key_from_addresses(self.addresses)
 
     def alerts_context(self, address=""):
         """Return the modal's context for the current reader.
@@ -203,7 +223,7 @@ class AlertsRulesView(WidgetAccessMixin, AlertsContextMixin, View):
         :return: :class:`django.http.HttpResponse`
         """
         form = AlertRuleForm(
-            request.POST, user=request.user, address=self.addresses
+            request.POST, user=request.user, address=self.page
         )
         if form.is_valid():
             form.save()
@@ -214,7 +234,7 @@ class AlertsRulesView(WidgetAccessMixin, AlertsContextMixin, View):
             status = 422
         context = self.alerts_context(self.bundle)
         context["form"] = form if not form.is_valid() else AlertRuleForm(
-            user=request.user, address=self.addresses
+            user=request.user, address=self.page
         )
         return self._render(request, context, status)
 
@@ -280,7 +300,7 @@ class AlertsRuleEditView(WidgetAccessMixin, AlertsContextMixin, View):
                 "window_seconds": rule.window_seconds,
             },
             user=request.user,
-            address=self.addresses,
+            address=self.page,
             instance=rule,
         )
         context["editing"] = rule
@@ -296,7 +316,7 @@ class AlertsRuleEditView(WidgetAccessMixin, AlertsContextMixin, View):
         rule = self._rule(request)
         was_price_rule = rule.subject in PRICED_SUBJECTS
         form = AlertRuleForm(
-            request.POST, user=request.user, address=self.addresses, instance=rule
+            request.POST, user=request.user, address=self.page, instance=rule
         )
         if form.is_valid():
             form.save()
@@ -312,7 +332,7 @@ class AlertsRuleEditView(WidgetAccessMixin, AlertsContextMixin, View):
 
         context = self.alerts_context(self.bundle)
         if form.is_valid():
-            context["form"] = AlertRuleForm(user=request.user, address=self.addresses)
+            context["form"] = AlertRuleForm(user=request.user, address=self.page)
         else:
             context["form"] = form
             # Still editing: a rejected change must come back on the same rule
@@ -376,7 +396,7 @@ class AlertsRuleDeleteView(WidgetAccessMixin, AlertsContextMixin, View):
         if was_price_rule:
             publish_assets()
         context = self.alerts_context(self.bundle)
-        context["form"] = AlertRuleForm(user=request.user, address=self.addresses)
+        context["form"] = AlertRuleForm(user=request.user, address=self.page)
         return HttpResponse(
             render_to_string("alerts/_panel.html", context, request=request)
         )

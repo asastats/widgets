@@ -17,6 +17,7 @@ this, as long as its engine runs the pass.
 """
 
 import json
+import logging
 import time
 
 from api.widgets import bundle_and_addresses_from_path
@@ -47,6 +48,8 @@ SUBSCRIBED_KEY = "lvx"
 PAID_KEY = "lvq"
 #: Prefix the pass publishes under, keyed by bundle. See `CACHE_KEY_LIVE_PAYLOAD`.
 PAYLOAD_PREFIX = "lvp"
+
+logger = logging.getLogger(__name__)
 
 
 def _asset_key(key):
@@ -588,6 +591,25 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         if stale and now - stale > RELOAD_COOLDOWN:
             last = None
         self.request.session[self._stale_key()] = now
+
+        # **The detector's input, before anything is trusted.** A reader
+        # reported a page reloading within seconds of being opened, and nothing
+        # recorded which two fingerprints disagreed - so the cause could only be
+        # reasoned about, which is how a day went on the last live-page
+        # detector. One line per decision, and a reload is rare enough that this
+        # stays quiet on a healthy page: if it is not quiet, that is the finding.
+        logger.info(
+            "live reload %s: page %s engine %s (%s), %s",
+            self.bundle[:6],
+            rendered,
+            published,
+            "assets differ"
+            if _digest(rendered) != _digest(published)
+            else "same assets",
+            "held by the cooldown"
+            if last and now - last < RELOAD_COOLDOWN
+            else "ordered",
+        )
 
         if last and now - last < RELOAD_COOLDOWN:
             # Fragments still go out; the reader keeps getting live figures

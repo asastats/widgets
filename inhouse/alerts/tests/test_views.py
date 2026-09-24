@@ -13,6 +13,7 @@ from django.test import RequestFactory
 from django.utils import timezone
 
 from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
+from utils.helpers import bundle_from_addresses
 from widgets.inhouse.alerts.models import (
     AlertRule,
     Direction,
@@ -372,7 +373,41 @@ class TestInhouseAlertsViewsCreate:
 
         view.post(view.request)
 
-        assert AlertRule.objects.get(user=reader_pro).address == "ADDR_ONE ADDR_TWO"
+        # The engine's page key, not the addresses it was made from: rules
+        # stored under a joined list matched `lvp:` for nothing and never
+        # fired. This assertion used to pin that bug.
+        stored = AlertRule.objects.get(user=reader_pro).address
+        assert stored == bundle_from_addresses("ADDR_ONE ADDR_TWO")
+        assert " " not in stored
+
+    def test_inhouse_alerts_views_create_survives_a_long_bundle(
+        self, reader_pro, mocker
+    ):
+        """**Reported as an internal server error on 2026-09-24.**
+
+        `address` is 128 characters. Three addresses joined are 176, so the
+        insert raised `StringDataRightTruncation` and the reader was shown the
+        500 page - twice, and again after deleting a rule to make room, because
+        nothing about it was a capacity problem. The page key is 58 characters
+        at most whatever the bundle holds.
+        """
+        mocker.patch(
+            "widgets.inhouse.alerts.views.render_to_string", return_value=""
+        )
+        view = self._view(
+            mocker,
+            reader_pro,
+            {
+                "subject": Subject.TOTAL_VALUE,
+                "direction": Direction.DOWN,
+                "threshold": "100",
+            },
+        )
+        view.addresses = " ".join(f"{letter * 58}" for letter in "ABCD")
+
+        view.post(view.request)
+
+        assert len(AlertRule.objects.get(user=reader_pro).address) <= 58
 
     def test_inhouse_alerts_views_create_answers_422_on_a_bad_rule(
         self, reader_pro, mocker

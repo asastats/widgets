@@ -1,6 +1,7 @@
 """Testing module for the Real-time refresh widget's view."""
 
 import json
+import logging
 import time
 import msgpack
 import pytest
@@ -2478,3 +2479,70 @@ class TestLiveRegroupViewPost:
         view.post(view.request)
 
         assert rendered.call_args.args[0]["changed"] == []
+
+
+class TestLiveRefreshLogsTheReloadDecision:
+    """What the comparison saw, recorded before anything is trusted."""
+
+    def _published(self, mocker, payload):
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(payload)
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        return client
+
+    def test_liverefresh_logs_both_fingerprints_when_it_orders_a_reload(
+        self, mocker, caplog
+    ):
+        """**A reader reported a page reloading seconds after opening it**, and
+        nothing recorded which two fingerprints disagreed - so the cause could
+        only be reasoned about. Both are in the line, so the next report is
+        read rather than guessed at."""
+        view = _view(mocker, holdings="4:beef1234:aaaa")
+        self._published(
+            mocker, {"total": 5.0, "values": {}, "holdings": "5:cafe5678:bbbb"}
+        )
+
+        with caplog.at_level(logging.INFO, logger="widgets.inhouse.liverefresh.views"):
+            response = view.get(view.request)
+
+        assert response["HX-Refresh"] == "true"
+        assert "4:beef1234:aaaa" in caplog.text
+        assert "5:cafe5678:bbbb" in caplog.text
+        assert "assets differ" in caplog.text
+        assert "ordered" in caplog.text
+
+    def test_liverefresh_logs_a_reload_the_cooldown_held(self, mocker, caplog):
+        """A held reload is a decision too, and the one that explains a reader
+        who says the page went stale and stayed that way."""
+        session = {"liverefresh:reloaded:HASH": time.time()}
+        view = _view(mocker, holdings="4:beef1234:aaaa", session=session)
+        view.request.session[view._stale_key()] = time.time()
+        self._published(
+            mocker, {"total": 5.0, "values": {}, "holdings": "5:cafe5678:bbbb"}
+        )
+        mocker.patch.object(
+            LiveRefreshView, "render_to_response", return_value=HttpResponse()
+        )
+
+        with caplog.at_level(logging.INFO, logger="widgets.inhouse.liverefresh.views"):
+            view.get(view.request)
+
+        assert "held by the cooldown" in caplog.text
+
+    def test_liverefresh_says_nothing_when_the_page_is_in_step(self, mocker, caplog):
+        """Most blocks move a price and nothing else. A line per poll would
+        bury the rare decision this exists to record."""
+        view = _view(mocker, holdings="4:beef1234:aaaa")
+        self._published(
+            mocker, {"total": 5.0, "values": {1: 2.0}, "holdings": "9:beef1234:aaaa"}
+        )
+        mocker.patch.object(
+            LiveRefreshView, "render_to_response", return_value=HttpResponse()
+        )
+
+        with caplog.at_level(logging.INFO, logger="widgets.inhouse.liverefresh.views"):
+            view.get(view.request)
+
+        assert "live reload" not in caplog.text

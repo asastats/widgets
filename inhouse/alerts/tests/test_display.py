@@ -193,7 +193,7 @@ class TestAlertsDisplayDescribe:
             direction=Direction.UP,
         )
 
-        assert describe(rule) == "31566704 price rises above 0.1234 ALGO"
+        assert describe(rule) == "#31566704 price rises above 0.1234 ALGO"
 
     def test_alerts_display_describes_a_percentage(self, reader, mocker):
         _resolves(mocker, ADDRESS)
@@ -281,14 +281,14 @@ class TestAlertsDisplayTheAssetAndItsCurrency:
         itself - and a client that sends no unit must not produce a blank."""
         rule = _rule(reader, subject=Subject.ASA_TOTAL, asset_id=31566704)
 
-        assert asset_label(rule) == "31566704"
+        assert asset_label(rule) == "#31566704"
 
     def test_alerts_display_ignores_a_blank_unit(self, reader):
         rule = _rule(
             reader, subject=Subject.ASA_TOTAL, asset_id=31566704, asset_unit="  "
         )
 
-        assert asset_label(rule) == "31566704"
+        assert asset_label(rule) == "#31566704"
 
     def test_alerts_display_names_a_usd_threshold_in_usd(self, reader, mocker):
         """**The reader's own currency**, because that is what it is compared
@@ -453,4 +453,4 @@ class TestAlertsDisplayTheAssetAndItsCurrency:
             reader, subject=Subject.ASA_AMOUNT, asset_id=7, threshold="1000"
         )
 
-        assert describe(rule) == "My 7 holding rises above 1,000"
+        assert describe(rule) == "My #7 holding rises above 1,000"

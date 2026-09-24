@@ -259,13 +259,16 @@ def asset_label(rule):
     that showed them that word.
 
     The fallback is not decoration: a rule written before the unit was stored,
-    or by a client that did not send one, still has to describe itself.
+    or by a client that did not send one, still has to describe itself. It
+    carries a `#` so that the sentence reads as an asset id rather than as a
+    bare number sitting where a name belongs.
 
     :param rule: the rule
     :type rule: :class:`widgets.inhouse.alerts.models.AlertRule`
     :return: str
     """
-    return (rule.asset_unit or "").strip() or str(rule.asset_id)
+    unit = (rule.asset_unit or "").strip()
+    return unit or f"#{rule.asset_id}"
 
 
 #: How each subject reads *inside a sentence*, with the thing it watches in it.
