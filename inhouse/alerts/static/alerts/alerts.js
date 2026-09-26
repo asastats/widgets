@@ -1,12 +1,6 @@
 /**
  * @file Alerts: open the modal, and show only the fields the subject needs.
  * @author Ivica Paleka
- *
- * Almost everything is htmx: the modal is fetched by the control, and creating
- * or removing a rule swaps the panel the server re-rendered. What is left for
- * script is the part htmx has no opinion about - a native <dialog> has to be
- * opened by `showModal()`, and which fields a subject needs is a question about
- * the form rather than about the server.
  */
 (function () {
   "use strict";
@@ -22,22 +16,12 @@
   /** Subjects expressed as a percentage, mirroring `models.PERCENT_SUBJECTS`. */
   var PERCENT_SUBJECTS = ["total_percent", "asa_price_percent"];
 
-  /**
-   * Subjects with no currency, mirroring `models.CURRENCY_SUBJECTS` inverted.
-   *
-   * A percentage is a proportion and an amount is a count of the asset itself:
-   * "I hold more than 1,000 ASASTATS" is true whatever an ASASTATS is worth.
-   * Neither has an ALGO/USD choice to make.
-   */
+  /** Subjects with no currency, mirroring `models.CURRENCY_SUBJECTS` inverted. */
   var UNITLESS_SUBJECTS = PERCENT_SUBJECTS.concat(["asa_amount"]);
 
   /**
    * Show the fields this subject needs and hide the rest.
-   *
-   * **Both fields stay mounted.** Removing and re-adding them would lose what
-   * the reader had typed when they looked at another subject and came back,
-   * and would need a request to put them back.
-   *
+   * Both fields stay mounted (removing loses typed input).
    * @param {Element} root - the panel holding the form.
    * @returns {boolean} whether a form was found to adjust.
    */
@@ -60,15 +44,8 @@
 
   /**
    * Whether this browser is an iPhone or an iPad.
-   *
-   * **Used only to choose the wording**, never to decide whether push works -
-   * that is `supportState` below, and it asks the browser rather than reading
-   * its name. A user agent is a claim; `PushManager` is a fact.
-   *
-   * iPadOS 13 and later report themselves as "Macintosh", so the touch points
-   * are what tell an iPad from a Mac. `navigator.platform` would be the obvious
-   * test and is deprecated.
-   *
+   * Used for wording only, not feature detection.
+   * iPadOS 13+ reports as Macintosh; touch points distinguish.
    * @returns {boolean} whether this is iOS or iPadOS.
    */
   function isApplePortable() {
@@ -94,17 +71,7 @@
 
   /**
    * What to tell the reader about whether alerts can reach them.
-   *
-   * **Feature detection first, and that is the whole design.** iOS Safari
-   * exposes `PushManager` only to a site installed on the Home Screen, so its
-   * absence is the same signal there as it is in any browser that cannot do
-   * push at all - and asking the browser is right for every engine, including
-   * ones nobody has thought to sniff for.
-   *
-   * The user agent is consulted afterwards, and only to pick a sentence: "add
-   * this to your Home Screen" is something a reader can act on, and "this
-   * browser cannot" is not.
-   *
+   * Feature detection first; user agent only for wording.
    * @returns {string} one of "ok", "ios-install", "ios-old", "unsupported".
    */
   function supportState() {
@@ -117,10 +84,7 @@
 
   /**
    * Reveal the one message that applies, and hide the rest.
-   *
-   * **The copy is in the template, not here.** The script decides which
-   * sentence is true; where sentences live is a question about editing them.
-   *
+   * Copy is in template, not here.
    * @param {Element} root - the modal.
    * @returns {string} the state it showed.
    */
@@ -150,11 +114,7 @@
 
   /**
    * Turn a base64url VAPID key into the Uint8Array `subscribe()` wants.
-   *
-   * The key is published as base64url because it travels in JSON; the Push API
-   * takes bytes. There is no browser helper for this, which is why every push
-   * implementation carries these six lines.
-   *
+   * Key is base64url for JSON transport; Push API takes bytes.
    * @param {string} key - the public key, base64url.
    * @returns {Uint8Array} its bytes.
    */
@@ -170,18 +130,7 @@
 
   /**
    * Put the block into the state the server would render it in now.
-   *
-   * **The warning and the button label are server-rendered from
-   * `subscribed_browsers`, which was false when this page was built.** Saying
-   * "This browser is on." in the status line while the paragraph above still
-   * read "No browser is set to receive these" left the modal contradicting
-   * itself, and the button still inviting the reader to do what they had just
-   * done.
-   *
-   * Only the warning inside this block is removed. The other
-   * `.alerts-warning` on the modal belongs to a deployment that cannot send at
-   * all, and no button reaches this code in that case.
-   *
+   * Warning and button label are server-rendered from subscribed_browsers.
    * @param {Element} root - the `.alerts-enable` element.
    */
   function markEnabled(root) {
@@ -195,12 +144,7 @@
 
   /**
    * Ask permission, register the worker, subscribe, and tell the server.
-   *
-   * **Four things that can each say no**, and the reader is told which: the
-   * browser may not support push, they may refuse the prompt, the worker may
-   * fail to register, or our own endpoint may reject the subscription. A single
-   * "something went wrong" would leave them with no idea whether to try again.
-   *
+   * Four independent failure modes, each reported to reader.
    * @param {Element} root - the `.alerts-enable` element carrying the urls.
    * @returns {Promise<string>} what happened, for the state line and the tests.
    */
@@ -219,9 +163,7 @@
     return Notification.requestPermission()
       .then(function (permission) {
         if (permission !== "granted") {
-          // **Not an error, and not retried.** A refusal is an answer, and a
-          // browser will not prompt again anyway - so saying where to change it
-          // is the only useful thing left.
+          // Not an error, not retried: refusal is an answer.
           throw new Error("Notifications are blocked in this browser's settings.");
         }
         return navigator.serviceWorker.register(root.dataset.workerUrl);
@@ -297,20 +239,8 @@
 
   /**
    * React to an htmx swap: open the modal that arrived, or re-sync a panel.
-   *
-   * **`event.target` is not the swapped content.** htmx 4 fires this on the
-   * element that made the request - the *button* - and names the region it
-   * replaced in `detail.ctx.target`. Reading `event.target` therefore searched
-   * inside the button, found no dialog, and left the modal sitting in the
-   * document unopened: a control that fetched everything correctly and looked
-   * broken. The jest suite could not see it, because it calls `openModal`
-   * directly; only a real browser fires a real htmx event.
-   *
-   * **Only these two swaps are acted on.** Other widgets swap fragments into
-   * this same page all the time - live refresh does it every block - and
-   * reopening the dialog on one of those would put the modal back in a
-   * reader's face after they closed it.
-   *
+   * event.target is the button, not swapped content; uses detail.ctx.target.
+   * Only two swaps acted on: modal open and panel replace.
    * @param {Event} event - htmx's after-swap event.
    * @returns {boolean} whether this swap was one of ours.
    */
@@ -347,11 +277,7 @@
 
   /**
    * Record which unit the reader is typing their threshold in.
-   *
-   * **The hidden input is what the form posts.** The buttons are the visible
-   * state and `aria-pressed` is what a screen reader is told; neither is what
-   * the server reads, so they cannot disagree with it.
-   *
+   * Hidden input is what form posts; buttons are visible state.
    * @param {Element} button - the pressed unit button.
    * @returns {boolean} whether the unit was recorded.
    */
@@ -372,19 +298,11 @@
 
   /**
    * Format a price without losing a small one to rounding.
-   *
-   * A threshold of 0.0000123 is an ordinary ASA price, and `toFixed(2)` would
-   * show it as 0.00 - a reference figure that says the asset is worthless.
-   *
+   * Threshold 0.0000123 would show as 0.00 with toFixed(2).
    * @param {number} value - the figure.
    * @returns {string} it, readably.
    */
-  /** How far past the current figure a suggested threshold is offered.
-   *
-   * Five percent: far enough that ordinary movement does not reach it on the
-   * first block, near enough that it is a threshold the reader might have
-   * chosen. It is a starting point to be edited, not a recommendation.
-   */
+  /** Suggest offset: 5% - far enough to not trigger on first block, near enough to be plausible. */
   var SUGGEST_OFFSET = 0.05;
 
   function trim(value) {
@@ -395,17 +313,8 @@
 
   /**
    * Show what the watched figure is now, in the unit the reader chose.
-   *
-   * **A threshold is only meaningful next to the current value**, and a reader
-   * had no way to see one without leaving the modal. Shown rather than filled
-   * in: a threshold equal to the current value fires on the first wobble past
-   * it, because a rule arms on its first reading and then triggers on any
-   * crossing. The suggestion offered beside it is offset for that reason.
-   *
-   * Only the portfolio total is known here. An asset's price is not - the page
-   * publishes the totals, not every asset's own price - so an asset subject
-   * shows nothing rather than something borrowed from the wrong figure.
-   *
+   * Threshold shown, not filled (arms on first reading, fires on crossing).
+   * Asset price not published here; only portfolio total known.
    * @param {Element} root - the panel.
    * @returns {string} what was shown, for the tests.
    */
@@ -473,22 +382,8 @@
 
   /**
    * Offer a threshold a little way past what the figure is now.
-   *
-   * **A threshold equal to the current value is the one value it must not
-   * be.** A rule arms on its first reading and fires on a crossing, so a
-   * threshold sitting exactly on the figure triggers on the first wobble past
-   * it - which is why this is offered offset rather than filled in flat, and
-   * why the note beside it says "Now" rather than proposing that number.
-   *
-   * Above for "rises above" and below for "falls below", because the reader
-   * has already said which way they are watching; offering a threshold on the
-   * wrong side of the price would be offering a rule that fires immediately.
-   *
-   * **Never over what the reader typed.** The field is written only while it
-   * is empty or still holds exactly the last thing written here, which is what
-   * `data-suggested` records. Changing the subject, the asset, the direction
-   * or the unit re-offers; typing one character ends it for good.
-   *
+   * Threshold != current value (arms on first reading, fires on crossing).
+   * Offset for direction; never over what reader typed (data-suggested tracks).
    * @param {Element} root - the panel.
    * @returns {string} what was offered, or "" when nothing was.
    */
@@ -513,17 +408,7 @@
 
   /**
    * Copy the panel's counts onto the toolbar the reader can actually see.
-   *
-   * **The swap replaces the modal, and the badge is not in it.** Creating or
-   * removing a rule re-renders `#id-alerts-panel`; the count sits out in the
-   * toolbar beside the button, so nothing touched it and it went stale the
-   * moment a reader added their first rule - the modal said "4 of 5 left" over
-   * a button that still said none.
-   *
-   * Read off the panel rather than counted here: the server already did this
-   * arithmetic once, and a second place doing it is a second place to get it
-   * wrong.
-   *
+   * Swap replaces modal; badge not in it. Read from panel.
    * @param {Element} panel - the freshly swapped panel.
    * @returns {boolean} whether the toolbar was updated.
    */
@@ -553,26 +438,7 @@
 
   /**
    * Move the alerts toolbar into the page's action row, beside Dust Sweep.
-   *
-   * **It renders where the partial lands, which is not where it belongs.**
-   * `_swap_entry.html` arrives near the top of the page, so without this the
-   * button sits in a strip of its own above the heading while Sweep dust - which
-   * does exactly this - is down in the row with Historic data and CSV export.
-   * Two controls of the same kind, in two different places.
-   *
-   * The same slot the sweep uses, and appended after it, so the order is stable
-   * rather than a race between two scripts.
-   *
-   * **It is revealed here, and rendered hidden.** Moving something the browser
-   * has already painted is a visible jump: the button appeared in a strip above
-   * the heading and then hopped down into the action row on every page load.
-   * The partial marks it `hidden` and this is what takes that off, so the first
-   * time a reader sees the button it is already in place.
-   *
-   * Revealed even when there is nothing to move - a page with no slot, or a
-   * second call after an htmx swap - because a toolbar that stays hidden is
-   * worse than one in the wrong row.
-   *
+   * Partial lands in wrong place; rendered hidden to avoid jump.
    * @returns {boolean} whether the toolbar was moved.
    */
   function placeToolbar() {
@@ -587,17 +453,10 @@
 
   /**
    * Record the asset a reader picked out of the search results.
-   *
-   * **The hidden field is what the form posts**, so nothing is chosen until
-   * this runs: a reader who types "USDC" and presses Add without picking a row
-   * submits no asset, and the form tells them to choose one. Typing is not
-   * choosing, and an id guessed from a partial match would be the wrong asset
-   * rather than no asset.
-   *
+   * Hidden field is what form posts; typing != choosing.
+   * Unit travels with id; row has only price.
    * @param {Element} row - the clicked result row.
-   * @param {Element} [field] - the field to record it in, when `row` is not in
-   *   the document. `resolveAsset` looks a row up off-page rather than putting
-   *   a result nobody searched for into the picker.
+   * @param {Element} [field] - the field to record it in.
    * @returns {boolean} whether an asset was recorded.
    */
   function chooseAsset(row, field) {
@@ -608,9 +467,7 @@
     if (!hidden || !button) return false;
 
     hidden.value = row.getAttribute("data-id") || "";
-    // **The unit travels with the id.** The notification is built server-side,
-    // where this widget has no asset lookup, so "USDC" has to be stored when
-    // the reader picks it or the alert says "an asset 31566704" for ever.
+    // Unit travels with id for server-side notification.
     var unit = field.querySelector(".alerts-asset-unit");
     if (unit) unit.value = row.getAttribute("data-unit") || "";
     var text = button.querySelector(".alerts-assetbtn-text");
@@ -623,9 +480,7 @@
       icon.src = row.getAttribute("data-icon") || "";
       icon.hidden = !icon.src;
     }
-    // **The row is the only place this price exists.** `swap_assets` ranks
-    // assets and hands back a USD price with each; nothing else in this modal
-    // knows one, so it is kept here for `showCurrent` to convert.
+    // Row is only place this price exists.
     var note = (field.closest(".alerts-panel") || document).querySelector(
       ".alerts-now"
     );
@@ -639,23 +494,8 @@
 
   /**
    * Look up the price of an asset the *server* chose, not the reader.
-   *
-   * **The reference price had one source and it was the search results.** A
-   * row carries `data-usdc-price`, so picking an asset out of the picker gave
-   * `showCurrent` something to show - and the two paths where the asset
-   * arrives already chosen gave it nothing: editing an existing rule, and a
-   * form that came back rejected. Exactly the two moments a reader is looking
-   * at a threshold they are trying to adjust.
-   *
-   * The id is all a bound form carries, so this asks the same endpoint the
-   * picker asks, by id. Reusing `swap_assets` rather than adding an endpoint
-   * is what keeps this widget's `capability = "public"` and its empty
-   * `engine_endpoints` honest - the picker already calls it, and every reader
-   * who may keep an alert may search.
-   *
-   * Silent on every failure. A reference figure is an aid; a modal that
-   * reports its absence would be worse than one that shows nothing.
-   *
+   * Reference price from search results; bound forms lack it.
+   * Reuses swap_assets endpoint; silent on failure; exact id match only.
    * @param {Element} root - the panel.
    * @returns {boolean} whether a lookup was started.
    */
@@ -683,15 +523,13 @@
       })
       .then(function (html) {
         if (!html) return;
-        // Parsed off-page: the results container belongs to the picker, and
-        // filling it here would show the reader a search they did not run.
+        // Parsed off-page: results container belongs to picker.
         var holder = document.createElement("div");
         holder.innerHTML = html;
         var row = holder.querySelector(
           '.id-swap-asset-option[data-id="' + wanted + '"]'
         );
-        // **Only an exact id match.** The endpoint ranks by name and unit too,
-        // so a loose match would hang another asset's price off this rule.
+        // Only exact id match; loose match hangs wrong asset's price.
         if (row) chooseAsset(row, field);
       })
       .catch(function () {});
@@ -721,8 +559,7 @@
   document.addEventListener("click", function (event) {
     if (!event.target.closest) return;
 
-    // Scoped to this widget's own results: the swap window renders the same
-    // rows from the same endpoint, and its picker has its own handler.
+    // Scoped to widget's own results; swap window renders same rows.
     var row = event.target.closest(".alerts-asset-results .id-swap-asset-option");
     if (row) {
       chooseAsset(row);
@@ -748,17 +585,7 @@
 
   document.body.addEventListener("htmx:after:swap", handleSwap);
 
-  // **Published so the page can tell this script is listening.**
-  //
-  // The tag that loads this file rides in `_swap_entry.html`, which is itself
-  // swapped in - so it is fetched asynchronously, and for a moment the control
-  // is on the page while nothing is listening for the swap it triggers. A press
-  // in that window fetches the modal and leaves it closed, which is a reader
-  // pressing a button that does nothing.
-  //
-  // The same shape as `window.asastatsWallet` and `window.asastatsSwap`, and
-  // read for the same reason: something that arrives late has to say when it
-  // has arrived.
+  // Published so page knows script is listening.
   window.asastatsAlerts = {
     handleSwap: handleSwap,
     placeToolbar: placeToolbar,

@@ -1,21 +1,9 @@
 /**
  * @file Real-time refresh: poll the engine's published block for this page.
  * @author Ivica Paleka
- */
-
-/*
- * The subscriber half of the "Auto-refresh" checkbox.
  *
- * The free half reloads the page. This does not: it asks for the fragments the
- * block changed and lets htmx swap them out of band, so scroll position, open
- * sections and filters all survive. That is the whole reason the idle guard the
- * free half needs does not apply here - nothing is thrown out from under the
- * reader, so there is nothing to wait for them to stop doing.
- *
- * **The poll is also the subscription.** Serving it is what tells the engine
- * this page is being read; there is no subscribe and no unsubscribe to keep in
- * step with a reader who closed the tab. They stop polling, the heartbeat
- * expires, and the engine stops re-pricing the page.
+ * Subscriber half of Auto-refresh: htmx OOB swaps preserve scroll/state.
+ * Poll is the subscription; grace period stops hidden tabs.
  */
 
 (function () {
@@ -52,20 +40,7 @@
   }
 
   var pollUrl = marker.dataset.pollUrl;
-  // **What this page was rendered from**, so the server can tell a price move
-  // from a holdings change. The out-of-band swaps can only reach rows the page
-  // already has, so an asset bought or sold is not something the fragments can
-  // express at all - the server answers that with a reload instead, and it can
-  // only know to when it is told what the reader is actually looking at.
-  //
-  // Read from the page rather than remembered per reader: a change between the
-  // render and the first poll would otherwise never be noticed.
-  //
-  // **No longer read once**, and that changed when the reload stopped being the
-  // only answer. A regroup replaces venue groups in a document that stays put,
-  // so the page is carrying different positions than it was rendered with and
-  // this has to move with them - see `regrouped`. Left at the rendered value it
-  // would ask for the same regroup every three seconds for ever.
+  // Page's rendered holdings fingerprint; regroup updates it.
   var carrier = document.querySelector("[data-holdings]");
   var holdings = carrier ? carrier.dataset.holdings : "";
 
@@ -110,20 +85,13 @@
 
   /**
    * Ask for this block's fragments.
-   *
-   * `swap: "none"` because there is nothing to put where the request came
-   * from: every fragment in the response carries `hx-swap-oob` and lands
-   * wherever it belongs on the page. A 204 - which is most blocks, for most
-   * pages - leaves the DOM untouched.
+   * swap: "none" - fragments carry hx-swap-oob; 204 leaves DOM untouched.
    */
   function poll() {
     if (!armed()) {
       return;
     }
-    // **Hidden past the grace period stops the poll entirely**, rather than
-    // polling on quietly. Every polling tab holds a subscription the engine
-    // re-prices on every block, and a tab nobody has looked at for five
-    // minutes is the clearest case of work with no reader.
+    // Hidden past grace period stops poll entirely.
     if (hiddenAt && Date.now() - hiddenAt > grace) {
       stop();
       return;
@@ -146,11 +114,7 @@
 
   /**
    * Follow the tab in and out of view.
-   *
-   * Coming back always polls once before resuming the interval: the page is up
-   * to `grace` plus one interval behind, and waiting another interval to say so
-   * is the difference between a live page and one that looks broken for three
-   * seconds every time it is looked at.
+   * Coming back polls once before resuming.
    */
   function visibility() {
     if (document.visibilityState === "hidden") {
@@ -166,15 +130,7 @@
 
   /**
    * The day's free watching is gone.
-   *
-   * **Handing back to the free timer is the point.** A page that simply stopped
-   * would leave the reader with neither the live updates nor the 60-second
-   * reload a non-subscriber gets, which is worse than never having had it - and
-   * indistinguishable from the feature being broken.
-   *
-   * `address.js` stands its own timer down whenever `#id-liverefresh` is on the
-   * page, and asks every tick rather than once, so removing the marker is the
-   * whole handover. No coordination between the two scripts beyond that.
+   * Hands back to free timer; removing marker is whole handover.
    */
   function spent() {
     stop();
@@ -193,16 +149,7 @@
 
   /**
    * Show what is left of the allowance, beside the control it belongs to.
-   *
-   * **The badge ships in the non-cached partial and is moved here.** The
-   * address page is `cache_page`d across readers, so a balance rendered into it
-   * would show whoever warmed the entry to everybody else - the same trap the
-   * Dust Sweep button hit. Rendering it per-reader and relocating it keeps the
-   * figure private while letting it read as part of the toolbar.
-   *
-   * Hidden again once the control is disarmed: a number that keeps sitting
-   * there while nothing is being spent invites the reader to watch it not move.
-   *
+   * Badge from non-cached partial, moved here for privacy.
    * @param {CustomEvent} event carrying `{ seconds }`
    */
   function showLeft(event) {
@@ -225,11 +172,7 @@
 
   /**
    * Return a compact duration a reader can read at a glance.
-   *
-   * Minutes below an hour and whole hours above it: a badge counting seconds
-   * down beside a page that updates every block is two things moving for no
-   * reason, and the number is an allowance rather than a stopwatch.
-   *
+   * Minutes < hour, whole hours >= hour; allowance not stopwatch.
    * @param {number} seconds
    * @returns {string}
    */
@@ -246,44 +189,11 @@
     return rest ? hours + "h " + rest + "m" : hours + "h";
   }
 
-  // **The interval runs regardless; `poll` decides whether to ask.**
-  //
-  // Binding to the control was the obvious thing and it was wrong. The two
-  // layouts arm this differently - design 1 has a checkbox that fires `change`,
-  // the dynamic toolbar has a `<button>` that fires `click` - so a listener for
-  // either one works on exactly one of the two pages, silently. A widget that
-  // does not own the control should not be guessing at its events.
-  //
-  // What both layouts do agree on is the `refresh` key, so that is the only
-  // thing read. The cost of asking every interval while disarmed is one
-  // `localStorage` read every few seconds and no request at all.
+// Interval runs regardless; poll decides whether to ask. Control binding was wrong.
   /**
    * Finish what a position fragment cannot say on its own.
-   *
-   * **Two things travel with a position's value and neither is inside the
-   * element being replaced.**
-   *
-   * `aria-expanded` is live state: `dynamic.js` toggles it, and the `.dist`
-   * panel it controls is a *sibling*, so the panel survives a swap that resets
-   * the control. Without this a reader watching an open breakdown would see the
-   * button claim closed over a panel still showing.
-   *
-   * `data-value` sits on the `.position` itself and is what `toolbar.js` sums
-   * for every category total and for the allocation band. A fragment cannot
-   * reach an attribute without replacing the element holding it, so the page's
-   * headline arithmetic would drift away from its own rows - the exact failure
-   * that made narrowing the reload a mistake in the first place.
-   *
-   * **Once per response, not once per element.** htmx 2 bracketed every
-   * out-of-band element with `htmx:oobBeforeSwap`/`oobAfterSwap` and this ran
-   * per element. htmx 4 has neither event: `htmx:before:swap` carries the whole
-   * task list before anything is swapped, and `htmx:after:swap` fires once all
-   * of them are in - so the same work is two passes rather than 2N events.
-   *
-   * Both still fire before the whole-response event `toolbar.js` repaints on,
-   * which is the ordering that has to survive the port. Doing it later would
-   * repaint from the figures this is here to correct.
-   *
+   * aria-expanded and data-value travel with position value.
+   * Once per response; capture phase for ordering.
    * @param {Event} event - htmx's `htmx:before:swap`, carrying `detail.tasks`.
    */
   function rememberExpanded(event) {
@@ -341,26 +251,8 @@
   document.body.addEventListener("liverefresh:spent", spent);
   /**
    * Send what the page is carrying, so the server can say what changed.
-   *
-   * **The one thing the poll cannot work out for itself.** A position opening
-   * or closing changes a row inside a row the page already has. The server
-   * knows the reader's fingerprint, which is a digest and not a list, so it can
-   * tell that the positions moved and not which ones - and the answer is a
-   * venue group, which the diff has no way to describe. So it asks, and this
-   * replies with one token per position: `<asset id>:<pid>`.
-   *
-   * The asset is sent rather than parsed out of the pid on the server, because
-   * a pid's internals belong to `api/position_id.py` and this already knows the
-   * asset - `data-owner` is on every row for the toolbar's sake.
-   *
-   * Ambiguous positions carry no `data-pid` at all, so they are absent from
-   * this by construction and the server excludes them to match. Their groups
-   * keep being corrected by the reload, as they always were.
-   *
-   * **One at a time.** The trigger arrives on every poll until the page has
-   * caught up, and a regroup takes longer than the three-second interval, so
-   * without this a slow answer would stack three or four requests all sending
-   * the same stale pid list.
+   * Position changes need server to diff; sends asset:pid tokens.
+   * One at a time to avoid stacking.
    */
   function regroup() {
     if (regrouping || !window.htmx) {
@@ -378,14 +270,7 @@
       source: marker,
       swap: "none",
       values: { pids: pids.join(" ") },
-      // **Sent explicitly, because nothing else here would.** This is the only
-      // POST the widget makes, and it is made by `htmx.ajax` from a `<span>`
-      // rather than submitted from a form - so there is no
-      // `csrfmiddlewaretoken` field to pick up and no `hx-headers` on an
-      // ancestor to inherit. Django refused it outright, and the browser test
-      // is what found that: every unit test around it passed, because none of
-      // them goes through the middleware. Same read as the swap and Dust Sweep
-      // widgets do it.
+      // CSRF sent explicitly: only POST, from span not form.
       headers: { "X-CSRFToken": csrfToken() },
     });
   }
@@ -402,27 +287,15 @@
 
   /**
    * Take the new groups, and put the reader's view back around them.
-   *
-   * **Group-by-venue is why this exists.** `toolbar.js` moves `.pgroup`
-   * elements out of their asset and into `#venue-list`, remembering the parent
-   * on the element itself. Replacing `.program-groups` under that leaves the
-   * moved groups pointing at a node no longer in the document - so switching
-   * back would append them to nothing and the reader would watch their
-   * positions disappear. Dropping the moved copies and asking the toolbar to
-   * lay itself out again is what makes the swap safe in either mode.
-   *
-   * Called after the swap rather than before, because the groups to drop are
-   * the *old* ones and they are identified by the assets that arrived.
-   *
+   * Group-by-venue: toolbar moves pgroup; drop old copies.
+   * Updates holdings fingerprint to avoid re-regroup loop.
    * @param {CustomEvent} event carrying `{ holdings }`
    */
   function regrouped(event) {
     regrouping = false;
     var detail = (event && event.detail) || {};
     if (detail.holdings) {
-      // **The fingerprint the page has now caught up to.** Without this the
-      // next poll compares the fingerprint the page was *rendered* with, finds
-      // it stale, and asks for a regroup again - every three seconds, for ever.
+      // Fingerprint page has now caught up to; avoids re-regroup loop.
       holdings = detail.holdings;
       url = withHoldings(pollUrl, holdings);
       var carrier = document.querySelector("[data-holdings]");
@@ -436,8 +309,7 @@
     }
     var venues = document.getElementById("venue-list");
     if (venues) {
-      // A group in the venue list whose asset was just re-rendered is the old
-      // copy of a group the page now has twice.
+      // Old copy of group page now has twice.
       Array.prototype.slice
         .call(venues.querySelectorAll(".pgroup"))
         .filter(function (group) {
@@ -455,25 +327,11 @@
   // sit still on a quiet page and then jump.
   document.body.addEventListener("liverefresh:left", showLeft);
   // The positions moved and the assets did not, so one venue group is
-  // re-rendered instead of the page being reloaded under the reader.
+  // showLeft: every poll response; regroup: positions moved, assets same.
+  document.body.addEventListener("liverefresh:left", showLeft);
   document.body.addEventListener("liverefresh:regroup", regroup);
   document.body.addEventListener("liverefresh:regrouped", regrouped);
-  // Bracketing the response's whole task list. These fire on the poll's source
-  // element - the marker - and bubble, which is why listening on `body` reaches
-  // them.
-  //
-  // **`true` is the capture phase, and it is load-bearing.** Under htmx 2 this
-  // ran on `oobAfterSwap`, which fired during the swap and so always preceded
-  // the whole-response event `toolbar.js` repaints on. In htmx 4 both are
-  // `htmx:after:swap`, and bubble-phase listeners run in registration order -
-  // which puts `toolbar.js` first, because it is loaded with the page while
-  // this arrives later inside the swapped `_swap_entry.html` partial.
-  //
-  // That order is the bug this whole mechanism exists to prevent: the toolbar
-  // would recompute every category total and the allocation band from the
-  // `data-value` attributes *before* the line below corrects them. Capturing on
-  // an ancestor runs before any bubble listener on it, whatever registered
-  // first, so the ordering no longer depends on which script loaded when.
+  // Bracketing task list; capture phase for ordering before toolbar.js.
   document.body.addEventListener("htmx:before:swap", rememberExpanded, true);
   document.body.addEventListener("htmx:after:swap", settlePosition, true);
   start();
