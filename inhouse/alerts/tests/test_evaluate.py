@@ -145,6 +145,38 @@ class TestAlertsEvaluatePage:
         rule.refresh_from_db()
         assert float(rule.last_value) == 110
 
+    def test_alerts_evaluate_writes_once_however_many_rules(
+        self, reader, django_assert_num_queries
+    ):
+        """**One write for the pass, not one per rule.**
+
+        This runs on nearly every block for every page with a rule on it, for as
+        long as the rule exists - measured at 12.5 ms for two rules and 279 ms
+        for fifty when each saved itself, against 7.7 and 37.9 in one statement.
+        Two queries: the delivery-annotated select, and the bulk write.
+        """
+        for index in range(10):
+            _rule(reader, last_value="120", threshold=f"1{index}0")
+
+        with django_assert_num_queries(2):
+            evaluate_page(PAGE, {"total": 90})
+
+    def test_alerts_evaluate_moves_updated_at_on_a_bulk_write(self, reader):
+        """**`auto_now` does not fire for `bulk_update`.**
+
+        Django applies `auto_now` in `Model.save`, so a bulk write leaves
+        `updated_at` at whatever the last `save` set - a row that claims it has
+        not changed since it was created, while its `last_value` moves every
+        block. `_record_readings` sets it explicitly; this is what says so.
+        """
+        rule = _rule(reader, last_value="120")
+        before = rule.updated_at
+
+        evaluate_page(PAGE, {"total": 110})
+
+        rule.refresh_from_db()
+        assert rule.updated_at > before
+
     def test_alerts_evaluate_arms_a_rule_that_has_seen_nothing(self, reader):
         """A first reading past the threshold is not a crossing the reader was
         there for."""
@@ -372,7 +404,21 @@ class TestAlertsEvaluatePrices:
         self._price_rule(reader, last_value="2")
         self._price_rule(reader, last_value="2", threshold="1.5")
 
-        with django_assert_num_queries(3):  # one select, two saves
+        with django_assert_num_queries(2):  # one select, one bulk write
+            evaluate_prices({31566704: 0.5})
+
+    def test_alerts_evaluate_prices_writes_once_however_many_rules(
+        self, reader, django_assert_num_queries
+    ):
+        """**The write does not grow with the rules**, which is the whole point
+        of `_record_readings`: every rule is written on every evaluation whether
+        or not it fired, and this runs every five minutes for the price half and
+        on nearly every block for the page half. Ten rules used to be eleven
+        queries. See docs/logbook.md."""
+        for index in range(10):
+            self._price_rule(reader, last_value="2", threshold=f"1.{index}")
+
+        with django_assert_num_queries(2):
             evaluate_prices({31566704: 0.5})
 
 

@@ -54,10 +54,11 @@ templates = "templates/"
 # requires `is_authenticated` before any band is consulted.
 #
 # What separates the tiers below Asastatser is not whether they may watch but
-# for how long, and a manifest band cannot say "fifteen minutes". That lives in
-# `allowance.py`: 15 minutes a day with no tier, 30 with Intro, unlimited from
-# Asastatser up. So this band grants admission and the allowance grants
-# duration, which is the only split the two mechanisms allow.
+# for how long, and a manifest band cannot say "two hours". That lives in
+# `allowance.py: TIER_BUCKETS`: a two-hour grant refilling 15 minutes a week with
+# no tier, four hours refilling 30 with Intro, unlimited from Asastatser up. So
+# this band grants admission and the allowance grants duration, which is the only
+# split the two mechanisms allow.
 #
 # First in the list on purpose: `required_permission_for_size` returns the first
 # band wide enough for the size asked for, so a one-address reader lands here

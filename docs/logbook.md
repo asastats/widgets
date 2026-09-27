@@ -210,6 +210,57 @@ depth. A price out of a shallow pool moves several percent on one swap and back;
 telling the reader what a trade could absorb lets them judge it. See
 `notifications/DESIGN.md`.
 
+### `evaluate._record_readings` — one write a pass, not one a rule (2026-09-27)
+
+Both evaluators wrote every rule they looked at, one `UPDATE` each, because a
+crossing is "past the line now, not past it before" and so `last_value` advances
+whether or not the rule fired. That is the whole cost of a call that happens on
+nearly every block, per page, for ever.
+
+Measured on this machine, median of three warmed runs, `evaluate_page` against rule
+count:
+
+| rules | one save each | one bulk write | |
+|---|---|---|---|
+| 1 | 8.2 ms | 7.0 ms | |
+| 2 | 12.5 ms | 7.7 ms | −38% |
+| 5 | 31.9 ms | 9.2 ms | −71% |
+| 10 | 51.1 ms | 11.5 ms | −77% |
+| 25 | 134 ms | 19.8 ms | −85% |
+| 50 | 279 ms | 37.9 ms | −86% |
+
+Production's own figure for the whole request is 25.77 ms mean over 92,365 calls
+(`nginx` logs `$upstream_response_time` on that vhost), so at today's ~2.5 rules a
+page this is worth about a fifth of it, and at a Professional's twenty-five it is
+most of it. The per-rule cost was the *dominant* term, which is why this is the
+refinement worth having and batching the webhook is not — see
+`post-deploy/alerts-tier-analysis.md`.
+
+**`auto_now` does not fire for `bulk_update`.** Django applies it in `Model.save`,
+so the helper sets `updated_at` itself; without that a row would keep claiming it
+had not changed since creation while its `last_value` moved every block. A test
+pins it, because nothing else would notice.
+
+Two tests pin the write count rather than the timing — one per evaluator — since a
+timing test on this hardware would be a flake generator and the count is the thing
+that actually has to hold.
+
+### Why the webhook is not batched
+
+The engine posts `{"page": page}` once per page per block, inside `_live_page`, so
+the pass waits for the website on every block for every rule page. One POST
+carrying every page that moved would turn twenty requests a block into one and
+twenty waits into one, for about thirty lines on each side.
+
+**The measurement says not yet.** At 25.77 ms a call, one page notified every block
+is 13.7 minutes of worker time a day, and the largest tier's twenty pages is 1.5%
+of the site's request capacity (13 gunicorn workers). There is also nothing to
+batch at today's ~1.8 pages a block. And it cannot be rolled out without
+coordination: a new engine sending `pages` to an old website would have its calls
+refused as "No page named", so the website has to accept both shapes a deploy
+before the engine starts sending the new one. Recorded here so the design does not
+have to be rediscovered when it is worth it.
+
 ### `tiers` — three tables, because there are three costs (2026-09-27)
 
 Alerts were Asastatser and up, five rules, every subject. They now open to every

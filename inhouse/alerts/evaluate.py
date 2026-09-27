@@ -299,6 +299,30 @@ def _report_muted(muted):
         logger.info("alerts: %s crossing(s) muted by a cooldown", muted)
 
 
+def _record_readings(rules, now):
+    """Store what every evaluated rule saw, in one statement.
+
+    **One `UPDATE` for the pass, not one per rule.** Every rule is written on
+    every evaluation whether or not it fired, because a crossing is "past the
+    line now, not past it before" - so this is the whole cost of a webhook call
+    that happens on nearly every block, per page, for ever. Measured at ~3.7 ms a
+    rule when each saved itself. See docs/logbook.md.
+
+    `updated_at` is `auto_now`, which `bulk_update` does not apply, so it is set
+    here: a row written without it would claim it had not changed since whenever
+    it last went through `save`.
+
+    :param rules: the rules evaluated this pass, carrying their new readings
+    :type rules: list
+    :param now: the moment being evaluated at
+    """
+    if not rules:
+        return
+    for rule in rules:
+        rule.updated_at = now
+    AlertRule.objects.bulk_update(rules, ["last_value", "last_fired_at", "updated_at"])
+
+
 def cooling_down(rule, now):
     """Whether `rule` fired recently enough to stay quiet.
 
@@ -356,6 +380,8 @@ def evaluate_page(address, payload, now=None, client=None, unix_now=None):
     algo_per_usd = payload.get("priceusdc")
 
     fired, skipped, held, muted = [], 0, 0, 0
+    # **Written once at the end, not once per rule.** See `_record_readings`.
+    seen = []
     for rule in _with_delivery(
         AlertRule.objects.filter(address=address, active=True).select_related("user")
     ):
@@ -392,8 +418,9 @@ def evaluate_page(address, payload, now=None, client=None, unix_now=None):
                 rule.last_fired_at = now
                 fired.append(rule)
         rule.last_value = value
-        rule.save(update_fields=["last_value", "last_fired_at", "updated_at"])
+        seen.append(rule)
 
+    _record_readings(seen, now)
     _report_muted(muted)
     if held:
         logger.info(
@@ -439,6 +466,7 @@ def evaluate_prices(
         return []
 
     fired, held, muted = [], 0, 0
+    seen = []
     for rule in _with_delivery(
         AlertRule.objects.filter(
             subject__in=PRICED_SUBJECTS,
@@ -488,8 +516,9 @@ def evaluate_prices(
             rule.depth_algo = depths.get(rule.asset_id)
             fired.append(rule)
         rule.last_value = value
-        rule.save(update_fields=["last_value", "last_fired_at", "updated_at"])
+        seen.append(rule)
 
+    _record_readings(seen, now)
     _report_muted(muted)
     if held:
         logger.info(
