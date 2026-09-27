@@ -6,7 +6,9 @@ from django.contrib.auth import get_user_model
 from widgets.inhouse.alerts.models import (
     ASSET_SUBJECTS,
     DEFAULT_COOLDOWN_SECONDS,
+    PAGE_SUBJECTS,
     PERCENT_SUBJECTS,
+    PRICED_SUBJECTS,
     AlertRule,
     Direction,
     Subject,
@@ -124,6 +126,21 @@ class TestAlertRuleShape:
 
         assert {s.value for s in ASSET_SUBJECTS} <= names
         assert {s.value for s in PERCENT_SUBJECTS} <= names
+
+    def test_alerts_models_every_subject_is_priced_or_needs_a_page(self):
+        """**A new subject lands in `PAGE_SUBJECTS` by arithmetic.**
+
+        `population.publish_page` reads it to decide whether a rule keeps its
+        page in the engine's live pass. Enumerating the four by hand would mean a
+        subject added later is published for nobody - an alert that never fires,
+        which is the silent half of the failure.
+        """
+        names = {choice.value for choice in Subject}
+
+        assert set(PRICED_SUBJECTS) | set(PAGE_SUBJECTS) == names
+        assert set(PRICED_SUBJECTS) & set(PAGE_SUBJECTS) == set()
+        assert Subject.ASA_AMOUNT in PAGE_SUBJECTS
+        assert Subject.ASA_PRICE not in PAGE_SUBJECTS
 
 
 class TestAlertRulePersistence:

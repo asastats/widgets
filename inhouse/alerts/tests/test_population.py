@@ -74,6 +74,46 @@ class TestAlertsPopulationPublish:
 
         assert publish_page("BUNDLE", client) is False
 
+    @pytest.mark.parametrize("subject", (Subject.ASA_PRICE, Subject.ASA_PRICE_PERCENT))
+    def test_alerts_population_ignores_a_price_rule(self, reader, mocker, subject):
+        """**A price rule must not put its page in the live pass.**
+
+        It stores the address it was written from, and publishing on that made
+        the engine value that page every block for ever to answer a question the
+        periodic price task answers. See docs/logbook.md.
+        """
+        client = mocker.MagicMock()
+        AlertRule.objects.create(
+            user=reader,
+            subject=subject,
+            direction=Direction.UP,
+            threshold="1",
+            asset_id=31566704,
+            address="BUNDLE",
+            window_seconds=3600,
+        )
+
+        assert publish_page("BUNDLE", client) is False
+        client.zrem.assert_called_once_with(RULES_KEY, "BUNDLE")
+
+    def test_alerts_population_keeps_a_page_a_holding_rule_still_names(
+        self, reader, mocker
+    ):
+        """The other half of it: a price rule beside a page rule takes nothing
+        away, so the page stays."""
+        client = mocker.MagicMock()
+        _rule(reader)
+        AlertRule.objects.create(
+            user=reader,
+            subject=Subject.ASA_PRICE,
+            direction=Direction.UP,
+            threshold="1",
+            asset_id=31566704,
+            address="BUNDLE",
+        )
+
+        assert publish_page("BUNDLE", client) is True
+
     def test_alerts_population_scores_with_a_time_that_never_expires_it(
         self, reader, mocker
     ):

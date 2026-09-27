@@ -138,10 +138,115 @@ class TestAlertRuleFormShape:
 class TestAlertRuleFormAllowance:
     """Testing class for the tier cap, enforced where the rule is made."""
 
-    def test_alerts_forms_refuse_a_reader_below_the_tier(self):
+    def test_alerts_forms_admit_a_price_rule_below_the_paid_tiers(self):
+        """**Price rules are the free half**, and they cost nothing per reader:
+        the periodic task prices an asset once for everybody watching it."""
+        form = AlertRuleForm(_post(), user=_reader(tier="Intro"))
+
+        assert form.is_valid() is True
+
+    def test_alerts_forms_refuse_a_tier_that_keeps_none(self, mocker):
+        """**The branch no authenticated tier reaches any more.**
+
+        It was Intro's, until price-only rules opened to every reader on
+        2026-09-27. It is still the right refusal for a tier that keeps none, and
+        the message is the only thing that tells such a reader where to go - so
+        the table is patched rather than the branch deleted.
+        """
+        mocker.patch.dict(
+            "widgets.inhouse.alerts.tiers.ALERT_RULES_PER_TIER", {"Intro": 0}
+        )
+
         form = AlertRuleForm(_post(), user=_reader(tier="Intro"))
 
         assert form.is_valid() is False
+        assert "Alerts are available from the Asastatser tier." in str(form.errors)
+
+    @pytest.mark.parametrize(
+        "subject",
+        (
+            Subject.TOTAL_VALUE,
+            Subject.TOTAL_PERCENT,
+            Subject.ASA_TOTAL,
+            Subject.ASA_AMOUNT,
+        ),
+    )
+    def test_alerts_forms_refuse_a_page_subject_below_asastatser(self, subject):
+        """**Every one of these pins the page into the engine's live pass**, at
+        about 29,000 website requests a day each, for ever - see
+        post-deploy/alerts-tier-analysis.md. `asa_amount` is the one that reads
+        like an asset subject and is not.
+        """
+        form = AlertRuleForm(
+            _post(subject=subject, window_seconds="3600"),
+            user=_reader(tier="Intro"),
+            address="BUNDLE",
+        )
+
+        assert form.is_valid() is False
+        assert "Asastatser" in str(form.errors)
+
+    def test_alerts_forms_admit_a_page_subject_from_asastatser(self):
+        form = AlertRuleForm(
+            _post(subject=Subject.TOTAL_VALUE),
+            user=_reader(tier="Asastatser"),
+            address="BUNDLE",
+        )
+
+        assert form.is_valid() is True
+
+    def test_alerts_forms_refuse_a_second_page_at_the_page_cap(self):
+        """**Pages, not rules, because the live pass is charged per page.**
+        Asastatser keeps one: a rule on a second bundle is a second permanent
+        subscription, which is the cost the rule count cannot see."""
+        reader = _reader(tier="Asastatser")
+        AlertRule.objects.create(
+            user=reader,
+            subject=Subject.TOTAL_VALUE,
+            direction=Direction.DOWN,
+            threshold="1",
+            address="FIRST",
+        )
+
+        form = AlertRuleForm(
+            _post(subject=Subject.TOTAL_VALUE), user=reader, address="SECOND"
+        )
+
+        assert form.is_valid() is False
+        assert "1 page" in str(form.errors)
+
+    def test_alerts_forms_admit_another_rule_on_a_page_already_watched(self):
+        """A second rule on the same page adds a row, not a page."""
+        reader = _reader(tier="Asastatser")
+        AlertRule.objects.create(
+            user=reader,
+            subject=Subject.TOTAL_VALUE,
+            direction=Direction.DOWN,
+            threshold="1",
+            address="FIRST",
+        )
+
+        form = AlertRuleForm(
+            _post(subject=Subject.TOTAL_VALUE), user=reader, address="FIRST"
+        )
+
+        assert form.is_valid() is True
+
+    def test_alerts_forms_a_price_rule_spends_no_page(self):
+        """The whole point of the split: a price rule never enters `lvr`, so it
+        cannot be refused for a page it does not use."""
+        reader = _reader(tier="Asastatser")
+        AlertRule.objects.create(
+            user=reader,
+            subject=Subject.TOTAL_VALUE,
+            direction=Direction.DOWN,
+            threshold="1",
+            address="FIRST",
+        )
+
+        form = AlertRuleForm(_post(), user=reader, address="SECOND")
+
+        assert form.is_valid() is True
 
     def test_alerts_forms_refuse_the_rule_past_the_cap(self):
         """**The cap is checked in the form, not the view**, so that the one

@@ -210,6 +210,100 @@ depth. A price out of a shallow pool moves several percent on one swap and back;
 telling the reader what a trade could absorb lets them judge it. See
 `notifications/DESIGN.md`.
 
+### `tiers` — three tables, because there are three costs (2026-09-27)
+
+Alerts were Asastatser and up, five rules, every subject. They now open to every
+authenticated reader on the half that costs nothing, which is what advertises a
+feature nobody outside the paid tiers had seen.
+
+| tier | rules | subjects | pages |
+|---|---|---|---|
+| authenticated, no subscription | 2 | price only | 0 |
+| Intro | 5 | price only | 0 |
+| Asastatser | 5 | all six | 1 |
+| Professional | 25 | all six | 5 |
+| Cluster | 50 | all six | 20 |
+
+**Why the split falls there.** Measured 2026-09-27: the per-asset half is 288
+website requests a day for every asset and every reader *together*, because
+`price_watched_assets` asks "who cares about this asset" once per asset. The
+per-page half is about 29,000 a day **per page**, for ever, because the rule keeps
+the page in `lvr` and the live pass values it every block whether or not anybody
+is looking. Two rules on an obscure asset cost two cache reads every five
+minutes; one portfolio rule costs three to four minutes of engine CPU a day and a
+permanent subscription. `post-deploy/alerts-tier-analysis.md` has the measurements.
+
+**`ALERT_PAGES_PER_TIER` is new because the rule count bounds the wrong
+quantity.** Twenty-five rules on one page cost what one does; twenty-five rules on
+twenty-five heavy bundles is 25,575 holdings against a 20,000-holding budget, and
+`_live_pages` admits rule pages *ahead* of paying live-refresh readers - it passes
+`paid | rule_pages` and walks them first. Nothing stopped one Professional
+subscriber shedding every other reader. The numbers match the `liverefresh` bands
+1 / 5 / 20 deliberately: the same quantity, bought twice. They are still written
+out separately, because an alert page never expires while a watched address stops
+costing anything when the tab closes.
+
+**The gate is on the subject, not only on the count**, and it has to be: a count
+cannot say "two rules, but only of these kinds", and `_live_pages`' invariant that
+`lvr` is a subset of the paying readers is what would break.
+
+### How the restrictions are presented
+
+Four surfaces, and the principle is the one this file already had: the gate is on
+the control, and below the tier the control is a link to the plans rather than a
+dead input.
+
+1. **The whole-panel upsell** in `modal.html` — "Alerts are available from the
+   Asastatser tier" — is what this retires for authenticated readers. The branch
+   stays for a tier that keeps none; no current one reaches it, and a patched
+   table is how both test suites still cover it.
+2. **The subject picker is rendered short**, filtered in the view, and
+   `.alerts-tiernote` beneath it names the missing half: *"Portfolio alerts — your
+   total, a holding, what a holding is worth — come with Asastatser."* A short list
+   on its own reads as a small feature; the note is what makes it an offer.
+   `alerts.js` mirrors the subject lists to decide which *fields* to show and never
+   which subjects a reader may pick, so the filtering has to be server-side.
+3. **The existing count line** now carries real numbers for a free reader, so the
+   allowance reads as an allowance rather than as a broken control.
+4. **`.alerts-pages`** shows the page cap before it is met. A cap a reader only
+   ever meets as a rejection is a cap they experience as a bug.
+
+Both refusals name what they buy rather than only saying no, and both surface in
+the panel's existing `.alerts-error` paragraph.
+
+### `population.publish_page` — a price rule must not publish its page (2026-09-27)
+
+`publish_page` asked `filter(address=address, active=True).exists()`, which is
+subject-blind, while the form stores `address` on **every** rule including a price
+one. So an `asa_price` rule written from an address page put that page into `lvr`,
+and the engine's live pass then valued it every block for ever — to answer a
+question the periodic price task answers, and which `evaluate_page` immediately
+skips (`SKIPPED` holds both priced subjects).
+
+Measured on 2026-09-27, that mistake is not small. From the day's nginx log:
+
+    22,493  POST /widgets/alerts/repriced      ~2,400 an hour
+       112  POST /widgets/alerts/priced        ~12 an hour = the 5-minute crontab
+
+At 1,333 blocks an hour, one page in `lvr` is about **1,200 website requests an
+hour, 29,000 a day, permanently** — each a Django request, an indexed query and an
+`UPDATE` per rule — plus 0.31 ms per holding per block in the engine and a full
+account read every 60 blocks. The whole per-asset half costs 288 requests a day
+**for every asset and every reader together**.
+
+It now filters on `models.PAGE_SUBJECTS`, which is the *complement* of
+`PRICED_SUBJECTS` rather than a second enumeration: a subject added later needs a
+page until somebody says otherwise, because a forgotten entry that way costs a
+page valued for nothing, where the other way round it is an alert that silently
+never fires.
+
+This also unblocks price-only alerts for the tiers below Asastatser. Until it
+landed, "price alerts are the cheap tier" was false — a free price rule would have
+cost exactly what a portfolio rule costs. See `post-deploy/alerts-tier-analysis.md`
+for the tier table and for the two exposures it leaves open: `lvr` pages are
+admitted *ahead* of paying live-refresh readers (`_live_pages` passes
+`paid | rule_pages`), and the per-tier cap counts rules where the cost is per page.
+
 ---
 
 ## inhouse/alerts/static/alerts/alerts.js

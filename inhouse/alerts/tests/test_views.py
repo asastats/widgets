@@ -135,15 +135,57 @@ class TestInhouseAlertsViewsContext:
 
         assert view.alerts_context("B")["rules_left"] == 0
 
+    def test_inhouse_alerts_views_context_gives_intro_the_price_half(self, mocker):
+        """**Entitled, and restricted to the half that costs nothing.**
+
+        Intro used to get the whole-panel upsell. It now gets a working panel
+        with two subjects in the picker and no portfolio page, which is what
+        advertises the feature - see post-deploy/alerts-tier-analysis.md.
+        """
+        view = AlertsView()
+        view.request = mocker.MagicMock(user=_reader(tier="Intro"))
+        context = view.alerts_context("B")
+
+        assert context["alerts_entitled"] is True
+        assert context["portfolio_alerts_available"] is False
+        assert context["pages_allowed"] == 0
+        assert [value for value, _ in context["subjects"]] == [
+            Subject.ASA_PRICE,
+            Subject.ASA_PRICE_PERCENT,
+        ]
+
     def test_inhouse_alerts_views_context_marks_an_unentitled_reader(self, mocker):
         """Zero is both "not subscribed" and "used them all", and the modal says
-        different things about each - so the context distinguishes them."""
+        different things about each - so the context distinguishes them.
+
+        No authenticated tier keeps zero rules since 2026-09-27, so the table is
+        patched: the branch is still reachable by a future one, and a template
+        that had lost its upsell would be found by nothing else.
+        """
+        mocker.patch.dict(
+            "widgets.inhouse.alerts.tiers.ALERT_RULES_PER_TIER", {"Intro": 0}
+        )
         view = AlertsView()
         view.request = mocker.MagicMock(user=_reader(tier="Intro"))
         context = view.alerts_context("B")
 
         assert context["alerts_entitled"] is False
         assert context["rules_left"] == 0
+
+    def test_inhouse_alerts_views_context_counts_the_pages_a_reader_watches(self, mocker):
+        """Pages, not rules: two rules on one page is one page. The reader sees
+        this before the form refuses a second one."""
+        reader = _reader(tier="Asastatser")
+        _rule(reader, subject=Subject.TOTAL_VALUE, address="FIRST", asset_id=None)
+        _rule(reader, subject=Subject.TOTAL_PERCENT, address="FIRST", asset_id=None)
+        _rule(reader, subject=Subject.ASA_PRICE, address="SECOND")
+        view = AlertsView()
+        view.request = mocker.MagicMock(user=reader)
+        context = view.alerts_context("FIRST")
+
+        assert context["portfolio_alerts_available"] is True
+        assert context["pages_allowed"] == 1
+        assert context["pages_kept"] == 1
 
     def test_inhouse_alerts_views_context_omits_inactive_rules(self, mocker):
         reader = _reader()

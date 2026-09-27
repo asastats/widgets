@@ -34,6 +34,7 @@ from .evaluate import evaluate_page, evaluate_prices, payload_for
 from .forms import UNIT_CHOICES, WINDOW_CHOICES, AlertRuleForm
 from .manifest import MANIFEST
 from .models import (
+    PAGE_SUBJECTS,
     PRICED_SUBJECTS,
     AlertRule,
     Direction,
@@ -42,7 +43,12 @@ from .models import (
 )
 from .population import publish_assets, publish_page
 from .push import notify, push_configured
-from .tiers import more_rules_available, rules_allowed
+from .tiers import (
+    more_rules_available,
+    pages_allowed,
+    rules_allowed,
+    subjects_allowed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +96,10 @@ class AlertsContextMixin:
 
         user = self.request.user
         profile = getattr(user, "profile", None)
-        allowed = rules_allowed(getattr(profile, "permission", 0))
+        permission = getattr(profile, "permission", 0)
+        allowed = rules_allowed(permission)
+        subjects = subjects_allowed(permission)
+        pages = pages_allowed(permission)
         rules = list(
             AlertRule.objects.filter(user=user, active=True).order_by("-created_at")
         )
@@ -113,7 +122,16 @@ class AlertsContextMixin:
                 getattr(profile, "permission", 0)
             ),
             "alerts_entitled": allowed > 0,
-            "subjects": Subject.choices,
+            # Filtered server-side. `alerts.js` mirrors the subject lists to
+            # decide which fields to show, never which a reader may choose.
+            "subjects": [choice for choice in Subject.choices if choice[0] in subjects],
+            # Whether this tier keeps the page half at all, and how much of it.
+            # The page cap is the one that matches the cost; see `tiers`.
+            "portfolio_alerts_available": bool(pages),
+            "pages_allowed": pages,
+            "pages_kept": len(
+                {rule.address for rule in rules if rule.subject in PAGE_SUBJECTS} - {""}
+            ),
             "directions": Direction.choices,
             "windows": WINDOW_CHOICES,
             "units": UNIT_CHOICES,

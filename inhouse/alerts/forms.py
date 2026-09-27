@@ -17,6 +17,7 @@ from django import forms
 from .models import (
     ASSET_SUBJECTS,
     CURRENCY_SUBJECTS,
+    PAGE_SUBJECTS,
     PERCENT_SUBJECTS,
     PRICED_SUBJECTS,
     AlertRule,
@@ -24,7 +25,7 @@ from .models import (
     Subject,
 )
 from .population import publish_assets, publish_page
-from .tiers import rules_allowed
+from .tiers import pages_allowed, rules_allowed, subjects_allowed
 
 #: Windows a percentage rule may be measured over.
 #:
@@ -151,7 +152,42 @@ class AlertRuleForm(forms.Form):
             cleaned["window_seconds"] = None
 
         self._settle_unit(cleaned)
+        self._check_page_allowance(subject)
         return cleaned
+
+    def _check_page_allowance(self, subject):
+        """Refuse a page-subject rule on one page too many.
+
+        **Counted in pages, because that is what the engine is charged in.** A
+        page with a rule on it is valued every block for ever, so twenty-five
+        rules on one page cost what one does and twenty-five pages cost
+        twenty-five times as much. See `tiers.ALERT_PAGES_PER_TIER`.
+
+        A rule on a page the reader already watches is always allowed: it adds a
+        row, not a page.
+
+        :param subject: the cleaned subject
+        :type subject: str
+        """
+        if subject not in PAGE_SUBJECTS or not self.address:
+            return
+        profile = getattr(self.user, "profile", None)
+        allowed = pages_allowed(getattr(profile, "permission", 0))
+
+        kept = AlertRule.objects.filter(
+            user=self.user, active=True, subject__in=PAGE_SUBJECTS
+        ).exclude(address="")
+        if self.instance is not None:
+            kept = kept.exclude(pk=self.instance.pk)
+        pages = set(kept.values_list("address", flat=True))
+        if self.address in pages or len(pages) < allowed:
+            return
+        self.add_error(
+            None,
+            f"Portfolio alerts cover {allowed} "
+            f"{'page' if allowed == 1 else 'pages'} on your plan, and you are "
+            "watching that many. Remove one, or upgrade to watch more.",
+        )
 
     def _settle_unit(self, cleaned):
         """Record the currency the reader typed in, without converting.
@@ -193,9 +229,18 @@ class AlertRuleForm(forms.Form):
         """
         subject = self.cleaned_data["subject"]
         profile = getattr(self.user, "profile", None)
-        allowed = rules_allowed(getattr(profile, "permission", 0))
+        permission = getattr(profile, "permission", 0)
+        allowed = rules_allowed(permission)
         if not allowed:
             raise forms.ValidationError("Alerts are available from the Asastatser tier.")
+        # **The subject gate, and it is the cost gate.** A priced subject is
+        # answered per asset for every reader at once; every other subject pins
+        # the reader's page into the engine's live pass for ever. See `tiers`.
+        if subject not in subjects_allowed(permission):
+            raise forms.ValidationError(
+                "That alert watches a portfolio, which is available from the "
+                "Asastatser tier. Asset price alerts are included with your plan."
+            )
         # **An edit spends no slot.** The rule being edited is already among
         # the kept ones, so counting it refuses every edit by a reader at their
         # limit - the reader most likely to be changing a rule rather than

@@ -82,6 +82,17 @@
     {% endif %}{% endif %}
   </p>
 
+  {% comment %} The page cap, shown before it is met rather than only as a
+     refusal. It is a second number because it bounds a second cost: a page with
+     a rule on it is valued every block for ever, so rules and pages are not one
+     quantity. See `tiers.ALERT_PAGES_PER_TIER`. {% endcomment %}
+  {% if portfolio_alerts_available %}
+  <p class="alerts-pages">
+    {{ pages_kept }} of {{ pages_allowed }}
+    portfolio {% if pages_allowed == 1 %}page{% else %}pages{% endif %}.
+  </p>
+  {% endif %}
+
   {% comment %} **Every control shows what was sent, not its default.**
 
      A rejected rule comes back as a bound form and this panel replaces the one
@@ -117,6 +128,20 @@
         {% endfor %}
       </select>
     </label>
+
+    {% comment %} **What the tier does not include, named rather than absent.**
+
+       The options themselves are filtered in the view. A shorter list on its own
+       reads as a small feature; it has to say what the missing half is, because
+       the missing half is what the subscription buys. Same shape as the count
+       line below: the restriction and the link in one sentence.
+    {% endcomment %}
+    {% if not portfolio_alerts_available %}
+    <p class="alerts-tiernote">
+      Portfolio alerts &mdash; your total, a holding, what a holding is worth
+      &mdash; come with <a href="{% url 'subscriptions' %}" class="link">Asastatser</a>.
+    </p>
+    {% endif %}
 
     {% comment %} Shown only for the two subjects that name an asset.
        `alerts.js` toggles it; it is rendered either way so switching subject

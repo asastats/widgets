@@ -122,6 +122,11 @@ def publish_page(address, client=None):
     merely re-priced for nobody, while a page wrongly absent is alerts that
     never fire. Asking the database is cheap and cannot drift.
 
+    **Only a rule whose subject needs the page counts.** A price rule stores the
+    address it was written from, and publishing on that put the page in the live
+    pass for ever to answer a question the periodic price task answers - see
+    `models.PAGE_SUBJECTS` and docs/logbook.md.
+
     :param address: the bundle or address the rules name
     :type address: str
     :param client: an open Redis client, or None to make one
@@ -132,9 +137,11 @@ def publish_page(address, client=None):
     if not address:
         return None
 
-    from .models import AlertRule  # noqa: PLC0415 - avoids an import cycle
+    from .models import PAGE_SUBJECTS, AlertRule  # noqa: PLC0415 - import cycle
 
-    wanted = AlertRule.objects.filter(address=address, active=True).exists()
+    wanted = AlertRule.objects.filter(
+        address=address, active=True, subject__in=PAGE_SUBJECTS
+    ).exists()
     try:
         client = client or redis_instance()
         if wanted:

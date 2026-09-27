@@ -85,6 +85,15 @@ CURRENCY_SUBJECTS = frozenset(
 #: that need a price nobody else asked for.
 PRICED_SUBJECTS = frozenset({Subject.ASA_PRICE, Subject.ASA_PRICE_PERCENT})
 
+#: Subjects the per-page evaluator answers, and so the pages the engine's live
+#: pass has to keep valued - `population.publish_page` reads this.
+#:
+#: **The complement of `PRICED_SUBJECTS`, not a second list.** A subject added
+#: later needs a page until somebody says otherwise: that way a forgotten entry
+#: costs a page valued for nothing, where the other way round it would be an
+#: alert that silently never fires.
+PAGE_SUBJECTS = frozenset(set(Subject.values) - set(PRICED_SUBJECTS))
+
 #: Subjects expressed as a percentage move, and so require a window.
 PERCENT_SUBJECTS = frozenset({Subject.TOTAL_PERCENT, Subject.ASA_PRICE_PERCENT})
 
