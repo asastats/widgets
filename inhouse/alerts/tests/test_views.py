@@ -1413,8 +1413,57 @@ class TestInhouseAlertsViewsEdit:
 
         html = view.get(view.request).content.decode()
 
-        assert 'value="100.0000000000"' in html or 'value="100' in html
+        # **The exact string, not "either shape".** This used to accept
+        # `100.0000000000` as well, which is what the column stores and what the
+        # input showed the reader. See docs/logbook.md.
+        assert 'value="100"' in html
+        assert "100.0000000000" not in html
         assert "Save changes" in html
+
+    def test_inhouse_alerts_views_edit_keeps_both_units(self, mocker):
+        """**An edit used to rewrite the rule it was editing.** Neither unit was
+        put in the form, so a USD threshold came back as ALGO - a different rule -
+        and the asset's unit name was blanked. See docs/logbook.md."""
+        reader = _reader(email="edit-units@example.com")
+        rule = _rule(
+            reader,
+            subject=Subject.ASA_TOTAL,
+            asset_id=31566704,
+            threshold="500",
+            address=self.PAGE,
+        )
+        rule.threshold_unit = "usd"
+        rule.asset_unit = "USDC"
+        rule.save()
+        view = self._view(reader, rule)
+
+        html = view.get(view.request).content.decode()
+
+        # The hidden input is what the form posts back; the pressed button is
+        # what the reader sees agreeing with it.
+        assert 'class="alerts-unit-value"' in html and 'value="usd"' in html
+        assert 'data-unit="usd"' in html or 'aria-pressed="true">USD' in html
+        assert 'value="USDC"' in html
+
+    def test_inhouse_alerts_views_edit_names_an_algo_rule(self, mocker):
+        """Asset id 0 is falsy, so the button read "Choose asset" on a rule that
+        had one - the template's half of the same defect as the form's."""
+        reader = _reader(email="edit-algo@example.com")
+        rule = _rule(
+            reader,
+            subject=Subject.ASA_TOTAL,
+            asset_id=0,
+            threshold="500",
+            address=self.PAGE,
+        )
+        rule.asset_unit = "ALGO"
+        rule.save()
+        view = self._view(reader, rule)
+
+        html = view.get(view.request).content.decode()
+
+        assert "ALGO #0" in html
+        assert "Choose asset" not in html
 
     def test_inhouse_alerts_views_edit_applies_the_change(self, mocker):
         reader = _reader(email="edit-apply@example.com")

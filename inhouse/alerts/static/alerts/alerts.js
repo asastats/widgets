@@ -556,6 +556,10 @@
     if (open) {
       var search = picker.querySelector(".alerts-asset-search");
       if (search) search.focus();
+    } else {
+      // Hiding the sheet drops focus to the body, so it goes back on the
+      // button that opened it rather than nowhere.
+      button.focus();
     }
     return true;
   }
@@ -567,6 +571,13 @@
     var row = event.target.closest(".alerts-asset-results .id-swap-asset-option");
     if (row) {
       chooseAsset(row);
+      return;
+    }
+
+    // Before the button: the sheet covers it, so this is the only way back.
+    var close = event.target.closest(".id-alerts-picker-close");
+    if (close) {
+      togglePicker(close.closest(".alerts-asset-field"), false);
       return;
     }
 

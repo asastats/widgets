@@ -176,13 +176,27 @@
               aria-expanded="false">
         <img class="alerts-assetbtn-icon" alt="" hidden
              data-fallback="{{ BASE_CDN_URL }}/icons/empty.png">
-        <span class="alerts-assetbtn-text">{% if form.asset_id.value %}#{{ form.asset_id.value }}{% else %}Choose asset{% endif %}</span>
+        {# `default_if_none` and a string test, never `{% if value %}`: **ALGO's #}
+        {# asset id is 0**, which is falsy, so a truth test labels an ALGO rule #}
+        {# "Choose asset" and loses the unit `chooseAsset` would have shown.    #}
+        <span class="alerts-assetbtn-text">{% with chosen=form.asset_id.value|default_if_none:'' %}{% if chosen != '' %}{{ form.asset_unit.value|default_if_none:'' }} #{{ chosen }}{% else %}Choose asset{% endif %}{% endwith %}</span>
       </button>
 
-      {% comment %} The picker, inline rather than a nested `<dialog>`: this
-         form is already inside one, and a dialog inside a dialog is a focus
-         trap inside a focus trap. {% endcomment %}
+      {% comment %} The picker, a sheet over the whole modal rather than a nested
+         `<dialog>`: this form is already inside one, and a dialog inside a
+         dialog is a focus trap inside a focus trap.
+
+         **Overlays the card, the way the swap modal's picker does**, so a long
+         result list cannot push the form past the bottom of the screen.
+         `.alerts-shell` is the positioned ancestor; the markup stays inside the
+         field because `chooseAsset` and `togglePicker` both scope to it.
+      {% endcomment %}
       <div class="alerts-picker" hidden>
+        <div class="alerts-picker-head">
+          <h3 class="alerts-picker-title">Select an asset</h3>
+          <button type="button" class="alerts-picker-close id-alerts-picker-close"
+                  aria-label="Back to the rule">&times;</button>
+        </div>
         <label class="alerts-search">
           <input type="search" class="alerts-asset-search"
                  placeholder="Search name, unit or asset ID"

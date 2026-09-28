@@ -125,6 +125,20 @@ def format_count(amount):
     return f"{whole}.{fraction}" if fraction else whole
 
 
+def plain_threshold(amount):
+    """Return `amount` as the reader would type it, for an input's value.
+
+    Full stored scale with the trailing zeros gone, and never an exponent -
+    `Decimal.normalize()` turns 100 into "1E+2", which an input would post back
+    and `DecimalField` would then reject. See docs/logbook.md.
+
+    :param amount: the stored threshold
+    :type amount: decimal.Decimal or float
+    :return: str
+    """
+    return _trimmed(amount, STORED_DECIMALS)
+
+
 def format_percent(amount):
     """Return `amount` as a percentage, without trailing zeros.
 

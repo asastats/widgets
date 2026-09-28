@@ -134,7 +134,9 @@ class AlertRuleForm(forms.Form):
             return cleaned
 
         if subject in {s.value for s in ASSET_SUBJECTS}:
-            if not cleaned.get("asset_id"):
+            # `is None`, never falsiness: **ALGO's asset id is 0**, so a truth
+            # test refuses the one asset every reader holds.
+            if cleaned.get("asset_id") is None:
                 self.add_error("asset_id", "Choose an asset to watch.")
         else:
             # Cleared rather than rejected: the modal keeps the field mounted

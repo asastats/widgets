@@ -39,6 +39,8 @@ function panel(subject) {
             <span class="alerts-assetbtn-text">Choose asset</span>
           </button>
           <div class="alerts-picker" hidden>
+            <button type="button" class="alerts-picker-close id-alerts-picker-close"
+                    aria-label="Back to the rule">&times;</button>
             <input type="search" class="alerts-asset-search" name="q">
             <div class="alerts-asset-results"></div>
           </div>
@@ -1230,6 +1232,31 @@ describe("the branches a reader reaches by clicking", () => {
     click(button);
 
     expect(root.querySelector(".alerts-picker").hidden).toBe(true);
+  });
+
+  test("the sheet's own close button closes it", () => {
+    // **The only way back.** The picker covers the card, so the button that
+    // opened it is underneath the sheet and cannot be clicked again.
+    const root = panel("asa_price");
+    click(root.querySelector(".id-alerts-assetbtn"));
+
+    click(root.querySelector(".id-alerts-picker-close"));
+
+    expect(root.querySelector(".alerts-picker").hidden).toBe(true);
+    expect(
+      root.querySelector(".alerts-assetbtn").getAttribute("aria-expanded")
+    ).toBe("false");
+  });
+
+  test("closing the sheet puts focus back on the button", () => {
+    // Hiding an ancestor of the focused element drops focus to the body, and a
+    // reader on a keyboard would then be nowhere.
+    const root = panel("asa_price");
+    click(root.querySelector(".id-alerts-assetbtn"));
+
+    click(root.querySelector(".id-alerts-picker-close"));
+
+    expect(document.activeElement).toBe(root.querySelector(".alerts-assetbtn"));
   });
 });
 

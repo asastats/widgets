@@ -166,7 +166,13 @@
     if (!isFinite(seconds)) {
       return;
     }
-    var control = document.getElementById("tb-refresh");
+    // `#tb-refresh` is the dynamic toolbar's, `.refresh label` is classic's -
+    // and classic is the only layout a reader below Intro can be on, so looking
+    // for the toolbar alone left the badge at the top of the page for exactly
+    // the readers whose allowance it describes. See docs/logbook.md.
+    var control =
+      document.getElementById("tb-refresh") ||
+      document.querySelector(".refresh label");
     if (control && badge.parentNode !== control.parentNode) {
       control.parentNode.insertBefore(badge, control.nextSibling);
     }

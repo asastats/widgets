@@ -29,7 +29,7 @@ from django.views.generic.base import TemplateView, View
 from api.widgets import bundle_and_addresses_from_path, page_key_from_addresses
 from widgethost.enforcement import WidgetAccessMixin
 
-from .display import describe, disclosure
+from .display import describe, disclosure, plain_threshold
 from .evaluate import evaluate_page, evaluate_prices, payload_for
 from .forms import UNIT_CHOICES, WINDOW_CHOICES, AlertRuleForm
 from .manifest import MANIFEST
@@ -291,8 +291,16 @@ class AlertsRuleEditView(WidgetAccessMixin, AlertsContextMixin, View):
             initial={
                 "subject": rule.subject,
                 "direction": rule.direction,
-                "threshold": rule.threshold,
+                # Trailing zeros stripped: the column is `decimal_places=10`, so
+                # the stored value renders as "100.0000000000" in the input.
+                "threshold": plain_threshold(rule.threshold),
                 "asset_id": rule.asset_id,
+                # **Both units, or an edit silently rewrites the rule.** Without
+                # `threshold_unit` the template falls back to "algo" and a USD
+                # rule changes what it means; without `asset_unit` the saved
+                # name is blanked and the notification loses it.
+                "threshold_unit": rule.threshold_unit,
+                "asset_unit": rule.asset_unit,
                 "window_seconds": rule.window_seconds,
             },
             user=request.user,

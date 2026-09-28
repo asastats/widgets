@@ -41,6 +41,8 @@ const POLLED = `${POLL_URL}?holdings=beef1234`;
  *   layout's `id-band-total` or the classic layout's `id-band-classic`
  * @param {boolean} [options.badge] render the allowance badge
  * @param {boolean} [options.control] render the toolbar's refresh control
+ * @param {boolean} [options.classicControl] render the *classic* layout's
+ *   Auto-refresh control instead, which is the one a reader below Intro sees
  */
 function page(options = {}) {
   const {
@@ -52,6 +54,7 @@ function page(options = {}) {
     bandId = "id-band-total",
     badge = true,
     control = true,
+    classicControl = false,
   } = options;
   const parts = [];
   if (band) {
@@ -75,6 +78,13 @@ function page(options = {}) {
   // page without them is testing a page that cannot exist.
   if (control) {
     parts.push('<div id="tb-wrap"><button id="tb-refresh"></button></div>');
+  }
+  if (classicControl) {
+    // `address.html`'s shape: a `.refresh` div wrapping the label.
+    parts.push(
+      '<div class="refresh"><label><input type="checkbox">' +
+        "<span>Auto-refresh</span></label></div>"
+    );
   }
   if (badge) {
     parts.push('<span id="id-liverefresh-left" hidden></span>');
@@ -568,9 +578,27 @@ describe("showing what is left of the allowance", () => {
     expect(() => left(module, 3600)).not.toThrow();
   });
 
-  it("leaves the badge where it is when there is no control", () => {
-    // The classic layout has no `tb-refresh`; the figure still belongs on the
-    // page, just not relocated.
+  it("moves it next to the classic layout's control too", () => {
+    // **The layout that matters most here.** Dynamic needs Intro, so every
+    // reader who actually has a metered allowance is on classic - and looking
+    // only for `tb-refresh` left the badge up in the swap-entry container,
+    // nowhere near the Auto-refresh box it describes. Reported from the site by
+    // a reader who could not find it. See docs/logbook.md.
+    page({ control: false, classicControl: true });
+    localStorage.setItem("refresh", "y");
+    const module = load();
+
+    left(module, 3600);
+
+    const badge = document.getElementById("id-liverefresh-left");
+    expect(badge.parentNode.className).toBe("refresh");
+    expect(badge.previousElementSibling.tagName).toBe("LABEL");
+    expect(badge.hidden).toBe(false);
+  });
+
+  it("leaves the badge where it is when there is no control at all", () => {
+    // Neither layout's control on the page - a fragment rendered on its own.
+    // The figure still belongs somewhere, just not relocated.
     page({ control: false });
     localStorage.setItem("refresh", "y");
     const module = load();

@@ -43,6 +43,17 @@ class TestAlertRuleFormShape:
         assert form.is_valid() is False
         assert "asset_id" in form.errors
 
+    def test_alerts_forms_algo_is_an_asset_a_rule_may_watch(self):
+        """**Asset id 0 is ALGO**, and a truth test on it refused the one asset
+        every reader holds - reported from the running site as "Choose an asset
+        to watch" on a rule that named one. See docs/logbook.md."""
+        form = AlertRuleForm(
+            _post(subject=Subject.ASA_TOTAL, asset_id="0"), user=_reader()
+        )
+
+        assert form.is_valid() is True, form.errors
+        assert form.cleaned_data["asset_id"] == 0
+
     def test_alerts_forms_a_portfolio_rule_clears_a_leftover_asset(self):
         """**Cleared rather than rejected.** The modal keeps the field mounted
         while the reader switches subject, so a leftover value is the ordinary

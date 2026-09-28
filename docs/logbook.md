@@ -1204,3 +1204,191 @@ opened for anybody who had not already connected: `whenSweepReady` waits for
 bare browser. Reading what a sweep would do is exactly the thing a reader wants
 before connecting, so the gate belongs on the signature and nowhere else — see
 `sign`.
+
+## The alerts modal, four defects from the running site (2026-09-28)
+
+Files: `widgets/inhouse/alerts/forms.py`, `views.py`, `display.py`,
+`templates/alerts/_panel.html`, `static/alerts/alerts.js`, and
+`static/css/input.css` in the host.
+
+All four were reported by the user against the deployed modal. Three are bugs;
+one is a question whose answer turned out to be in the wrong place.
+
+### 1. ALGO could not be watched, because its asset id is 0
+
+`clean()` tested `if not cleaned.get("asset_id")`. Asset 0 is ALGO — the one
+asset every reader holds — so choosing it and pressing save answered "Choose an
+asset to watch" about a rule that named an asset. `is None` is the test; the
+field is already `IntegerField(required=False, min_value=0)`, so 0 was always a
+value it accepted, and only the truth test refused it.
+
+**The same defect twice**, and the second half is why this is worth an entry:
+`_panel.html` labelled the picker button with
+`{% if form.asset_id.value %}#{{ ... }}{% else %}Choose asset{% endif %}`, so
+editing an ALGO rule showed "Choose asset" over a rule that had one. A falsy
+id has to be handled in every place that asks "is one chosen", and a fix to the
+validator alone would have left the button lying.
+
+### 2. Editing a rule rewrote it
+
+`AlertsRuleEditView.get` built `initial` with the subject, direction, threshold,
+asset id and window — and **neither unit**. The consequences were not symmetric:
+
+* `threshold_unit` missing meant the template's `|default:'algo'` won, so
+  opening a `$500` rule and saving it stored **500 ALGO**. The reader changed
+  nothing and the rule came to mean something else.
+* `asset_unit` missing meant the hidden input rendered empty and `save()`'s
+  `or ""` stored that, so the unit name the notification is built from was
+  dropped on every edit — silently, because the sentence falls back to the id.
+
+Both now come from the rule. `_settle_unit` deliberately stores the currency
+without converting, which is what makes the first one a data loss rather than an
+arithmetic error: nothing else on the row records what the reader meant.
+
+### 3. The threshold input showed the column's scale
+
+`threshold` is `decimal_places=10`, so an edit form rendered
+`value="100.0000000000"` and a reader who had typed `100` was asked to edit ten
+zeros. `display.py` already had this problem solved for *sentences* — its module
+docstring names it — and the input was simply never wired to it. Now
+`plain_threshold` reuses `_trimmed(amount, STORED_DECIMALS)`.
+
+`Decimal.normalize()` is the obvious one-liner and is wrong here: it turns 100
+into `1E+2`, which the input would post back and `DecimalField` would reject.
+`_trimmed` renders with `:.10f` first, so an exponent is unreachable.
+
+**The test was green through all of this.** It asserted
+`'value="100.0000000000"' in html or 'value="100' in html` — an assertion
+satisfied by both the bug and the fix. Tightened to the exact string plus
+`assert "100.0000000000" not in html`.
+
+### 4. The asset picker expanded instead of covering
+
+The picker was an inline block under the button, inside `.alerts-panel`, which is
+the modal's scrolling region. Opening it pushed the rest of the form down, and a
+result list arriving pushed it further — so the Save button left the visible area
+of a modal already capped at `min(40rem, 100vh - 4rem)`.
+
+It is now the swap modal's shape: `position: absolute; inset: 0` over
+`.alerts-shell`, which gains `position: relative`. The results list becomes
+`flex: 1 1 auto; min-height: 0` and scrolls inside the sheet, so **the list's
+length can no longer move anything behind it** — which is the property worth
+having, rather than a bigger cap.
+
+The markup stays inside `.alerts-asset-field` and does not move: `chooseAsset`
+and `togglePicker` both scope to that field, and an absolutely positioned box is
+not clipped by a scrolling ancestor that sits *below* its containing block, so
+`.alerts-panel`'s `overflow-y: auto` does not cut the sheet off. The sheet gains
+a head and a close button because it covers the button that opened it, and
+`togglePicker` now restores focus to that button on close — hiding an ancestor of
+the focused element otherwise drops focus to the body.
+
+**A measurement, because the first assertion I wrote did not test anything.** I
+asserted the picker's box was *inside* the shell's. It passed with the old CSS
+too: `.alerts-shell` has `overflow: hidden`, so an inline picker never escapes
+the card either. Measured in the browser, with `.alerts-shell` at 521px tall:
+
+| | picker box | height |
+|---|---|---|
+| inline (before) | 406 → 493 | 87px |
+| sheet (after) | identical to the shell | 426px of 426px |
+
+So the test asserts the picker's box **equals** the card's, which is what "it is
+a sheet" means and what fails on the old CSS. The containment version would have
+been a test that could not fail.
+
+### The 1-hour minimum window, which was the fourth question
+
+`WINDOW_CHOICES` starts at one hour, and its note explains that as sitting above
+"the measured sampling gaps - p50 five minutes, p90 68 minutes". Checking that
+against what actually writes the two series:
+
+* **Portfolio totals** are bucketed at `LIVE_TOTALS_HISTORY_TICK_SECONDS = 300`
+  in the engine — one point per five minutes, deliberately, even though the live
+  pass re-prices every block.
+* **Asset prices** come from `core.tasks.price_alert_assets`, which is
+  `@periodic_task(crontab(minute="*/5"))` — also five minutes, and its own
+  docstring says five is a floor chosen for the reader rather than a limit of the
+  data.
+
+So both series are written at a five-minute resolution, and the p90 of 68 minutes
+does not describe either of them today. What does justify a floor is
+quantisation: `percent_move` compares against the newest point *at or before*
+`now - window`, so the effective period carries up to one bucket of error. At one
+hour that is 8%; at fifteen minutes it would be 33%.
+
+**One hour is therefore more conservative than the data now requires** — thirty
+minutes would carry 17% and is defensible. Left alone rather than changed,
+because it is a product decision and not a defect, and recorded here so the next
+reader does not re-derive it from a p90 that has moved. `LIVE_TOTALS_HISTORY_SECONDS
+= 604800` is what sets the *longest* window at seven days.
+
+## The allowance badge nobody below Intro could find (2026-09-28)
+
+File: `widgets/inhouse/liverefresh/static/liverefresh/liverefresh.js`.
+
+A reader signed up, switched on **Settings → Real-time refresh**, and could not
+find the badge. Two separate things were wrong and only one of them is code.
+
+### The badge was put beside the wrong layout's control
+
+`showLeft` relocated the badge with `document.getElementById("tb-refresh")`, which
+is the **dynamic** toolbar's id. `ADDRESS_LAYOUTS` gives `dynamic` a `tier` of
+`"Intro"`, so the only readers who can select it are subscribers — and subscribers
+from Asastatser up are *unmetered*, so `_with_left` sends them no figure at all
+and the badge never appears for them either.
+
+That leaves exactly one group the badge is for: readers below Asastatser, all of
+whom are on **classic**, where `tb-refresh` does not exist. The badge therefore
+stayed where `_swap_entry.html` renders it — inside `#id-swap-entry-container` at
+the top of `address.html` — while the control it describes is 200 lines further
+down. It was visible, and nowhere near the thing it was about.
+
+Now: `#tb-refresh || .refresh label`. The insert is unchanged, because
+`control.parentNode.insertBefore(badge, control.nextSibling)` appends inside
+`.refresh` when the label is last, which it is.
+
+**A test was pinning the defect.** `it("leaves the badge where it is when there is
+no control")` said "The classic layout has no `tb-refresh`; the figure still
+belongs on the page, just not relocated." The first clause is true and the
+inference is not: classic has its own control, `.refresh label`, and the fixture
+simply never rendered one. So the test asserted a fixture's shape and read as
+though it asserted the page's. It is now two tests — one for classic's control,
+one for a fragment with neither — and the fixture gained a `classicControl`
+option that renders `address.html`'s actual markup.
+
+### The other half is not a bug, and it is worse
+
+There are **two switches**, and they are in different places with different names:
+
+1. `Settings → Real-time refresh → "Refresh on every block"` sets
+   `profile.live_refresh`, which is what puts `liverefresh_url` in the context.
+2. The address page's **Auto-refresh** checkbox writes `localStorage.refresh`,
+   which is what `armed()` reads — and `poll()` returns immediately when it is
+   false.
+
+So a reader who flips only the first gets no live refresh and no badge, and
+nothing tells them why. The settings copy makes it worse by describing the
+outcome as already settled: *"Update an address page as each block arrives,
+instead of reloading it every minute."* Meanwhile the checkbox that actually
+starts it is titled *"Reload this page about once a minute"* — the behaviour it
+has when live refresh is **off**.
+
+**Nothing tested the link**, which is why it survived. Every browser test calls
+`arm()`, whose own docstring says "Tick the Auto-refresh checkbox" and which
+instead does `localStorage.setItem('refresh', 'y')`. There is now a test that
+clicks the real checkbox. There is still no free-tier (`permission = 0`) browser
+test anywhere in that file — everything runs at Intro or above, so the exact
+configuration the Medium article invites readers into is covered only by this
+one addition.
+
+Left for a decision rather than fixed here, because it is product copy and a
+possible UI change, not a defect:
+
+* the checkbox's title should say what it does when live refresh is on, or
+* the settings switch should stop promising the behaviour and say it has to be
+  turned on per page, or
+* flipping the settings switch should arm it, and the checkbox become the only
+  control.
+
+The article's steps were corrected to name both switches in the meantime.
