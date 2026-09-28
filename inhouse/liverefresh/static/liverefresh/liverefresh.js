@@ -133,22 +133,58 @@
   }
 
   /**
-   * The day's free watching is gone.
-   * Hands back to free timer; removing marker is whole handover.
+   * Give the page back to `address.js`'s sixty-second reload.
+   * Removing the marker is the whole handover: that is what it reads.
    */
-  function spent() {
+  function handBack() {
     stop();
     var badge = document.getElementById("id-liverefresh-left");
     if (badge) {
       badge.hidden = true;
     }
+    if (marker.parentNode) {
+      marker.parentNode.removeChild(marker);
+    }
+  }
+
+  /**
+   * The day's free watching is gone. Says so, then hands back.
+   */
+  function spent() {
     var notice = document.getElementById("id-liverefresh-spent");
     if (notice) {
       notice.hidden = false;
     }
-    if (marker.parentNode) {
-      marker.parentNode.removeChild(marker);
+    handBack();
+  }
+
+  /**
+   * A refusal the next poll cannot fix. Hands back, silently.
+   *
+   * **4xx only.** A refused request stays refused however often it is repeated -
+   * an unlinked address polled 767 times in 85 minutes, and every one wrote a
+   * 35-line traceback. A 5xx is the opposite: a worker recycling answers 502 for
+   * a second, and standing down for that would cost the reader live refresh
+   * until they reloaded. See docs/logbook.md.
+   *
+   * Scoped by `event.target`: htmx dispatches this on the element that issued
+   * the request, so a 4xx from the swap, the sweep or alerts is not ours.
+   *
+   * @param {CustomEvent} event carrying `{ ctx }`
+   */
+  function refused(event) {
+    if (event.target !== marker) {
+      return;
     }
+    // Read straight through, no `|| {}` guards: htmx assigns `ctx.response`
+    // *before* it dispatches this event, so a missing one is not an input
+    // production can produce - and a guard for it would be a branch no test
+    // could reach honestly.
+    var status = Number(event.detail.ctx.response.status);
+    if (!(status >= 400 && status < 500)) {
+      return;
+    }
+    handBack();
   }
 
   /**
@@ -260,6 +296,9 @@
   document.addEventListener("visibilitychange", visibility);
   // Fired by the server through `HX-Trigger` when the allowance runs out.
   document.body.addEventListener("liverefresh:spent", spent);
+  // `htmx:response:error`, not `htmx:responseError`: this build is htmx 4 and
+  // the v1/v2 name does not exist, so a listener for it would never fire.
+  document.body.addEventListener("htmx:response:error", refused);
   /**
    * Send what the page is carrying, so the server can say what changed.
    * Position changes need server to diff; sends asset:pid tokens.
@@ -355,6 +394,8 @@
       armed,
       spent,
       showLeft,
+      refused,
+      handBack,
       humanize,
       rememberExpanded,
       settlePosition,

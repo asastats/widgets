@@ -1392,3 +1392,64 @@ possible UI change, not a defect:
   control.
 
 The article's steps were corrected to name both switches in the meantime.
+
+## A refused poll stands down (2026-09-28)
+
+File: `widgets/inhouse/liverefresh/static/liverefresh/liverefresh.js`.
+
+The other half of the marker/poll disagreement recorded under
+`core/views.py` in the frontend's logbook. That change stops the case that
+happened — a free reader on an unlinked address never starts a poll now — but the
+poll itself still had no answer to a refusal, so a tier lapsing mid-session would
+reproduce the same flood: **767 requests in 85 minutes against a 403 that cannot
+change**, each one a 35-line traceback, 95% of `asgi.log`.
+
+`handBack()` is `spent()` minus the notice: stop the timer, hide the badge, remove
+the marker. Removing the marker *is* the handover, because `address.js` reads it
+every tick to decide whether to stand its sixty-second reload down.
+
+**No notice, by decision.** A spent allowance is the reader's own business and
+says so; a refusal is a page they were never going to be served, and the honest
+behaviour is the one they had before they asked for anything — a reload every
+sixty seconds, silently.
+
+### 4xx only
+
+A refused request stays refused however often it is repeated. A 5xx is the
+opposite: a worker recycling answers 502 for about a second — there are eight
+`asastats.com.socket failed` and six `no live upstreams` in one week of nginx
+error log — and standing down for that would cost the reader live refresh until
+they reloaded the page. So `>= 400 && < 500`.
+
+### The event name, and why a browser test was required
+
+**`htmx:response:error`, not `htmx:responseError`.** This build is htmx 4 and the
+v1/v2 name does not exist in it; a listener for the old spelling would never fire
+and nothing would say so. That is the fourth htmx 4 silent no-op in this logbook.
+
+Read off the minified source rather than guessed, and both facts matter:
+
+```js
+if (e.response.status >= 400 && this.#L(t, "htmx:response:error", { ctx: e }))
+```
+
+with `async #se(e) { let t = e.sourceElement, ... }` and
+`trigger(e, t, r, i = !0) { ... bubbles: i ... }`. So it is dispatched **on the
+element that issued the request** and it bubbles — which is what makes
+`event.target === marker` the correct scope, and it has to be scoped: the swap,
+the sweep and alerts all issue htmx requests on the same page, and any of their
+4xx responses would otherwise stand live refresh down.
+
+The jest tests fire the event with a detail the test file chose, so they prove the
+handler and nothing about the event. `test_a_refused_poll_is_handed_back_to_the_free_reload`
+patches `LiveRefreshView.test_func` to `False` and drives a real browser against a
+real 403; it fails when the listener is removed.
+
+### One guard deliberately absent
+
+`event.detail.ctx.response.status` is read straight through with no `|| {}`
+fallbacks. htmx assigns `ctx.response` *before* dispatching this event, so an
+absent one is not an input production can produce — and the guards cost a branch
+no test could reach honestly, which is the reasoning `alerts.display.format_count`
+already records for a `try` it does not have. The 100% branch threshold caught
+them.

@@ -494,6 +494,80 @@ describe("the daily allowance running out", () => {
   });
 });
 
+describe("a refusal the next poll cannot fix", () => {
+  /** Fire htmx 4's response-error event on `elt`, as htmx dispatches it. */
+  function error(elt, status) {
+    elt.dispatchEvent(
+      new CustomEvent("htmx:response:error", {
+        detail: { ctx: { response: { status } } },
+        bubbles: true,
+      })
+    );
+  }
+
+  it("hands the page back to the sixty-second reload on a 403", () => {
+    // **The defect this exists for.** A free reader on an address they had not
+    // connected polled 767 times in 85 minutes against a 403 that could never
+    // change, writing a 35-line traceback each time - 95% of asgi.log. Removing
+    // the marker is what lets `address.js` reload again.
+    localStorage.setItem("refresh", "y");
+    const module = load();
+    const marker = document.getElementById("id-liverefresh");
+
+    error(marker, 403);
+
+    expect(document.getElementById("id-liverefresh")).toBe(null);
+    expect(module.armed()).toBe(true);
+  });
+
+  it("hides the badge with it", () => {
+    localStorage.setItem("refresh", "y");
+    load();
+    const marker = document.getElementById("id-liverefresh");
+
+    error(marker, 403);
+
+    expect(document.getElementById("id-liverefresh-left").hidden).toBe(true);
+  });
+
+  it("stays put on a 5xx, which the next poll may survive", () => {
+    // A worker recycling answers 502 for a second. Standing down for that would
+    // cost the reader live refresh until they reloaded the page.
+    localStorage.setItem("refresh", "y");
+    load();
+    const marker = document.getElementById("id-liverefresh");
+
+    error(marker, 502);
+
+    expect(document.getElementById("id-liverefresh")).not.toBe(null);
+  });
+
+  it("ignores another element's 4xx", () => {
+    // The swap, the sweep and alerts all issue htmx requests on this page, and
+    // htmx dispatches this on whichever element issued one.
+    localStorage.setItem("refresh", "y");
+    load();
+    const other = document.createElement("div");
+    document.body.appendChild(other);
+
+    error(other, 404);
+
+    expect(document.getElementById("id-liverefresh")).not.toBe(null);
+  });
+
+  it("shows no notice, unlike a spent allowance", () => {
+    // The reader is not told: the page simply goes back to reloading every
+    // sixty seconds, which is what it did before they asked for anything.
+    localStorage.setItem("refresh", "y");
+    load();
+    const marker = document.getElementById("id-liverefresh");
+
+    error(marker, 403);
+
+    expect(document.getElementById("id-liverefresh-spent").hidden).toBe(true);
+  });
+});
+
 describe("showing what is left of the allowance", () => {
   /** Fire the event the server sends on every poll response. */
   function left(module, seconds) {
