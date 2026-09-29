@@ -153,6 +153,12 @@ those.
 
 ---
 
+## inhouse/liverefresh/views.py (timeout wrap, 2026-09-29)
+
+2026-09-29: Wrapped `LiveRefreshView.get()` (inner renamed `_get`) and `LiveRegroupView.post()` (inner `_post`) to catch `redis.exceptions.TimeoutError` and `django_redis.exceptions.ConnectionInterrupted`, returning `HttpResponse(status=204)` instead of raising through Django's exception handler. The 204 tells htmx to leave the page unchanged; the next poll asks again. The `CONNECTION_POOL_KWARGS` `socket_keepalive` addition (see `frontend/website/config/settings/production.py`) reduces the timeout surface; this wrap ensures an occasional miss never becomes an Internal Server Error or changes the `500.html` title.
+
+---
+
 ## inhouse/alerts/
 
 ### `models.AlertRule.subject`

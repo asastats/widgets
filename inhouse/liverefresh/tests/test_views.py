@@ -6,8 +6,10 @@ import time
 
 import msgpack
 import pytest
+import redis
 from django.http import HttpResponse
 
+from api.widgets import bundle_and_addresses_from_path
 from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
 from widgets.inhouse.liverefresh.views import (
     PAYLOAD_PREFIX,
@@ -2501,7 +2503,7 @@ class TestLiveRefreshLogsTheReloadDecision:
             mocker, {"total": 5.0, "values": {}, "holdings": "5:cafe5678:bbbb"}
         )
 
-        with caplog.at_level(logging.INFO, logger="widgets.inhouse.liverefresh.views"):
+        with caplog.at_level(logging.INFO, logger="widgets.inhouse.liverefresh"):
             response = view.get(view.request)
 
         assert response["HX-Refresh"] == "true"
@@ -2523,7 +2525,7 @@ class TestLiveRefreshLogsTheReloadDecision:
             LiveRefreshView, "render_to_response", return_value=HttpResponse()
         )
 
-        with caplog.at_level(logging.INFO, logger="widgets.inhouse.liverefresh.views"):
+        with caplog.at_level(logging.INFO, logger="widgets.inhouse.liverefresh"):
             view.get(view.request)
 
         assert "held by the cooldown" in caplog.text
@@ -2539,7 +2541,39 @@ class TestLiveRefreshLogsTheReloadDecision:
             LiveRefreshView, "render_to_response", return_value=HttpResponse()
         )
 
-        with caplog.at_level(logging.INFO, logger="widgets.inhouse.liverefresh.views"):
+        with caplog.at_level(logging.INFO, logger="widgets.inhouse.liverefresh"):
             view.get(view.request)
 
         assert "live reload" not in caplog.text
+
+
+class TestLiveRefreshTimeoutWrap:
+    """Redis timeouts return 204, not 500; next poll recovers."""
+
+    def test_poll_redis_timeout_returns_204(self, mocker):
+        view = _view(mocker)
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance",
+            side_effect=redis.exceptions.TimeoutError("Timeout writing to socket"),
+        )
+
+        response = view.get(view.request)
+
+        assert response.status_code == 204
+
+    def test_regroup_redis_timeout_returns_204(self, mocker):
+        view = LiveRegroupView()
+        view.kwargs = {"value": ADDRESS}
+        view.args = ()
+        view.request = mocker.MagicMock()
+        view.request.user.profile.permission = SUBSCRIPTION_TIER_PERMISSIONS["Asastatser"]
+        view.bundle, view.addresses = bundle_and_addresses_from_path(ADDRESS, force_bundle=False)
+        mocker.patch.object(LiveRegroupView, "manifest_test_func", return_value=True)
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance",
+            side_effect=redis.exceptions.TimeoutError("Timeout reading"),
+        )
+
+        response = view.post(view.request)
+
+        assert response.status_code == 204

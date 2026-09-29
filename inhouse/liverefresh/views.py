@@ -20,6 +20,8 @@ import json
 import logging
 import time
 
+import redis
+from django_redis.exceptions import ConnectionInterrupted
 from django.http import HttpResponse
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
@@ -258,10 +260,18 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
 
         **204 rather than an empty body**: htmx leaves the page alone on a 204,
         so a block that moved nothing costs one request and no DOM work, which
-        is most blocks for most pages.
+        is most blocks for most pages. Redis timeouts return 204 too: the poll
+        is a heartbeat, not a contract; a missed block is answered by the next.
 
         :return: :class:`HttpResponse`
         """
+        try:
+            return self._get(request, *args, **kwargs)
+        except (redis.exceptions.TimeoutError, ConnectionInterrupted):
+            logger.warning("liverefresh: Redis timeout on poll for %s", self.bundle or self.kwargs.get("value"))
+            return HttpResponse(status=204)
+
+    def _get(self, request, *args, **kwargs):
         client = redis_instance()
         # One timestamp for one poll, so the heartbeat and the paid mark
         # carry the same score and the two sets cannot age out of step.
@@ -1012,8 +1022,19 @@ class LiveRegroupView(LiveRefreshView):
     def post(self, request, *args, **kwargs):
         """Return the changed groups, or 204 when none of them changed.
 
+        A Redis timeout here is also a 204: the regroup is an optimisation,
+        and the next poll will ask again once the connection recovers.
+
         :return: :class:`HttpResponse`
         """
+        try:
+            return self._post(request, *args, **kwargs)
+        except (redis.exceptions.TimeoutError, ConnectionInterrupted):
+            logger.warning("liverefresh regroup: Redis timeout on %s", self.kwargs.get("value") or self.args[0])
+            return HttpResponse(status=204)
+
+    def _post(self, request, *args, **kwargs):
+        """Original post logic, unwrapped."""
         if layout_for_user(getattr(request, "user", None)) == "classic":
             # The classic layout renders no positions at all, so there is no
             # group to send and nothing that a regroup would mean.
