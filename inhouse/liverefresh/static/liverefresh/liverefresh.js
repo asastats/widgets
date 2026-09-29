@@ -379,6 +379,15 @@
   document.body.addEventListener("liverefresh:left", showLeft);
   document.body.addEventListener("liverefresh:regroup", regroup);
   document.body.addEventListener("liverefresh:regrouped", regrouped);
+
+  // Re-apply currency/total-no-NFT formatting after OOB swaps
+  // (wireFetchedItems may not catch swap:"none" responses)
+  document.body.addEventListener("htmx:after:swap", function() {
+    if (typeof restoreDisplayChoices === "function") {
+      restoreDisplayChoices();
+    }
+  });
+
   // Bracketing task list; capture phase for ordering before toolbar.js.
   document.body.addEventListener("htmx:before:swap", rememberExpanded, true);
   document.body.addEventListener("htmx:after:swap", settlePosition, true);

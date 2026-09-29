@@ -113,16 +113,23 @@ function load({ htmx = true } = {}) {
     delete window.htmx;
   }
   jest.resetModules();
-  const spy = jest
+  const docSpy = jest
     .spyOn(document, "addEventListener")
     .mockImplementation((type, listener, options) => {
-      attached.push([type, listener]);
+      attached.push([type, listener, document]);
       Document.prototype.addEventListener.call(document, type, listener, options);
+    });
+  const bodySpy = jest
+    .spyOn(document.body, "addEventListener")
+    .mockImplementation((type, listener, options) => {
+      attached.push([type, listener, document.body]);
+      EventTarget.prototype.addEventListener.call(document.body, type, listener, options);
     });
   try {
     return require(MODULE);
   } finally {
-    spy.mockRestore();
+    docSpy.mockRestore();
+    bodySpy.mockRestore();
   }
 }
 
@@ -1124,5 +1131,40 @@ describe("regrouping instead of reloading", () => {
 
     expect(() => module.regrouped({ detail: {} })).not.toThrow();
     delete window.asastatsToolbar;
+  });
+});
+
+describe("calling restoreDisplayChoices after htmx swaps", () => {
+  let mockRestoreDisplayChoices;
+
+  beforeEach(() => {
+    mockRestoreDisplayChoices = jest.fn();
+    window.restoreDisplayChoices = mockRestoreDisplayChoices;
+  });
+
+  afterEach(() => {
+    delete window.restoreDisplayChoices;
+  });
+
+  it("registers an htmx:after:swap listener", () => {
+    load();
+    const listener = attached.find(([type, , target]) => type === "htmx:after:swap" && target === document.body);
+    expect(listener).toBeDefined();
+  });
+
+  it("calls restoreDisplayChoices after an htmx:after:swap event", () => {
+    load();
+    const listenerEntry = attached.find(([type, , target]) => type === "htmx:after:swap" && target === document.body);
+    expect(listenerEntry).toBeDefined();
+    listenerEntry[1]({});
+    expect(mockRestoreDisplayChoices).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not throw if restoreDisplayChoices is not defined", () => {
+    delete window.restoreDisplayChoices;
+    load();
+    const listenerEntry = attached.find(([type, , target]) => type === "htmx:after:swap" && target === document.body);
+    expect(listenerEntry).toBeDefined();
+    expect(() => listenerEntry[1]({})).not.toThrow();
   });
 });
