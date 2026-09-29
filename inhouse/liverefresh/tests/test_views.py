@@ -1056,6 +1056,53 @@ class TestLiveRefreshSpentResponse:
         assert "HX-Trigger" not in response
 
 
+class TestAttachSpans:
+    """Tests for _attach_spans helper."""
+
+    def test_returns_early_when_spans_empty(self, mocker):
+        view = _view(mocker)
+        response = HttpResponse("ok")
+        result = view._attach_spans(response, {})
+        assert result is response
+
+    def test_returns_early_for_special_triggers(self, mocker):
+        view = _view(mocker)
+        response = HttpResponse(status=200)
+        response["HX-Trigger"] = "liverefresh:spent"
+        result = view._attach_spans(response, {"heartbeat": 0.001})
+        # Should not add spans to special triggers
+        assert result["HX-Trigger"] == "liverefresh:spent"
+
+    def test_handles_json_decode_error(self, mocker):
+        view = _view(mocker)
+        response = HttpResponse("ok")
+        response["HX-Trigger"] = "not-valid-json"
+        spans = {"heartbeat": 0.001}
+        result = view._attach_spans(response, spans)
+        # Should handle decode error and still add spans
+        triggers = json.loads(result["HX-Trigger"])
+        assert "liverefresh:spans" in triggers
+
+    def test_attaches_spans_to_normal_response(self, mocker):
+        view = _view(mocker)
+        response = HttpResponse("ok")
+        spans = {"heartbeat": 0.001, "left": 0.002}
+        result = view._attach_spans(response, spans)
+        triggers = json.loads(result["HX-Trigger"])
+        assert "liverefresh:spans" in triggers
+        assert triggers["liverefresh:spans"]["heartbeat"] == "0.001s"
+        assert triggers["liverefresh:spans"]["left"] == "0.002s"
+
+    def test_skips_204_with_no_hx_trigger(self, mocker):
+        view = _view(mocker)
+        response = HttpResponse(status=204)
+        # No HX-Trigger header
+        spans = {"heartbeat": 0.001}
+        result = view._attach_spans(response, spans)
+        # Should not add spans to 204 without HX-Trigger
+        assert "HX-Trigger" not in result
+
+
 class TestLiveRefreshPaidPriority:
     """Telling the engine which pages a subscriber is watching.
 

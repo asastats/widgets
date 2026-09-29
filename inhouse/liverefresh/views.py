@@ -36,6 +36,7 @@ from widgethost.enforcement import WidgetAccessMixin
 from . import warmset
 from .allowance import left, requires_linked_address, spend
 from .manifest import MANIFEST
+from .profiling import timed
 
 #: Sorted set the engine's live pass reads to decide which pages to re-price.
 #: Members are space-joined address strings, scored by the unix time this view
@@ -48,7 +49,7 @@ PAID_KEY = "lvq"
 #: Prefix the pass publishes under, keyed by bundle. See `CACHE_KEY_LIVE_PAYLOAD`.
 PAYLOAD_PREFIX = "lvp"
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("widgets.inhouse.liverefresh")
 
 
 def _asset_key(key):
@@ -265,12 +266,15 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # One timestamp for one poll, so the heartbeat and the paid mark
         # carry the same score and the two sets cannot age out of step.
         now = time.time()
-        warm = self._heartbeat(client, now)
+        spans = {}
+        with timed(spans, "heartbeat"):
+            warm = self._heartbeat(client, now)
 
         # **Read first, charge later.** What is left decides whether this
         # reader is paying and whether they have run out, both of which are
         # answered before the payload is read. `left` spends nothing.
-        remaining_seconds = self._left(client)
+        with timed(spans, "left"):
+            remaining_seconds = self._left(client)
 
         if not warm:
             # **Over this reader's warm-set cap**, so the page is not kept
@@ -279,7 +283,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             # deliberately did not subscribe. 204 rather than the spent
             # response - they have run out of nothing, and their other tabs are
             # still live.
-            return self._with_left(HttpResponse(status=204), remaining_seconds)
+            return self._attach_spans(self._with_left(HttpResponse(status=204), remaining_seconds), spans)
 
         if remaining_seconds is None:
             # **No daily limit means this reader is paying for it.** Same
@@ -295,7 +299,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             # Told before the payload is read, and never folded into the 204
             # below: a reader who is out must be told, or the widget keeps
             # polling and `address.js` never takes the plain reload back up.
-            return self._spent_response()
+            return self._attach_spans(self._spent_response(), spans)
 
         payload = self._payload(client)
         if payload is None:
@@ -304,38 +308,46 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             # its payload aged out behind it; a deployment with no live pass at
             # all is the same shape. `left` reads the balance without spending,
             # so the badge still shows the truth while the reader waits.
-            return self._with_left(HttpResponse(status=204), remaining_seconds)
+            return self._attach_spans(self._with_left(HttpResponse(status=204), remaining_seconds), spans)
 
         # Delivered, so charged. This is the only call that spends.
-        remaining_seconds = self._allowance(client, now)
+        with timed(spans, "allowance"):
+            remaining_seconds = self._allowance(client, now)
         if remaining_seconds is not None and remaining_seconds <= 0:
-            return self._spent_response()
+            return self._attach_spans(self._spent_response(), spans)
 
-        reload = self._reload_response(request, payload)
+        with timed(spans, "reload_response"):
+            reload = self._reload_response(request, payload)
         if reload is not None:
             # The page is about to be re-rendered whole, so anything still
             # queued describes markup that will not exist in a moment.
             self.request.session.pop(self._carry_key(), None)
-            return self._with_left(reload, remaining_seconds)
+            return self._attach_spans(self._with_left(reload, remaining_seconds), spans)
 
-        regroup = self._regroup_wanted(request, payload)
+        with timed(spans, "regroup_wanted"):
+            regroup = self._regroup_wanted(request, payload)
 
-        payload, sending = self._chunked(payload)
+        with timed(spans, "chunked"):
+            payload, sending = self._chunked(payload)
 
         # **`sending` first**, because a resync can outlive the block that
         # started it: the total settles while values are still going out, and a
         # 204 then would strand the rest of them.
         if not sending and payload.get("total") == self._last_total():
-            return self._regrouping(
-                self._with_left(HttpResponse(status=204), remaining_seconds), regroup
+            return self._attach_spans(
+                self._regrouping(self._with_left(HttpResponse(status=204), remaining_seconds), regroup),
+                spans,
             )
 
         self.request.session[self._session_key()] = payload.get("total")
-        context = self.get_context_data(payload=payload, **kwargs)
-        return self._regrouping(
-            self._with_left(self.render_to_response(context), remaining_seconds),
+        with timed(spans, "context_and_render"):
+            context = self.get_context_data(payload=payload, **kwargs)
+            response = self.render_to_response(context)
+        response = self._regrouping(
+            self._with_left(response, remaining_seconds),
             regroup,
         )
+        return self._attach_spans(response, spans)
 
     @staticmethod
     def _regrouping(response, wanted):
@@ -389,6 +401,31 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             return response
         response["HX-Trigger"] = json.dumps(
             {"liverefresh:left": {"seconds": int(max(0, seconds))}}
+        )
+        return response
+
+    def _attach_spans(self, response, spans):
+        """Attach profiling spans to response for debugging."""
+        if not spans:
+            return response
+        hx_trigger = response.get("HX-Trigger") or "{}"
+        # Don't modify special HX-Trigger values that are part of the public API contract
+        special_triggers = {"liverefresh:spent", "liverefresh:left", "liverefresh:regroup", "liverefresh:regrouped"}
+        if hx_trigger in special_triggers:
+            return response
+        # Don't add spans to 204 responses that have no HX-Trigger (e.g., unlimited reader with no payload)
+        if response.status_code == 204 and "HX-Trigger" not in response:
+            return response
+        try:
+            triggers = json.loads(hx_trigger)
+        except json.JSONDecodeError:
+            triggers = {}
+        triggers["liverefresh:spans"] = {k: f"{v:.3f}s" for k, v in spans.items()}
+        response["HX-Trigger"] = json.dumps(triggers)
+        # Log spans for latency analysis
+        logger.info(
+            "liverefresh spans: %s",
+            ", ".join(f"{k}={v:.3f}s" for k, v in spans.items()),
         )
         return response
 
