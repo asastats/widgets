@@ -2548,7 +2548,7 @@ class TestLiveRefreshLogsTheReloadDecision:
 
 
 class TestLiveRefreshTimeoutWrap:
-    """Redis timeouts return 204, not 500; next poll recovers."""
+    """Redis failures return 204, not 500; the next poll recovers."""
 
     def test_poll_redis_timeout_returns_204(self, mocker):
         view = _view(mocker)
@@ -2561,13 +2561,26 @@ class TestLiveRefreshTimeoutWrap:
 
         assert response.status_code == 204
 
+    def test_poll_redis_connection_error_returns_204(self, mocker):
+        view = _view(mocker)
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance",
+            side_effect=redis.exceptions.ConnectionError("Connection reset"),
+        )
+
+        response = view.get(view.request)
+
+        assert response.status_code == 204
+
     def test_regroup_redis_timeout_returns_204(self, mocker):
         view = LiveRegroupView()
         view.kwargs = {"value": ADDRESS}
         view.args = ()
         view.request = mocker.MagicMock()
         view.request.user.profile.permission = SUBSCRIPTION_TIER_PERMISSIONS["Asastatser"]
-        view.bundle, view.addresses = bundle_and_addresses_from_path(ADDRESS, force_bundle=False)
+        view.bundle, view.addresses = bundle_and_addresses_from_path(
+            ADDRESS, force_bundle=False
+        )
         mocker.patch.object(LiveRegroupView, "manifest_test_func", return_value=True)
         mocker.patch(
             "widgets.inhouse.liverefresh.views.redis_instance",
@@ -2577,3 +2590,164 @@ class TestLiveRefreshTimeoutWrap:
         response = view.post(view.request)
 
         assert response.status_code == 204
+
+    def test_regroup_redis_connection_error_returns_204(self, mocker):
+        view = LiveRegroupView()
+        view.kwargs = {"value": ADDRESS}
+        view.args = ()
+        view.request = mocker.MagicMock()
+        view.request.user.profile.permission = SUBSCRIPTION_TIER_PERMISSIONS["Asastatser"]
+        view.bundle, view.addresses = bundle_and_addresses_from_path(
+            ADDRESS, force_bundle=False
+        )
+        mocker.patch.object(LiveRegroupView, "manifest_test_func", return_value=True)
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance",
+            side_effect=redis.exceptions.ConnectionError("Connection reset"),
+        )
+
+        response = view.post(view.request)
+
+        assert response.status_code == 204
+
+
+class TestChunkedRegression:
+    """Runaway carry bounded by account positions; regression for the
+    chunked backlog bug (analysis.md / solution.md)."""
+
+    @staticmethod
+    def _payload(asset_count):
+        return {
+            "total": 5.0,
+            "values": {1000 + i: float(i) for i in range(asset_count)},
+            "amounts": {1000 + i: [i, 6] for i in range(asset_count)},
+            "positions": [
+                {
+                    "asset": 1000 + i,
+                    "fields": {
+                        "type": "Staked",
+                        "name": f"Position {i}",
+                        "provider": "Test",
+                        "code": "",
+                        "url": "",
+                    },
+                    "links": [],
+                    "value": float(i),
+                    "amount": 100,
+                    "decimals": 6,
+                }
+                for i in range(asset_count)
+            ],
+        }
+
+    def test_carry_stays_bounded_over_50_polls_with_overlapping_positions(self, mocker):
+        from widgets.inhouse.liverefresh.views import MAX_CARRY_FRAGMENTS
+
+        view = _view(mocker, session={})
+        payload = self._payload(60)
+
+        for _ in range(50):
+            view._chunked(payload)
+
+        carry = view.request.session[view._carry_key()]
+        assert all(isinstance(held["positions"], dict) for held in carry.values())
+        assert sum(len(held["positions"]) for held in carry.values()) <= 60
+        assert (
+            sum(2 + 2 * len(held["positions"]) for held in carry.values())
+            < MAX_CARRY_FRAGMENTS
+        )
+
+    def test_runaway_legacy_carry_is_discarded(self, mocker):
+        from widgets.inhouse.liverefresh.views import MAX_CARRY_FRAGMENTS
+
+        view = _view(mocker, session={})
+        view.request.session[view._carry_key()] = {
+            "1": {"positions": [{} for _ in range(MAX_CARRY_FRAGMENTS)]}
+        }
+
+        view._chunked({"values": {}, "positions": []})
+
+        assert view._carry_key() not in view.request.session
+
+    def test_position_without_a_value_field_creates_its_asset_bundle(self, mocker):
+        view = _view(mocker, session={})
+        position = {
+            "asset": 7,
+            "fields": {"type": "Balance", "name": "Wallet"},
+            "links": [],
+            "value": 1.0,
+            "amount": 1,
+            "decimals": 6,
+        }
+
+        result, sending = view._chunked({"values": {}, "positions": [position]})
+
+        assert sending is True
+        assert result["positions"] == [position]
+
+
+class TestChunkedHelpers:
+    """Identity and normalization contracts used by the carry queue."""
+
+    def test_carry_size_counts_asset_fields_and_positions(self):
+        from widgets.inhouse.liverefresh.views import _carry_size
+
+        carry = {
+            "5": {
+                "value": 1.0,
+                "amount": [1, 6],
+                "positions": {"pid": {"amount": 1}},
+            }
+        }
+
+        assert _carry_size(carry) == 4
+
+    def test_carry_size_rejects_a_non_mapping_carry(self):
+        from widgets.inhouse.liverefresh.views import MAX_CARRY_FRAGMENTS, _carry_size
+
+        assert _carry_size([]) == MAX_CARRY_FRAGMENTS + 1
+
+    def test_pid_matches_the_id_rendered_on_the_page(self):
+        from api.position_id import position_id_from_fields
+        from widgets.inhouse.liverefresh.views import _pid
+
+        position = {
+            "asset": 5,
+            "fields": {"type": "Balance", "name": "Wallet"},
+            "links": [["Source LP token", "77"]],
+        }
+
+        assert _pid(position) == position_id_from_fields(
+            position["asset"], position["fields"], ["77"]
+        )
+
+    def test_pid_fallback_is_stable_for_malformed_identity_data(self):
+        from widgets.inhouse.liverefresh.views import _pid
+
+        position = {"asset": 5, "fields": [], "links": [["missing"]]}
+
+        assert _pid(position) == _pid(position)
+        assert _pid(position).startswith("x-")
+
+    def test_pid_fallback_handles_a_non_mapping_position(self):
+        from widgets.inhouse.liverefresh.views import _pid
+
+        assert _pid(["not", "a", "position"]).startswith("x-")
+
+    def test_bundle_deduplicates_legacy_positions_and_rekeys_current_ones(self):
+        from widgets.inhouse.liverefresh.views import _bundle, _pid
+
+        older = {
+            "asset": 5,
+            "fields": {"type": "Balance", "name": "Wallet"},
+            "links": [],
+            "value": 1.0,
+        }
+        newer = dict(older, value=2.0)
+
+        legacy = _bundle({"positions": [older, newer]})
+        current = _bundle({"positions": {"stale-pid": newer}})
+
+        assert list(legacy["positions"]) == [_pid(older)]
+        assert legacy["positions"][_pid(older)]["value"] == 2.0
+        assert list(current["positions"]) == [_pid(newer)]

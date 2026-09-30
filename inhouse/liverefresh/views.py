@@ -19,6 +19,7 @@ this, as long as its engine runs the pass.
 import json
 import logging
 import time
+from hashlib import blake2s
 
 import redis
 from django_redis.exceptions import ConnectionInterrupted
@@ -27,6 +28,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 from django.views.generic.base import TemplateView
 
+from api.position_id import identifying_link_ids, position_id_from_fields
 from api.widgets import bundle_and_addresses_from_path
 from utils.clients import redis_instance
 from utils.constants.core import LIVEREFRESH_MAX_FRAGMENTS as MAX_FRAGMENTS
@@ -52,6 +54,57 @@ PAID_KEY = "lvq"
 PAYLOAD_PREFIX = "lvp"
 
 logger = logging.getLogger("widgets.inhouse.liverefresh")
+
+#: Drop carries this far beyond a normal resync and let a full payload heal them.
+MAX_CARRY_FRAGMENTS = 50 * MAX_FRAGMENTS
+
+
+def _pid(position):
+    """Return the stable page id for a published position.
+
+    :param position: live payload position
+    :type position: dict
+    :return: str
+    """
+    if isinstance(position, dict):
+        identity = [
+            position.get("asset"),
+            position.get("fields"),
+            position.get("links"),
+        ]
+        try:
+            return str(
+                position_id_from_fields(
+                    position.get("asset"),
+                    position.get("fields") or {},
+                    identifying_link_ids(position.get("links")),
+                )
+            )
+        except (TypeError, ValueError, AttributeError):
+            pass
+    else:
+        identity = position
+    # A malformed position must not take down a poll or change its id between retries.
+    raw = json.dumps(identity, sort_keys=True, default=str)
+    return "x-" + blake2s(raw.encode(), digest_size=8).hexdigest()
+
+
+def _carry_size(carry):
+    """Return a cheap upper bound on fragments in a carried backlog.
+
+    :param carry: session carry keyed by asset
+    :type carry: dict
+    :return: int
+    """
+    if not isinstance(carry, dict):
+        return MAX_CARRY_FRAGMENTS + 1
+    size = 0
+    for held in carry.values():
+        if isinstance(held, dict):
+            size += 2 + 2 * len(held.get("positions") or ())
+        else:
+            size += 1
+    return size
 
 
 def _asset_key(key):
@@ -84,12 +137,19 @@ def _bundle(held):
     :return: dict
     """
     if isinstance(held, dict):
+        positions = held.get("positions") or {}
+        if not isinstance(positions, dict):
+            # Old format: list that can hold duplicates. Deduplicate by pid.
+            positions = {_pid(p): p for p in positions}
+        else:
+            # Re-key on load so a PID recipe change cannot retain stale copies.
+            positions = {_pid(position): position for position in positions.values()}
         return {
             "value": held.get("value"),
             "amount": held.get("amount"),
-            "positions": list(held.get("positions") or ()),
+            "positions": positions,
         }
-    return {"value": held, "amount": None, "positions": []}
+    return {"value": held, "amount": None, "positions": {}}
 
 
 def _fragments(bundles):
@@ -111,7 +171,7 @@ def _fragments(bundles):
     for held in bundles.values():
         total += held.get("value") is not None
         total += held.get("amount") is not None
-        for position in held.get("positions") or ():
+        for position in (held.get("positions") or {}).values():
             total += 2 if position.get("amount") else 1
     return total
 
@@ -144,7 +204,7 @@ def _rebuilt(payload, bundles):
         positions=[
             position
             for held in bundles.values()
-            for position in held.get("positions") or ()
+            for position in (held.get("positions") or {}).values()
         ],
     )
 
@@ -170,8 +230,6 @@ def _named_positions(payload):
     :type payload: dict
     :return: list
     """
-    from api.position_id import identifying_link_ids, position_id_from_fields
-
     named = []
     for position in (payload or {}).get("positions") or ():
         asset_id = position.get("asset")
@@ -260,15 +318,18 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
 
         **204 rather than an empty body**: htmx leaves the page alone on a 204,
         so a block that moved nothing costs one request and no DOM work, which
-        is most blocks for most pages. Redis timeouts return 204 too: the poll
+        is most blocks for most pages. Redis failures return 204 too: the poll
         is a heartbeat, not a contract; a missed block is answered by the next.
 
         :return: :class:`HttpResponse`
         """
         try:
             return self._get(request, *args, **kwargs)
-        except (redis.exceptions.TimeoutError, ConnectionInterrupted):
-            logger.warning("liverefresh: Redis timeout on poll for %s", self.bundle or self.kwargs.get("value"))
+        except (redis.exceptions.RedisError, ConnectionInterrupted):
+            logger.warning(
+                "liverefresh: Redis failure on poll for %s",
+                self.bundle or self.kwargs.get("value"),
+            )
             return HttpResponse(status=204)
 
     def _get(self, request, *args, **kwargs):
@@ -293,7 +354,9 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             # deliberately did not subscribe. 204 rather than the spent
             # response - they have run out of nothing, and their other tabs are
             # still live.
-            return self._attach_spans(self._with_left(HttpResponse(status=204), remaining_seconds), spans)
+            return self._attach_spans(
+                self._with_left(HttpResponse(status=204), remaining_seconds), spans
+            )
 
         if remaining_seconds is None:
             # **No daily limit means this reader is paying for it.** Same
@@ -318,7 +381,9 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             # its payload aged out behind it; a deployment with no live pass at
             # all is the same shape. `left` reads the balance without spending,
             # so the badge still shows the truth while the reader waits.
-            return self._attach_spans(self._with_left(HttpResponse(status=204), remaining_seconds), spans)
+            return self._attach_spans(
+                self._with_left(HttpResponse(status=204), remaining_seconds), spans
+            )
 
         # Delivered, so charged. This is the only call that spends.
         with timed(spans, "allowance"):
@@ -345,7 +410,9 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # 204 then would strand the rest of them.
         if not sending and payload.get("total") == self._last_total():
             return self._attach_spans(
-                self._regrouping(self._with_left(HttpResponse(status=204), remaining_seconds), regroup),
+                self._regrouping(
+                    self._with_left(HttpResponse(status=204), remaining_seconds), regroup
+                ),
                 spans,
             )
 
@@ -415,12 +482,22 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         return response
 
     def _attach_spans(self, response, spans):
-        """Attach profiling spans to response for debugging."""
+        """Attach profiling spans without replacing the response's triggers.
+
+        :param response: response being returned to htmx
+        :param spans: elapsed seconds keyed by operation name
+        :return: :class:`HttpResponse`
+        """
         if not spans:
             return response
         hx_trigger = response.get("HX-Trigger") or "{}"
         # Don't modify special HX-Trigger values that are part of the public API contract
-        special_triggers = {"liverefresh:spent", "liverefresh:left", "liverefresh:regroup", "liverefresh:regrouped"}
+        special_triggers = {
+            "liverefresh:spent",
+            "liverefresh:left",
+            "liverefresh:regroup",
+            "liverefresh:regrouped",
+        }
         if hx_trigger in special_triggers:
             return response
         # Don't add spans to 204 responses that have no HX-Trigger (e.g., unlimited reader with no payload)
@@ -783,6 +860,18 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # key comes back as `"31566704"` and has to be turned back before it can
         # merge with the `31566704` a later payload brings.
         carry = self.request.session.get(self._carry_key()) or {}
+        # Drop any runaway backlog: old list-format carries grow without
+        # limit; a session over the cap is discarded safely (next full payload
+        # rebuilds it, regroup/reload heals the page).
+        carry_size = _carry_size(carry)
+        if carry_size > MAX_CARRY_FRAGMENTS:
+            logger.warning(
+                "liverefresh: dropping runaway carry for %s (%d)",
+                self.bundle[:6],
+                carry_size,
+            )
+            self.request.session.pop(self._carry_key(), None)
+            carry = {}
         merged = {_asset_key(key): _bundle(held) for key, held in carry.items()}
 
         # Overlaid per field: an asset whose value moved again mid-resync
@@ -799,7 +888,10 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
                 fresh.append(key)
         for position in payload.get("positions") or ():
             key = _asset_key(position.get("asset"))
-            merged.setdefault(key, _bundle(None))["positions"].append(position)
+            entry = merged.get(key)
+            if entry is None:
+                entry = merged[key] = _bundle(None)
+            entry["positions"][_pid(position)] = position
             fresh.append(key)
 
         if _fragments(merged) <= MAX_FRAGMENTS:
@@ -1022,19 +1114,22 @@ class LiveRegroupView(LiveRefreshView):
     def post(self, request, *args, **kwargs):
         """Return the changed groups, or 204 when none of them changed.
 
-        A Redis timeout here is also a 204: the regroup is an optimisation,
-        and the next poll will ask again once the connection recovers.
+        A Redis failure here is also a 204: the regroup is an optimisation, and
+        the next poll will ask again once the connection recovers.
 
         :return: :class:`HttpResponse`
         """
         try:
             return self._post(request, *args, **kwargs)
-        except (redis.exceptions.TimeoutError, ConnectionInterrupted):
-            logger.warning("liverefresh regroup: Redis timeout on %s", self.kwargs.get("value") or self.args[0])
+        except (redis.exceptions.RedisError, ConnectionInterrupted):
+            logger.warning(
+                "liverefresh regroup: Redis failure on %s",
+                self.kwargs.get("value") or self.args[0],
+            )
             return HttpResponse(status=204)
 
     def _post(self, request, *args, **kwargs):
-        """Original post logic, unwrapped."""
+        """Run regroup logic without the outer Redis-error handling."""
         if layout_for_user(getattr(request, "user", None)) == "classic":
             # The classic layout renders no positions at all, so there is no
             # group to send and nothing that a regroup would mean.

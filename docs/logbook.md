@@ -1459,3 +1459,27 @@ absent one is not an input production can produce — and the guards cost a bran
 no test could reach honestly, which is the reasoning `alerts.display.format_count`
 already records for a `try` it does not have. The 100% branch threshold caught
 them.
+
+---
+
+## inhouse/liverefresh/views.py
+
+### 2026-09-30 - carry identity and runaway-session guard
+
+The carry is session state, so a position must occupy one slot even when its
+value or rank changes. The page already has the correct stable identity in
+`api.position_id`; the live payload supplies the same identifying fields and
+links, so `_pid` uses that shared recipe. A legacy list carry is deduplicated on
+load, and a current dict carry is re-keyed on load so changing `PID_VERSION`
+cannot leave an old and new copy of the same row together.
+
+Production carries reached roughly 600,000 fragments while the configured
+response budget was 100. Each poll then loaded and rewrote a very large Django
+session, which matched the Redis latency, socket timeouts and Daphne failures in
+the 2026-09-28 to 2026-09-30 logs. A carry over `50 * MAX_FRAGMENTS` is treated
+as corrupt backlog and discarded; the next full live payload repopulates it.
+
+Redis connection failures are handled like timeouts for both poll paths. A live
+poll is a heartbeat and a regroup is an optimization, so either can safely
+answer 204 and let the next request retry instead of turning transient Redis
+failure into a request 500.
