@@ -156,6 +156,27 @@ class AlertsContextMixin:
             "algo_per_usd": published.get("priceusdc"),
         }
 
+    def toolbar_context(self, address):
+        """Return the small per-reader context used by the toolbar poll.
+
+        The count endpoint must not load the published price payload or describe
+        every rule just to refresh one badge.
+
+        :param address: the bundle or address shown by the toolbar
+        :type address: str
+        :return: dict
+        """
+        profile = getattr(self.request.user, "profile", None)
+        allowed = rules_allowed(getattr(profile, "permission", 0))
+        kept = AlertRule.objects.filter(user=self.request.user, active=True).count()
+        return {
+            "address": address,
+            "alerts_bundle": address,
+            "alerts_entitled": allowed > 0,
+            "alerts_kept": kept,
+            "alerts_left": max(0, allowed - kept),
+        }
+
 
 @method_decorator(never_cache, name="dispatch")
 class AlertsView(WidgetAccessMixin, AlertsContextMixin, TemplateView):
@@ -190,6 +211,37 @@ class AlertsView(WidgetAccessMixin, AlertsContextMixin, TemplateView):
         The manifest admits any authenticated profile; what a tier buys is how
         many rules may be kept. Gating the widget on the tier would render
         nothing for a reader who should be seeing an upgrade prompt.
+
+        :return: Boolean
+        """
+        url_path = self.kwargs["page"].upper()
+        self.bundle, self.addresses = bundle_and_addresses_from_path(
+            url_path, force_bundle=True
+        )
+        return self.manifest_test_func(len(self.addresses.split(" ")))
+
+
+@method_decorator(never_cache, name="dispatch")
+class AlertsCountView(WidgetAccessMixin, AlertsContextMixin, View):
+    """Refresh the per-reader alert toolbar without opening its modal."""
+
+    manifest = MANIFEST
+
+    def get(self, request, *args, **kwargs):
+        """Return the current toolbar markup for htmx to replace.
+
+        :return: :class:`django.http.HttpResponse`
+        """
+        return HttpResponse(
+            render_to_string(
+                "alerts/_toolbar.html",
+                self.toolbar_context(self.bundle),
+                request=request,
+            )
+        )
+
+    def test_func(self):
+        """Resolve the page and apply the manifest gate.
 
         :return: Boolean
         """

@@ -1462,6 +1462,19 @@ them.
 
 ---
 
+## inhouse/alerts/templates/alerts/_toolbar.html
+
+### 2026-09-30 - cross-browser count refresh
+
+The alert list is fetched only when its modal opens, so a create or delete in
+one browser cannot update another browser's badge by itself. The toolbar polls
+the server-rendered count every 30 seconds and replaces only its own markup.
+This uses the same authoritative `AlertRule` count as the modal, avoids
+same-browser-only storage events, and leaves the modal's existing htmx swaps
+unchanged.
+
+---
+
 ## inhouse/liverefresh/views.py
 
 ### 2026-09-30 - carry identity and runaway-session guard

@@ -8,6 +8,7 @@ from .views import (
     AlertsRuleDeleteView,
     AlertsRuleEditView,
     AlertsRulesView,
+    AlertsCountView,
     AlertsSubscribeView,
     AlertsUnsubscribeView,
     AlertsView,
@@ -34,6 +35,7 @@ urlpatterns = [
     # once for the whole site, not per address.
     re_path(r"^subscribe$", AlertsSubscribeView.as_view(), name="alerts_subscribe"),
     re_path(r"^unsubscribe$", AlertsUnsubscribeView.as_view(), name="alerts_unsubscribe"),
+    re_path(rf"^{PAGE}/count$", AlertsCountView.as_view(), name="alerts_count"),
     # **Longest first.** The bare page pattern below would otherwise swallow
     # these, the way the Dust Sweep urls note about its own JSON endpoint.
     re_path(

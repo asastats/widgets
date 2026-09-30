@@ -10,6 +10,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.http import Http404
 from django.test import RequestFactory
+from django.urls import reverse
 from django.utils import timezone
 
 from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
@@ -28,6 +29,7 @@ from widgets.inhouse.alerts.views import (
     AlertsRuleDeleteView,
     AlertsRuleEditView,
     AlertsRulesView,
+    AlertsCountView,
     AlertsSubscribeView,
     AlertsUnsubscribeView,
     AlertsView,
@@ -68,7 +70,13 @@ class TestInhouseAlertsViewsGate:
 
     @pytest.mark.parametrize(
         "view_class",
-        [AlertsView, AlertsRulesView, AlertsRuleDeleteView, AlertsRuleEditView],
+        [
+            AlertsView,
+            AlertsCountView,
+            AlertsRulesView,
+            AlertsRuleDeleteView,
+            AlertsRuleEditView,
+        ],
     )
     def test_inhouse_alerts_views_test_func_resolves_and_gates(self, mocker, view_class):
         """**All four, because all four take a page in the URL.** A view that
@@ -108,6 +116,36 @@ class TestInhouseAlertsViewsContext:
         view.request = mocker.MagicMock(user=mine)
 
         assert view.alerts_context("B")["rules_kept"] == 1
+
+    def test_inhouse_alerts_toolbar_context_is_small_and_current(self, mocker):
+        reader = _reader(tier="Asastatser", email="toolbar@example.com")
+        _rule(reader)
+        view = AlertsCountView()
+        view.request = mocker.MagicMock(user=reader)
+
+        context = view.toolbar_context("B")
+
+        assert context == {
+            "address": "B",
+            "alerts_bundle": "B",
+            "alerts_entitled": True,
+            "alerts_kept": 1,
+            "alerts_left": 4,
+        }
+
+    def test_inhouse_alerts_toolbar_polls_for_the_count(self, mocker):
+        reader = _reader(tier="Asastatser", email="toolbar-html@example.com")
+        view = AlertsCountView()
+        request = RequestFactory().get("/")
+        request.user = reader
+        view.request = request
+        bundle = "A" * 40
+        view.bundle = bundle
+
+        html = view.get(request).content.decode()
+
+        assert f'hx-get="{reverse("alerts_count", args=[bundle])}"' in html
+        assert 'hx-trigger="every 30s"' in html
 
     def test_inhouse_alerts_views_context_sends_the_remainder(self, mocker):
         """The template never subtracts; a second place doing that arithmetic is

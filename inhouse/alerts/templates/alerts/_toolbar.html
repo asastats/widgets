@@ -1,0 +1,28 @@
+{% load static %}
+{% if alerts_entitled %}
+<div id="id-alerts" class="alerts-toolbar" hidden
+     data-bundle="{{ alerts_bundle }}"
+     data-rules-left="{{ alerts_left }}"
+     hx-get="{% url 'alerts_count' alerts_bundle %}"
+     hx-trigger="every 30s"
+     hx-target="#id-alerts"
+     hx-swap="outerHTML">
+  <button type="button" class="alerts-open id-alerts-open"
+          hx-get="{% url 'alerts' alerts_bundle %}"
+          hx-target="#id-alerts-modal-slot"
+          hx-swap="innerHTML"
+          {% if alerts_left == 0 %}data-at-limit="true"{% endif %}>
+    Alerts
+    <span class="badge badge-sm alerts-count"
+          {% if not alerts_kept %}hidden{% endif %}>{{ alerts_kept }}</span>
+  </button>
+</div>
+{% elif user.is_authenticated %}
+<div id="id-alerts" class="alerts-toolbar">
+  <a href="{% url 'subscriptions' %}" class="alerts-upgrade"
+     title="Alerts are available from the Asastatser tier">
+    Alerts
+    <span class="badge badge-outline badge-xs ml-2">Asastatser</span>
+  </a>
+</div>
+{% endif %}
