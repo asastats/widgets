@@ -10,7 +10,6 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.http import Http404
 from django.test import RequestFactory
-from django.urls import reverse
 from django.utils import timezone
 
 from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
@@ -144,8 +143,8 @@ class TestInhouseAlertsViewsContext:
 
         html = view.get(request).content.decode()
 
-        assert f'hx-get="{reverse("alerts_count", args=[bundle])}"' in html
-        assert 'hx-trigger="every 30s"' in html
+        assert 'data-rules-left="5"' in html
+        assert "alerts-count" in html
 
     def test_inhouse_alerts_views_context_sends_the_remainder(self, mocker):
         """The template never subtracts; a second place doing that arithmetic is

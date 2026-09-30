@@ -864,6 +864,13 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # limit; a session over the cap is discarded safely (next full payload
         # rebuilds it, regroup/reload heals the page).
         carry_size = _carry_size(carry)
+        if carry_size:
+            logger.info(
+                "liverefresh carry_frag=%d bundle=%s",
+                carry_size,
+                self.bundle[:6],
+            )
+
         if carry_size > MAX_CARRY_FRAGMENTS:
             logger.warning(
                 "liverefresh: dropping runaway carry for %s (%d)",

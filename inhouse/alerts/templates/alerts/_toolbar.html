@@ -2,11 +2,7 @@
 {% if alerts_entitled %}
 <div id="id-alerts" class="alerts-toolbar" hidden
      data-bundle="{{ alerts_bundle }}"
-     data-rules-left="{{ alerts_left }}"
-     hx-get="{% url 'alerts_count' alerts_bundle %}"
-     hx-trigger="every 30s"
-     hx-target="#id-alerts"
-     hx-swap="outerHTML">
+     data-rules-left="{{ alerts_left }}">
   <button type="button" class="alerts-open id-alerts-open"
           hx-get="{% url 'alerts' alerts_bundle %}"
           hx-target="#id-alerts-modal-slot"

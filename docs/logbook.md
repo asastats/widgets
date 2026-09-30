@@ -1473,6 +1473,14 @@ This uses the same authoritative `AlertRule` count as the modal, avoids
 same-browser-only storage events, and leaves the modal's existing htmx swaps
 unchanged.
 
+### Correction, 2026-09-30
+
+The polling trigger was initially placed on the toolbar itself. The toolbar is
+moved into the action-row slot by `alerts.js`, and production showed no count
+requests from that arrangement. The trigger now lives on the stable
+`id-alerts-count-poll` marker in `_swap_entry.html`; its response still replaces
+only `#id-alerts`.
+
 ---
 
 ## inhouse/liverefresh/views.py
