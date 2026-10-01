@@ -1134,6 +1134,37 @@ describe("regrouping instead of reloading", () => {
   });
 });
 
+describe("the refresh tooltip", () => {
+  it("shows live text when the marker is present", () => {
+    page();
+    load();
+    const control = document.getElementById("tb-refresh") || document.querySelector(".refresh label");
+    expect(control.getAttribute("title")).toContain("real time");
+  });
+
+  it("shows the free text after the allowance is spent", () => {
+    localStorage.setItem("refresh", "y");
+    const module = load();
+    module.spent();
+    const control = document.getElementById("tb-refresh") || document.querySelector(".refresh label");
+    expect(control.getAttribute("title")).toContain("once a minute");
+  });
+
+  it("shows the free text after a refusal hands back", () => {
+    localStorage.setItem("refresh", "y");
+    load();
+    const marker = document.getElementById("id-liverefresh");
+    marker.dispatchEvent(
+      new CustomEvent("htmx:response:error", {
+        detail: { ctx: { response: { status: 403 } } },
+        bubbles: true,
+      })
+    );
+    const control = document.getElementById("tb-refresh") || document.querySelector(".refresh label");
+    expect(control.getAttribute("title")).toContain("once a minute");
+  });
+});
+
 describe("calling restoreDisplayChoices after htmx swaps", () => {
   let mockRestoreDisplayChoices;
 

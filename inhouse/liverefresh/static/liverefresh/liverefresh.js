@@ -136,6 +136,15 @@
    * Give the page back to `address.js`'s sixty-second reload.
    * Removing the marker is the whole handover: that is what it reads.
    */
+  function refreshTitle() {
+    var live = !!(marker && marker.parentNode && marker.dataset.pollUrl);
+    var text = live
+      ? "Refresh this page in real time"
+      : "Reload this page about once a minute, waiting for a pause if you are reading";
+    var control = document.getElementById("tb-refresh") || document.querySelector(".refresh label");
+    if (control) control.setAttribute("title", text);
+  }
+
   function handBack() {
     stop();
     var badge = document.getElementById("id-liverefresh-left");
@@ -145,6 +154,7 @@
     if (marker.parentNode) {
       marker.parentNode.removeChild(marker);
     }
+    refreshTitle();
   }
 
   /**
@@ -388,6 +398,7 @@
     }
   });
 
+  refreshTitle();
   // Bracketing task list; capture phase for ordering before toolbar.js.
   document.body.addEventListener("htmx:before:swap", rememberExpanded, true);
   document.body.addEventListener("htmx:after:swap", settlePosition, true);

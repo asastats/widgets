@@ -510,7 +510,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         triggers["liverefresh:spans"] = {k: f"{v:.3f}s" for k, v in spans.items()}
         response["HX-Trigger"] = json.dumps(triggers)
         # Log spans for latency analysis
-        logger.info(
+        logger.debug(
             "liverefresh spans: %s",
             ", ".join(f"{k}={v:.3f}s" for k, v in spans.items()),
         )
@@ -671,7 +671,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # **The detector's input, before anything is trusted.** One line per
         # decision; a reload is rare enough that this stays quiet on a healthy
         # page, and if it is not quiet that is the finding.
-        logger.info(
+        logger.debug(
             "live reload %s: page %s engine %s (%s), %s",
             self.bundle[:6],
             rendered,
@@ -865,7 +865,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # rebuilds it, regroup/reload heals the page).
         carry_size = _carry_size(carry)
         if carry_size:
-            logger.info(
+            logger.debug(
                 "liverefresh carry_frag=%d bundle=%s",
                 carry_size,
                 self.bundle[:6],

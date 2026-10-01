@@ -2503,7 +2503,7 @@ class TestLiveRefreshLogsTheReloadDecision:
             mocker, {"total": 5.0, "values": {}, "holdings": "5:cafe5678:bbbb"}
         )
 
-        with caplog.at_level(logging.INFO, logger="widgets.inhouse.liverefresh"):
+        with caplog.at_level(logging.DEBUG, logger="widgets.inhouse.liverefresh"):
             response = view.get(view.request)
 
         assert response["HX-Refresh"] == "true"
@@ -2525,7 +2525,7 @@ class TestLiveRefreshLogsTheReloadDecision:
             LiveRefreshView, "render_to_response", return_value=HttpResponse()
         )
 
-        with caplog.at_level(logging.INFO, logger="widgets.inhouse.liverefresh"):
+        with caplog.at_level(logging.DEBUG, logger="widgets.inhouse.liverefresh"):
             view.get(view.request)
 
         assert "held by the cooldown" in caplog.text
@@ -2541,7 +2541,7 @@ class TestLiveRefreshLogsTheReloadDecision:
             LiveRefreshView, "render_to_response", return_value=HttpResponse()
         )
 
-        with caplog.at_level(logging.INFO, logger="widgets.inhouse.liverefresh"):
+        with caplog.at_level(logging.DEBUG, logger="widgets.inhouse.liverefresh"):
             view.get(view.request)
 
         assert "live reload" not in caplog.text
