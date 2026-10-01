@@ -754,6 +754,70 @@ describe("settling a position fragment", () => {
     ).toBe("9.0");
   });
 
+  test("a classic value keeps its breakdown hook after a swap", () => {
+    page();
+    const subject = document.createElement("span");
+    subject.id = "ppv-p1-5-abc";
+    subject.className = "val program-value tdist cursor-pointer";
+    subject.setAttribute("data-distid", "d-staked-1-5");
+    document.body.appendChild(subject);
+
+    const module = load();
+    module.rememberExpanded({ detail: { tasks: [{ target: subject }] } });
+    const fresh = document.createElement("span");
+    fresh.id = subject.id;
+    fresh.className = "val program-value";
+    fresh.setAttribute("data-val", "9.0");
+    subject.replaceWith(fresh);
+    module.settlePosition({ detail: {} });
+
+    expect(fresh.className).toContain("tdist");
+    expect(fresh.getAttribute("data-distid")).toBe("d-staked-1-5");
+  });
+
+  test("a classic value without a breakdown removes a stray hook", () => {
+    page();
+    const subject = document.createElement("span");
+    subject.id = "ppv-p1-5-plain";
+    subject.className = "val program-value";
+    document.body.appendChild(subject);
+
+    const module = load();
+    module.rememberExpanded({ detail: { tasks: [{ target: subject }] } });
+    const fresh = document.createElement("span");
+    fresh.id = subject.id;
+    fresh.className = "val program-value";
+    fresh.setAttribute("data-distid", "stale");
+    subject.replaceWith(fresh);
+    module.settlePosition({ detail: {} });
+
+    expect(fresh.hasAttribute("data-distid")).toBe(false);
+  });
+
+  test("a missing classic target is cleared without throwing", () => {
+    page();
+    const subject = document.createElement("span");
+    subject.id = "ppv-p1-5-missing";
+    subject.className = "val program-value tdist";
+    subject.setAttribute("data-distid", "d-stale");
+    document.body.appendChild(subject);
+
+    const module = load();
+    module.rememberExpanded({ detail: { tasks: [{ target: subject }] } });
+    subject.remove();
+
+    expect(() => module.settlePosition({ detail: {} })).not.toThrow();
+    const replacement = document.createElement("span");
+    replacement.id = subject.id;
+    replacement.className = "server-value";
+    replacement.setAttribute("data-distid", "server");
+    document.body.appendChild(replacement);
+    module.settlePosition({ detail: {} });
+
+    expect(replacement.className).toBe("server-value");
+    expect(replacement.getAttribute("data-distid")).toBe("server");
+  });
+
   test("a closed breakdown stays closed", () => {
     const subject = position("p1-5-abc", { expandedNow: "false" });
 

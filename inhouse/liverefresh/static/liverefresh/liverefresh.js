@@ -14,16 +14,14 @@
    *
    * Keyed by id and cleared as each one settles, so a fragment that never
    * arrives cannot leave a stale answer for the next one.
-   */
+  */
   var expanded = {};
+  var classicValueAttributes = {};
   if (!marker || !window.htmx) {
     return;
   }
-  // **Nothing to swap, nothing to ask for.** The band partials live in the
-  // dynamic layout; the legacy one renders the same figures without the ids
-  // the out-of-band swaps address. Polling there would apply nothing while
-  // still holding an `lvx` subscription, which costs the engine a re-price of
-  // this page every block for a reader who would see no difference.
+  // **Nothing to swap, nothing to ask for.** Both layouts carry a live band
+  // target; a page with neither is one the swaps cannot reach.
   //
   // Asked of the page rather than told by the server, so that a layout gaining
   // the partials starts working without anything else being changed - and one
@@ -264,6 +262,12 @@
       if (target && isPositionValue(target)) {
         expanded[target.id] = target.getAttribute("aria-expanded");
       }
+      if (target && isClassicValue(target)) {
+        classicValueAttributes[target.id] = {
+          className: target.className,
+          distid: target.getAttribute("data-distid"),
+        };
+      }
     }
   }
 
@@ -293,6 +297,17 @@
       // cannot leave a stale answer behind for the next response.
       delete expanded[id];
     }
+    for (var classicId in classicValueAttributes) {
+      if (!Object.prototype.hasOwnProperty.call(classicValueAttributes, classicId)) continue;
+      var classic = document.getElementById(classicId);
+      var attributes = classicValueAttributes[classicId];
+      if (classic) {
+        classic.className = attributes.className;
+        if (attributes.distid === null) classic.removeAttribute("data-distid");
+        else classic.setAttribute("data-distid", attributes.distid);
+      }
+      delete classicValueAttributes[classicId];
+    }
   }
 
   /**
@@ -301,6 +316,10 @@
    */
   function isPositionValue(element) {
     return !!(element.id && element.id.indexOf("pv-") === 0);
+  }
+
+  function isClassicValue(element) {
+    return !!(element.id && element.id.indexOf("ppv-") === 0);
   }
 
   document.addEventListener("visibilitychange", visibility);

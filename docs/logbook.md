@@ -598,6 +598,10 @@ swaps address. Polling there would apply nothing while still holding an `lvx`
 subscription, which costs the engine a re-price of this page every block for a
 reader who would see no difference.
 
+**Correction, 2026-10-01.** The classic layout now carries stable position-value
+targets as well, so its consolidated figures can be refreshed from the same live
+position payload. The guard still requires one of the two band targets.
+
 Asked of the page rather than told by the server, so that a layout gaining the
 partials starts working without anything else being changed — and one losing
 them stops, rather than quietly polling into the void. Either layout's band

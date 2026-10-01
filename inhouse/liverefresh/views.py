@@ -235,12 +235,25 @@ def _named_positions(payload):
         asset_id = position.get("asset")
         if asset_id is None:
             continue
+        fields = position.get("fields") or {}
+        kind = fields.get("type") or ""
+        name = fields.get("name") or ""
+        band = (
+            "balance"
+            if kind == "Balance"
+            else "staked"
+            if kind == "Staked" and "farm" not in name
+            else "liquidity"
+            if kind == "Added" and name == "Liquidity"
+            else "defi"
+        )
         named.append(
             dict(
                 position,
+                band=band,
                 pid=position_id_from_fields(
                     asset_id,
-                    position.get("fields") or {},
+                    fields,
                     identifying_link_ids(position.get("links")),
                 ),
             )
