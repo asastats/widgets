@@ -2751,3 +2751,154 @@ class TestChunkedHelpers:
         assert list(legacy["positions"]) == [_pid(older)]
         assert legacy["positions"][_pid(older)]["value"] == 2.0
         assert list(current["positions"]) == [_pid(newer)]
+
+
+class TestLiveRefreshCatchesUpOnMissedPayloads:
+    """A diff is relative to the payload before it, so a tab that skipped one
+    has every diff it missed folded in beneath the latest. See docs/logbook.md.
+    """
+
+    @staticmethod
+    def _payload(seq, values=None, positions=None, total=5.0):
+        return {
+            "seq": seq,
+            "total": total,
+            "values": values or {},
+            "amounts": {},
+            "positions": positions or [],
+        }
+
+    @staticmethod
+    def _rendered(mocker, view, latest, backlog=()):
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(latest)
+        client.lrange.return_value = [msgpack.packb(each) for each in backlog]
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        rendered = mocker.patch.object(
+            LiveRefreshView, "render_to_response", return_value=HttpResponse()
+        )
+        response = view.get(view.request)
+        return rendered, response, client
+
+    @staticmethod
+    def _since(mocker, since):
+        view = _view(mocker, session={})
+        view.request.GET = {} if since is None else {"since": str(since)}
+        return view
+
+    def test_liverefresh_folds_in_the_payloads_the_tab_missed(self, mocker):
+        """The 21:24:34 screenshot: the down-move was in a skipped payload."""
+        view = self._since(mocker, 5)
+        latest = self._payload(8, {22: 2.0})
+        backlog = [
+            latest,
+            self._payload(7, {11: 1.0}),
+            self._payload(6, {11: 103.0, 33: 3.0}),
+            self._payload(5, {44: 9.0}),
+        ]
+
+        rendered, _response, client = self._rendered(mocker, view, latest, backlog)
+
+        client.lrange.assert_called_once_with("lvl:HASH", 0, -1)
+        assert rendered.call_args.args[0]["payload"]["values"] == {
+            11: 1.0,
+            33: 3.0,
+            22: 2.0,
+        }
+
+    def test_liverefresh_later_positions_win_by_pid(self, mocker):
+        view = self._since(mocker, 1)
+        fields = {"type": "Staked", "name": "Pool"}
+        latest = self._payload(3)
+        backlog = [
+            latest,
+            self._payload(2, positions=[{"asset": 11, "fields": fields, "value": 2.0}]),
+        ]
+        latest["positions"] = [{"asset": 11, "fields": fields, "value": 4.0}]
+
+        rendered, _response, _client = self._rendered(mocker, view, latest, backlog)
+
+        positions = rendered.call_args.args[0]["payload"]["positions"]
+        assert [position["value"] for position in positions] == [4.0]
+
+    def test_liverefresh_the_next_payload_needs_no_backlog(self, mocker):
+        view = self._since(mocker, 7)
+        latest = self._payload(8, {22: 2.0})
+
+        rendered, _response, client = self._rendered(mocker, view, latest)
+
+        client.lrange.assert_not_called()
+        assert rendered.call_args.args[0]["payload"]["values"] == {22: 2.0}
+
+    def test_liverefresh_a_payload_already_applied_is_not_resent(self, mocker):
+        view = self._since(mocker, 8)
+        view.request.session["liverefresh:HASH"] = 5.0
+        latest = self._payload(8, {22: 2.0})
+
+        rendered, response, _client = self._rendered(mocker, view, latest)
+
+        rendered.assert_not_called()
+        assert response.status_code == 204
+        assert json.loads(response["HX-Trigger"])["liverefresh:seq"] == {"seq": 8}
+
+    def test_liverefresh_a_hole_still_applies_what_is_held(self, mocker):
+        """Older than the backlog reaches: what is held is still newer than the
+        tab's rows, and the next re-read heals the rest."""
+        view = self._since(mocker, 1)
+        latest = self._payload(8, {22: 2.0})
+
+        rendered, _response, _client = self._rendered(
+            mocker, view, latest, [latest, self._payload(7, {11: 1.0})]
+        )
+
+        assert rendered.call_args.args[0]["payload"]["values"] == {11: 1.0, 22: 2.0}
+
+    @pytest.mark.parametrize("since", [None, "garbage", 9])
+    def test_liverefresh_without_a_usable_since_sends_the_latest(self, mocker, since):
+        """No `since` is a first poll; one ahead of `seq` is an engine whose
+        baseline expired and started counting again."""
+        view = self._since(mocker, since)
+        latest = self._payload(8, {22: 2.0})
+
+        rendered, _response, client = self._rendered(mocker, view, latest)
+
+        client.lrange.assert_not_called()
+        assert rendered.call_args.args[0]["payload"]["values"] == {22: 2.0}
+
+    def test_liverefresh_tells_the_tab_which_payload_it_has(self, mocker):
+        view = self._since(mocker, None)
+
+        _rendered, response, _client = self._rendered(
+            mocker, view, self._payload(8, {22: 2.0})
+        )
+
+        assert json.loads(response["HX-Trigger"])["liverefresh:seq"] == {"seq": 8}
+
+    def test_liverefresh_an_older_engine_without_seq_is_left_alone(self, mocker):
+        view = self._since(mocker, 3)
+        latest = self._payload(None, {22: 2.0})
+
+        rendered, response, client = self._rendered(mocker, view, latest)
+
+        client.lrange.assert_not_called()
+        assert rendered.call_args.args[0]["payload"]["values"] == {22: 2.0}
+        assert "liverefresh:seq" not in json.loads(response.get("HX-Trigger") or "{}")
+
+    def test_liverefresh_skips_an_undecodable_backlog_entry(self, mocker):
+        view = self._since(mocker, 6)
+        latest = self._payload(8, {22: 2.0})
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(latest)
+        client.lrange.return_value = [b"\xc1", msgpack.packb(self._payload(7, {11: 1.0}))]
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        rendered = mocker.patch.object(
+            LiveRefreshView, "render_to_response", return_value=HttpResponse()
+        )
+
+        view.get(view.request)
+
+        assert rendered.call_args.args[0]["payload"]["values"] == {11: 1.0, 22: 2.0}

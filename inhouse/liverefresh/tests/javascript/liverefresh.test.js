@@ -1263,3 +1263,53 @@ describe("calling restoreDisplayChoices after htmx swaps", () => {
     expect(() => listenerEntry[1]({})).not.toThrow();
   });
 });
+
+describe("catching up on payloads a poll missed", () => {
+  function seq(value) {
+    document.body.dispatchEvent(
+      new CustomEvent("liverefresh:seq", { detail: { seq: value } })
+    );
+  }
+
+  it("sends no since before any payload has been applied", () => {
+    localStorage.setItem("refresh", "y");
+    load();
+
+    jest.advanceTimersByTime(3000);
+
+    expect(window.htmx.ajax.mock.calls[0][1]).toBe(POLLED);
+  });
+
+  it("sends the last seq the server reported", () => {
+    localStorage.setItem("refresh", "y");
+    load();
+    seq(41);
+
+    jest.advanceTimersByTime(3000);
+
+    expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLLED}&since=41`);
+  });
+
+  it("starts the query string itself when the URL has none", () => {
+    localStorage.setItem("refresh", "y");
+    page({ holdings: null });
+    load();
+    seq(7);
+
+    jest.advanceTimersByTime(3000);
+
+    expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLL_URL}?since=7`);
+  });
+
+  it("ignores an event without a numeric seq", () => {
+    localStorage.setItem("refresh", "y");
+    load();
+    seq(41);
+    seq("42");
+    document.body.dispatchEvent(new CustomEvent("liverefresh:seq"));
+
+    jest.advanceTimersByTime(3000);
+
+    expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLLED}&since=41`);
+  });
+});

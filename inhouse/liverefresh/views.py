@@ -53,6 +53,9 @@ PAID_KEY = "lvq"
 #: Prefix the pass publishes under, keyed by bundle. See `CACHE_KEY_LIVE_PAYLOAD`.
 PAYLOAD_PREFIX = "lvp"
 
+#: The engine's list of recent payloads, newest first. See `CACHE_KEY_LIVE_BACKLOG`.
+BACKLOG_PREFIX = "lvl"
+
 logger = logging.getLogger("widgets.inhouse.liverefresh")
 
 #: Drop carries this far beyond a normal resync and let a full payload heal them.
@@ -87,6 +90,19 @@ def _pid(position):
     # A malformed position must not take down a poll or change its id between retries.
     raw = json.dumps(identity, sort_keys=True, default=str)
     return "x-" + blake2s(raw.encode(), digest_size=8).hexdigest()
+
+
+def _since(request):
+    """Return the `since` the tab sent, or None when absent or malformed.
+
+    :param request: the poll
+    :type request: :class:`HttpRequest`
+    :return: int or None
+    """
+    try:
+        return int(request.GET.get("since"))
+    except (TypeError, ValueError):
+        return None
 
 
 def _carry_size(carry):
@@ -404,6 +420,10 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         if remaining_seconds is not None and remaining_seconds <= 0:
             return self._attach_spans(self._spent_response(), spans)
 
+        seq = payload.get("seq")
+        with timed(spans, "caught_up"):
+            payload = self._caught_up(client, payload, _since(request))
+
         with timed(spans, "reload_response"):
             reload = self._reload_response(request, payload)
         if reload is not None:
@@ -423,8 +443,12 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # 204 then would strand the rest of them.
         if not sending and payload.get("total") == self._last_total():
             return self._attach_spans(
-                self._regrouping(
-                    self._with_left(HttpResponse(status=204), remaining_seconds), regroup
+                self._with_seq(
+                    self._regrouping(
+                        self._with_left(HttpResponse(status=204), remaining_seconds),
+                        regroup,
+                    ),
+                    seq,
                 ),
                 spans,
             )
@@ -437,7 +461,78 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             self._with_left(response, remaining_seconds),
             regroup,
         )
-        return self._attach_spans(response, spans)
+        return self._attach_spans(self._with_seq(response, seq), spans)
+
+    def _caught_up(self, client, payload, since):
+        """Return `payload` with every diff this tab missed folded in beneath it.
+
+        A diff is relative to the payload before it, so a tab that skipped one
+        would keep that block's rows while the absolute band moved on. `since`
+        is the last `seq` the tab applied. See docs/logbook.md.
+
+        :param client: Redis client instance
+        :type client: :class:`Redis`
+        :param payload: the latest payload, as `_payload` decoded it
+        :type payload: dict
+        :param since: the tab's last applied `seq`, or None
+        :type since: int or None
+        :return: dict
+        """
+        import msgpack
+
+        seq = payload.get("seq")
+        if not isinstance(seq, int) or since is None or since > seq:
+            return payload
+        if since == seq:
+            # already applied; only the carry, if any, is still owed
+            return dict(payload, values={}, amounts={}, positions=[])
+        if seq - since == 1:
+            return payload
+
+        missed = {}
+        for raw in client.lrange(f"{BACKLOG_PREFIX}:{self.bundle}", 0, -1):
+            try:
+                older = msgpack.unpackb(raw, strict_map_key=False)
+            except (ValueError, TypeError, msgpack.UnpackException):
+                continue
+            number = older.get("seq") if isinstance(older, dict) else None
+            if isinstance(number, int) and since < number < seq:
+                missed[number] = older
+        if len(missed) != seq - since - 1:
+            logger.debug(
+                "liverefresh: %s missed %d payloads, %d still held",
+                self.bundle[:6],
+                seq - since - 1,
+                len(missed),
+            )
+
+        values, amounts, positions = {}, {}, {}
+        # oldest first, so a later figure for the same row wins
+        for each in [missed[number] for number in sorted(missed)] + [payload]:
+            values.update(each.get("values") or {})
+            amounts.update(each.get("amounts") or {})
+            for position in each.get("positions") or ():
+                positions[_pid(position)] = position
+        return dict(
+            payload, values=values, amounts=amounts, positions=list(positions.values())
+        )
+
+    @staticmethod
+    def _with_seq(response, seq):
+        """Tell the tab which payload it now has, through `liverefresh:seq`.
+
+        :param response: the response this poll is about to return
+        :type response: :class:`HttpResponse`
+        :param seq: the latest payload's `seq`, or None from an older engine
+        :type seq: int or None
+        :return: :class:`HttpResponse`
+        """
+        if not isinstance(seq, int):
+            return response
+        triggers = json.loads(response.get("HX-Trigger") or "{}")
+        triggers["liverefresh:seq"] = {"seq": seq}
+        response["HX-Trigger"] = json.dumps(triggers)
+        return response
 
     @staticmethod
     def _regrouping(response, wanted):

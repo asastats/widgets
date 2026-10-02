@@ -62,6 +62,21 @@
   }
 
   var url = withHoldings(pollUrl, holdings);
+  /** The last payload `seq` this tab applied; the server folds in what it missed. */
+  var since = null;
+
+  /**
+   * Return `base` carrying `since`, when this tab has applied a payload.
+   *
+   * @param {string} base - the poll URL with its holdings.
+   * @returns {string}
+   */
+  function withSince(base) {
+    if (since === null) {
+      return base;
+    }
+    return base + (base.indexOf("?") === -1 ? "?" : "&") + "since=" + since;
+  }
   /** Whether a regroup is in flight; the trigger arrives faster than it. */
   var regrouping = false;
   var interval = (parseInt(marker.dataset.interval, 10) || 3) * 1000;
@@ -94,7 +109,18 @@
       stop();
       return;
     }
-    window.htmx.ajax("GET", url, { source: marker, swap: "none" });
+    window.htmx.ajax("GET", withSince(url), { source: marker, swap: "none" });
+  }
+
+  /**
+   * Remember which payload the response just delivered.
+   * @param {CustomEvent} event carrying `{ seq }`
+   */
+  function caughtUp(event) {
+    var seq = event && event.detail && event.detail.seq;
+    if (typeof seq === "number") {
+      since = seq;
+    }
   }
 
   function start() {
@@ -408,6 +434,7 @@
   document.body.addEventListener("liverefresh:left", showLeft);
   document.body.addEventListener("liverefresh:regroup", regroup);
   document.body.addEventListener("liverefresh:regrouped", regrouped);
+  document.body.addEventListener("liverefresh:seq", caughtUp);
 
   // Re-apply currency/total-no-NFT formatting after OOB swaps
   // (wireFetchedItems may not catch swap:"none" responses)

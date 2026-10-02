@@ -1508,3 +1508,36 @@ Redis connection failures are handled like timeouts for both poll paths. A live
 poll is a heartbeat and a regroup is an optimization, so either can safely
 answer 204 and let the next request retry instead of turning transient Redis
 failure into a request 500.
+
+### 2026-10-02 - catching up on payloads a tab missed (`_caught_up`, `since`)
+
+Every engine payload is a diff against the one before it, and `lvp` is
+overwritten each block. A tab that does not fetch a payload loses that
+payload's row and position changes, while the band, which is absolute, moves
+on. That happens when:
+
+* the poll runs every 3 s against ~2.8 s blocks;
+* htmx drops a poll whose source still has one in flight (p90 is 3.3 s);
+* a background tab is throttled.
+
+The rows then stay wrong until the next full payload (a re-read every 60
+blocks, or a strike).
+
+The engine now stamps each payload with a per-page `seq` and keeps the last 20
+in `lvl:{bundle}` (engine logbook, `utils/transmitters.py`, same date). The
+poll returns `liverefresh:seq` in `HX-Trigger` (204s included). The tab sends
+it back as `since`, and the view folds every held payload with
+`since < seq < latest` under the latest one, oldest first, positions keyed by
+`_pid`, before `_chunked`. `since == seq` sends only the carry. A missing
+`since` (first poll), a garbled one, one ahead of `seq` (the engine's baseline
+expired and restarted at 1), or a payload without `seq` (older engine) means
+the latest only, as before. A hole is logged at debug and still applies what
+is held.
+
+`since` is per tab, deliberately not in the session: `last_total` and the
+carry are per session *and bundle*, so two tabs on one bundle already share
+them. That is a known gap, not changed here.
+
+The first poll after a page load still applies only the latest diff to rows
+rendered some passes earlier. Anchoring that would need the page to render the
+`seq` its data matches, which the address page's source cannot say.
