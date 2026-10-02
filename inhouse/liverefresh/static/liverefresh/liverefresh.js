@@ -64,18 +64,18 @@
   var url = withHoldings(pollUrl, holdings);
   /** The last payload `seq` this tab applied; the server folds in what it missed. */
   var since = null;
+  /** Names this tab's carry and last total on the server, apart from other tabs. */
+  var tab = Math.random().toString(36).slice(2, 10) || "t";
 
   /**
-   * Return `base` carrying `since`, when this tab has applied a payload.
+   * Return `base` carrying this tab's id, and `since` once it has applied a payload.
    *
    * @param {string} base - the poll URL with its holdings.
    * @returns {string}
    */
   function withSince(base) {
-    if (since === null) {
-      return base;
-    }
-    return base + (base.indexOf("?") === -1 ? "?" : "&") + "since=" + since;
+    var query = "tab=" + tab + (since === null ? "" : "&since=" + since);
+    return base + (base.indexOf("?") === -1 ? "?" : "&") + query;
   }
   /** Whether a regroup is in flight; the trigger arrives faster than it. */
   var regrouping = false;

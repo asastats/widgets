@@ -2902,3 +2902,92 @@ class TestLiveRefreshCatchesUpOnMissedPayloads:
         view.get(view.request)
 
         assert rendered.call_args.args[0]["payload"]["values"] == {11: 1.0, 22: 2.0}
+
+
+class TestLiveRefreshKeepsTabsApart:
+    """Two tabs on one bundle share a session. Keyed per bundle, one tab took
+    the other's carried fragments and its 204 decision. See docs/logbook.md.
+    """
+
+    @staticmethod
+    def _poll(mocker, session, tab, payload, now=1000.0):
+        view = _view(mocker, session=session)
+        view.request.GET = {"tab": tab}
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(payload)
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        mocker.patch("widgets.inhouse.liverefresh.views.time.time", return_value=now)
+        rendered = mocker.patch.object(
+            LiveRefreshView, "render_to_response", return_value=HttpResponse()
+        )
+        response = view.get(view.request)
+        return rendered, response
+
+    def test_liverefresh_a_carry_belongs_to_the_tab_that_was_owed_it(self, mocker):
+        from utils.constants.core import LIVEREFRESH_MAX_FRAGMENTS
+
+        session = {}
+        big = {"total": 5.0, "values": {1000 + i: float(i) for i in range(250)}}
+        self._poll(mocker, session, "aaa", big)
+        assert len(session["liverefresh:carry:HASH:aaa"]) == 250 - LIVEREFRESH_MAX_FRAGMENTS
+
+        rendered, _response = self._poll(mocker, session, "bbb", {"total": 5.0})
+
+        # the other tab gets nothing it was not owed, and takes nothing
+        assert rendered.call_args.args[0]["payload"]["values"] == {}
+        assert "liverefresh:carry:HASH:aaa" in session
+
+    def test_liverefresh_one_tab_seeing_a_total_does_not_204_the_other(self, mocker):
+        session = {}
+        self._poll(mocker, session, "aaa", {"total": 7.0})
+
+        rendered, response = self._poll(mocker, session, "bbb", {"total": 7.0})
+
+        assert response.status_code != 204
+        rendered.assert_called_once()
+
+    def test_liverefresh_the_same_tab_still_gets_its_204(self, mocker):
+        session = {}
+        self._poll(mocker, session, "aaa", {"total": 7.0})
+
+        rendered, response = self._poll(mocker, session, "aaa", {"total": 7.0})
+
+        assert response.status_code == 204
+        rendered.assert_not_called()
+
+    def test_liverefresh_an_idle_tab_is_forgotten(self, mocker):
+        from widgets.inhouse.liverefresh.views import TAB_IDLE_SECONDS
+
+        session = {}
+        self._poll(mocker, session, "aaa", {"total": 7.0}, now=1000.0)
+        session["liverefresh:carry:HASH:aaa"] = {"1": 1.0}
+
+        self._poll(
+            mocker, session, "bbb", {"total": 7.0}, now=1001.0 + TAB_IDLE_SECONDS
+        )
+
+        assert "liverefresh:HASH:aaa" not in session
+        assert "liverefresh:carry:HASH:aaa" not in session
+        assert set(session["liverefresh:tabs:HASH"]) == {"bbb"}
+
+    def test_liverefresh_keeps_state_for_a_bounded_number_of_tabs(self, mocker):
+        from widgets.inhouse.liverefresh.views import MAX_TABS
+
+        session = {}
+        for index in range(MAX_TABS + 2):
+            self._poll(mocker, session, f"t{index}", {"total": 7.0}, now=1000.0 + index)
+
+        tabs = session["liverefresh:tabs:HASH"]
+        assert len(tabs) == MAX_TABS
+        assert "t0" not in tabs and "liverefresh:HASH:t0" not in session
+
+    @pytest.mark.parametrize("tab", ["", "has space", "x" * 17, "a:b"])
+    def test_liverefresh_a_malformed_tab_shares_the_bundle_key(self, mocker, tab):
+        session = {}
+
+        self._poll(mocker, session, tab, {"total": 7.0})
+
+        assert session["liverefresh:HASH"] == 7.0
+        assert "liverefresh:tabs:HASH" not in session

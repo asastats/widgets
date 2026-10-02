@@ -18,6 +18,7 @@ this, as long as its engine runs the pass.
 
 import json
 import logging
+import re
 import time
 from hashlib import blake2s
 
@@ -61,6 +62,13 @@ logger = logging.getLogger("widgets.inhouse.liverefresh")
 #: Drop carries this far beyond a normal resync and let a full payload heal them.
 MAX_CARRY_FRAGMENTS = 50 * MAX_FRAGMENTS
 
+#: A tab not heard from for this long has its per-tab session state dropped.
+TAB_IDLE_SECONDS = 600
+#: Tabs per bundle a session keeps state for; the stalest goes first.
+MAX_TABS = 8
+#: What a `tab` parameter may be; anything else is treated as no tab at all.
+_TAB_PATTERN = re.compile(r"[A-Za-z0-9]{1,16}")
+
 
 def _pid(position):
     """Return the stable page id for a published position.
@@ -90,6 +98,17 @@ def _pid(position):
     # A malformed position must not take down a poll or change its id between retries.
     raw = json.dumps(identity, sort_keys=True, default=str)
     return "x-" + blake2s(raw.encode(), digest_size=8).hexdigest()
+
+
+def _tab(request):
+    """Return the `tab` the page sent, or "" when absent or malformed.
+
+    :param request: the poll
+    :type request: :class:`HttpRequest`
+    :return: str
+    """
+    tab = request.GET.get("tab") or ""
+    return tab if _TAB_PATTERN.fullmatch(tab) else ""
 
 
 def _since(request):
@@ -341,6 +360,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
     manifest = MANIFEST
     bundle = None
     addresses = None
+    tab = ""
 
     def get(self, request, *args, **kwargs):
         """Return the changed fragments, or 204 when nothing moved.
@@ -366,6 +386,8 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # One timestamp for one poll, so the heartbeat and the paid mark
         # carry the same score and the two sets cannot age out of step.
         now = time.time()
+        self.tab = _tab(request)
+        self._touch_tab(now)
         spans = {}
         with timed(spans, "heartbeat"):
             warm = self._heartbeat(client, now)
@@ -895,8 +917,38 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             payload["pricealgo"] = 1 / payload["priceusdc"]
         return payload
 
-    def _session_key(self):
-        return f"liverefresh:{self.bundle}"
+    def _session_key(self, tab=None):
+        """Key holding the total this tab was last shown."""
+        tab = self.tab if tab is None else tab
+        return f"liverefresh:{self.bundle}" + (f":{tab}" if tab else "")
+
+    def _tabs_key(self):
+        """Key holding {tab: last poll time} for this bundle."""
+        return f"liverefresh:tabs:{self.bundle}"
+
+    def _touch_tab(self, now):
+        """Record this tab's poll and drop the state of tabs gone idle.
+
+        The last total and the carry are per tab, so two tabs on one bundle do
+        not take each other's fragments. See docs/logbook.md.
+
+        :param now: unix time of this poll
+        :type now: float
+        """
+        if not self.tab:
+            return
+        session = self.request.session
+        tabs = dict(session.get(self._tabs_key()) or {})
+        tabs[self.tab] = now
+        keep = sorted(
+            (tab for tab, seen in tabs.items() if now - seen <= TAB_IDLE_SECONDS),
+            key=tabs.get,
+            reverse=True,
+        )[:MAX_TABS]
+        for gone in set(tabs) - set(keep):
+            session.pop(self._session_key(gone), None)
+            session.pop(self._carry_key(gone), None)
+        session[self._tabs_key()] = {tab: tabs[tab] for tab in keep}
 
     def _reload_key(self):
         """Key holding when this reader was last told to reload this page."""
@@ -911,9 +963,10 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         """
         return f"liverefresh:stale:{self.bundle}"
 
-    def _carry_key(self):
-        """Key holding the values this reader is still owed for this page."""
-        return f"liverefresh:carry:{self.bundle}"
+    def _carry_key(self, tab=None):
+        """Key holding the values this tab is still owed for this page."""
+        tab = self.tab if tab is None else tab
+        return f"liverefresh:carry:{self.bundle}" + (f":{tab}" if tab else "")
 
     def _chunked(self, payload):
         """Return `payload` trimmed to `MAX_FRAGMENTS` fragments, and whether any.

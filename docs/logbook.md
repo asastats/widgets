@@ -1541,3 +1541,25 @@ them. That is a known gap, not changed here.
 The first poll after a page load still applies only the latest diff to rows
 rendered some passes earlier. Anchoring that would need the page to render the
 `seq` its data matches, which the address page's source cannot say.
+
+### 2026-10-03 - per-tab carry and last total (`tab`, `_touch_tab`)
+
+`last_total` (`liverefresh:{bundle}`) and the carry (`liverefresh:carry:{bundle}`)
+lived in the session per bundle. Two tabs on one bundle share one session, so:
+
+* the first tab to poll took a carry that was owed to the other, whose rows
+  then stayed stale until the next full payload;
+* one tab's poll recorded the total, and the other tab got a 204 for a band it
+  had never been shown.
+
+The page now sends `tab`, a random id from `liverefresh.js` that lives as long
+as the page. Both keys get `:{tab}` appended. `liverefresh:tabs:{bundle}` maps
+tab to its last poll. Each poll drops tabs idle for more than
+`TAB_IDLE_SECONDS` (600, twice the hidden-tab grace) and keeps at most
+`MAX_TABS` (8), together with their keys. Every page load mints a new id, and
+the 2026-09-30 runaway session showed what unbounded session growth costs.
+
+A missing or malformed `tab` (not `[A-Za-z0-9]{1,16}`), e.g. from a page still
+running the old script, uses the old per-bundle keys, so nothing changes for
+it. The reload cooldown stays per bundle on purpose: it limits how often a
+*reader* is reloaded, not a tab.

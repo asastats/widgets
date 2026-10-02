@@ -26,6 +26,8 @@ const STORAGE = Object.getOwnPropertyDescriptor(window, "localStorage");
 const POLL_URL = "/widgets/liverefresh/HASH";
 /** What the poll actually asks for: the URL plus what the page was built from. */
 const POLLED = `${POLL_URL}?holdings=beef1234`;
+/** The id `Math.random` mocked to 0.5 gives a tab; see `beforeEach`. */
+const TAB = "i";
 
 /**
  * Put a page on screen for the module to find.
@@ -142,6 +144,7 @@ function visibility(state) {
 }
 
 beforeEach(() => {
+  jest.spyOn(Math, "random").mockReturnValue(0.5);
   jest.useFakeTimers();
   localStorage.clear();
   visibility("visible");
@@ -149,6 +152,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  Math.random.mockRestore();
   attached.forEach(([type, listener]) =>
     document.removeEventListener(type, listener)
   );
@@ -204,7 +208,7 @@ describe("the interval", () => {
     expect(window.htmx.ajax).toHaveBeenCalledTimes(1);
     expect(window.htmx.ajax).toHaveBeenCalledWith(
       "GET",
-      POLLED,
+      `${POLLED}&tab=${TAB}`,
       expect.objectContaining({ swap: "none" })
     );
   });
@@ -223,7 +227,7 @@ describe("the interval", () => {
 
     expect(window.htmx.ajax).toHaveBeenCalledWith(
       "GET",
-      `${POLL_URL}?holdings=cafe5678`,
+      `${POLL_URL}?holdings=cafe5678&tab=${TAB}`,
       expect.anything()
     );
   });
@@ -240,7 +244,7 @@ describe("the interval", () => {
 
     expect(window.htmx.ajax).toHaveBeenCalledWith(
       "GET",
-      `${POLL_URL}?x=1&holdings=beef1234`,
+      `${POLL_URL}?x=1&holdings=beef1234&tab=${TAB}`,
       expect.anything()
     );
   });
@@ -257,7 +261,7 @@ describe("the interval", () => {
 
     expect(window.htmx.ajax).toHaveBeenCalledWith(
       "GET",
-      POLL_URL,
+      `${POLL_URL}?tab=${TAB}`,
       expect.anything()
     );
   });
@@ -1102,7 +1106,7 @@ describe("regrouping instead of reloading", () => {
     module.poll();
 
     expect(window.htmx.ajax.mock.calls[0][1]).toBe(
-      `${POLL_URL}?holdings=7%3Aassets%3Apositions`
+      `${POLL_URL}?holdings=7%3Aassets%3Apositions&tab=${TAB}`
     );
     expect(
       document.querySelector("[data-holdings]").dataset.holdings
@@ -1117,7 +1121,7 @@ describe("regrouping instead of reloading", () => {
     localStorage.setItem("refresh", "y");
     module.poll();
 
-    expect(window.htmx.ajax.mock.calls[0][1]).toBe(POLLED);
+    expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLLED}&tab=${TAB}`);
   });
 
   it("survives an answer with no detail at all", () => {
@@ -1271,13 +1275,13 @@ describe("catching up on payloads a poll missed", () => {
     );
   }
 
-  it("sends no since before any payload has been applied", () => {
+  it("sends its tab but no since before any payload has been applied", () => {
     localStorage.setItem("refresh", "y");
     load();
 
     jest.advanceTimersByTime(3000);
 
-    expect(window.htmx.ajax.mock.calls[0][1]).toBe(POLLED);
+    expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLLED}&tab=${TAB}`);
   });
 
   it("sends the last seq the server reported", () => {
@@ -1287,7 +1291,7 @@ describe("catching up on payloads a poll missed", () => {
 
     jest.advanceTimersByTime(3000);
 
-    expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLLED}&since=41`);
+    expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLLED}&tab=${TAB}&since=41`);
   });
 
   it("starts the query string itself when the URL has none", () => {
@@ -1298,7 +1302,7 @@ describe("catching up on payloads a poll missed", () => {
 
     jest.advanceTimersByTime(3000);
 
-    expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLL_URL}?since=7`);
+    expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLL_URL}?tab=${TAB}&since=7`);
   });
 
   it("ignores an event without a numeric seq", () => {
@@ -1310,6 +1314,43 @@ describe("catching up on payloads a poll missed", () => {
 
     jest.advanceTimersByTime(3000);
 
-    expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLLED}&since=41`);
+    expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLLED}&tab=${TAB}&since=41`);
+  });
+});
+
+describe("telling the server which tab is polling", () => {
+  it("keeps one id for the life of the page", () => {
+    localStorage.setItem("refresh", "y");
+    load();
+    Math.random.mockReturnValue(0.25);
+
+    jest.advanceTimersByTime(6000);
+
+    const urls = window.htmx.ajax.mock.calls.map((call) => call[1]);
+    expect(urls).toEqual([`${POLLED}&tab=${TAB}`, `${POLLED}&tab=${TAB}`]);
+  });
+
+  it("still sends an id when Math.random returns exactly 0", () => {
+    // `(0).toString(36)` is "0", so the slice is empty and the server would
+    // fall back to the shared per-bundle keys.
+    Math.random.mockReturnValue(0);
+    localStorage.setItem("refresh", "y");
+    load();
+
+    jest.advanceTimersByTime(3000);
+
+    expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLLED}&tab=t`);
+  });
+
+  it("gives two loads different ids", () => {
+    localStorage.setItem("refresh", "y");
+    load();
+    Math.random.mockReturnValue(0.25);
+    load();
+
+    jest.advanceTimersByTime(3000);
+
+    const tabs = window.htmx.ajax.mock.calls.map((call) => call[1].split("tab=")[1]);
+    expect(new Set(tabs).size).toBe(2);
   });
 });
