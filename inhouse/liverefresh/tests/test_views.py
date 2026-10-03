@@ -42,6 +42,8 @@ def _view(
     view.bundle = bundle
     view.addresses = addresses
     view.request = mocker.MagicMock(session=session if session is not None else {})
+    # the per-tab state lives in the cache; the same dict stands in for both
+    view.live_state = view.request.session
     # A real integer, not the mock's attribute: the daily allowance compares it
     # against the tier bands, and a MagicMock raises rather than comparing.
     view.request.user.profile.permission = permission
@@ -2991,3 +2993,80 @@ class TestLiveRefreshKeepsTabsApart:
 
         assert session["liverefresh:HASH"] == 7.0
         assert "liverefresh:tabs:HASH" not in session
+
+
+class TestLiveStateInTheCache:
+    """Per-tab state is kept in the cache, not the session: a poll used to
+    rewrite the session every 3 s, and a resync's carry grew it to ~0.5 MB."""
+
+    @pytest.fixture(autouse=True)
+    def _clean(self, settings):
+        """A real cache whatever settings run this: development's is a DummyCache,
+        which drops every write."""
+        from django.core.cache import cache
+
+        settings.CACHES = {
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "liverefresh-live-state-tests",
+            }
+        }
+        cache.clear()
+        yield
+        cache.clear()
+
+    def test_liverefresh_live_state_reads_like_a_session(self):
+        from widgets.inhouse.liverefresh.views import LiveState
+
+        state = LiveState(42)
+        state["a"] = 1.5
+
+        assert state.get("a") == 1.5
+        assert state["a"] == 1.5
+        assert "a" in state
+        assert state.pop("a") == 1.5
+        assert state.get("a", "gone") == "gone"
+        with pytest.raises(KeyError):
+            state["a"]
+
+    def test_liverefresh_live_state_is_per_reader_and_expires(self, mocker):
+        from widgets.inhouse.liverefresh.views import TAB_IDLE_SECONDS, LiveState
+
+        stored = mocker.patch("widgets.inhouse.liverefresh.views.cache.set")
+
+        LiveState(42)["liverefresh:HASH:t1"] = 5.0
+
+        stored.assert_called_once_with("lvc:42:liverefresh:HASH:t1", 5.0, TAB_IDLE_SECONDS)
+
+    def test_liverefresh_a_poll_leaves_the_session_alone(self, mocker):
+        from django.core.cache import cache
+
+        view = _view(mocker, session={})
+        view.live_state = None
+        view.request.GET = {"tab": "t1"}
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb({"total": 7.0, "values": {11: 1.0}})
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        mocker.patch.object(
+            LiveRefreshView, "render_to_response", return_value=HttpResponse()
+        )
+
+        view.get(view.request)
+
+        assert view.request.session == {}
+        assert cache.get("lvc:42:liverefresh:HASH:t1") == 7.0
+
+    def test_liverefresh_a_dummy_cache_keeps_the_state_in_the_session(
+        self, mocker, settings
+    ):
+        """Development's DummyCache drops every write, which would lose the
+        carry and the last total; the session keeps them there instead."""
+        settings.CACHES = {
+            "default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}
+        }
+        view = _view(mocker, session={})
+        view.live_state = None
+
+        assert view._live is view.request.session

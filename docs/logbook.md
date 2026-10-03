@@ -1563,3 +1563,31 @@ A missing or malformed `tab` (not `[A-Za-z0-9]{1,16}`), e.g. from a page still
 running the old script, uses the old per-bundle keys, so nothing changes for
 it. The reload cooldown stays per bundle on purpose: it limits how often a
 *reader* is reloaded, not a tab.
+
+### 2026-10-03 - per-tab state moved from the session to the cache (`LiveState`)
+
+The last total, the carry and the tab registry now live in the Django cache under
+`lvc:<user pk>:<key>`, with a `TAB_IDLE_SECONDS` (600) lifetime, behind
+`LiveState`, which reads like a session so the code around it is unchanged.
+
+Why: every poll wrote the session (the tab registry, and the last total on any
+200), every 3 s per tab, and a resync's carry put ~0.5 MB into it (two such
+sessions seen 2026-10-03), up to `MAX_TABS` times per bundle. That made the
+session the largest and busiest key a reader has, and it blocks moving sessions
+to `cached_db`, where each save is also a database write.
+
+The reload-cooldown stamps (`_reload_key`, `_stale_key`) stay in the session on
+purpose: they are per reader rather than per tab, and written only when a page
+is found out of date. Tests put a plain dict in `live_state`, so the existing
+assertions read the same keys; `TestLiveStateInTheCache` covers the store and
+checks that a poll leaves the session untouched.
+
+### 2026-10-03 - correction: `LiveState` under a `DummyCache`
+
+The entry above assumed a working cache. Development's settings use
+`DummyCache`, which drops every write, so a test run with those settings failed
+(`state.get("a")` was None) and a local server would have lost the carry and
+the last total on every poll. `_live` now falls back to the session when the
+default cache is a `DummyCache`, which is how it behaved before.
+`TestLiveStateInTheCache` sets its own `LocMemCache`, so it passes under any
+settings module.

@@ -23,6 +23,8 @@ import time
 from hashlib import blake2s
 
 import redis
+from django.core.cache import cache, caches
+from django.core.cache.backends.dummy import DummyCache
 from django_redis.exceptions import ConnectionInterrupted
 from django.http import HttpResponse
 from django.utils.decorators import method_decorator
@@ -62,10 +64,47 @@ logger = logging.getLogger("widgets.inhouse.liverefresh")
 #: Drop carries this far beyond a normal resync and let a full payload heal them.
 MAX_CARRY_FRAGMENTS = 50 * MAX_FRAGMENTS
 
-#: A tab not heard from for this long has its per-tab session state dropped.
+#: A tab not heard from for this long has its per-tab state dropped; also the
+#: cache lifetime of that state.
 TAB_IDLE_SECONDS = 600
-#: Tabs per bundle a session keeps state for; the stalest goes first.
+#: Tabs per bundle a reader keeps state for; the stalest goes first.
 MAX_TABS = 8
+#: Cache prefix of a reader's live state, `<prefix>:<user pk>:<key>`.
+LIVE_STATE_PREFIX = "lvc"
+
+_MISSING = object()
+
+
+class LiveState:
+    """A reader's live-refresh state in the cache, read like a session.
+
+    Out of the session so a poll does not rewrite it every 3 s, and so a
+    resync's carry cannot grow it. See docs/logbook.md.
+    """
+
+    def __init__(self, user_pk):
+        self.prefix = f"{LIVE_STATE_PREFIX}:{user_pk}:"
+
+    def get(self, key, default=None):
+        value = cache.get(self.prefix + key, _MISSING)
+        return default if value is _MISSING else value
+
+    def __getitem__(self, key):
+        value = self.get(key, _MISSING)
+        if value is _MISSING:
+            raise KeyError(key)
+        return value
+
+    def __setitem__(self, key, value):
+        cache.set(self.prefix + key, value, TAB_IDLE_SECONDS)
+
+    def __contains__(self, key):
+        return self.get(key, _MISSING) is not _MISSING
+
+    def pop(self, key, default=None):
+        value = self.get(key, default)
+        cache.delete(self.prefix + key)
+        return value
 #: What a `tab` parameter may be; anything else is treated as no tab at all.
 _TAB_PATTERN = re.compile(r"[A-Za-z0-9]{1,16}")
 
@@ -361,6 +400,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
     bundle = None
     addresses = None
     tab = ""
+    live_state = None
 
     def get(self, request, *args, **kwargs):
         """Return the changed fragments, or 204 when nothing moved.
@@ -451,7 +491,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         if reload is not None:
             # The page is about to be re-rendered whole, so anything still
             # queued describes markup that will not exist in a moment.
-            self.request.session.pop(self._carry_key(), None)
+            self._live.pop(self._carry_key(), None)
             return self._attach_spans(self._with_left(reload, remaining_seconds), spans)
 
         with timed(spans, "regroup_wanted"):
@@ -475,7 +515,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
                 spans,
             )
 
-        self.request.session[self._session_key()] = payload.get("total")
+        self._live[self._session_key()] = payload.get("total")
         with timed(spans, "context_and_render"):
             context = self.get_context_data(payload=payload, **kwargs)
             response = self.render_to_response(context)
@@ -917,6 +957,18 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             payload["pricealgo"] = 1 / payload["priceusdc"]
         return payload
 
+    @property
+    def _live(self):
+        """This reader's per-tab state; a plain dict stands in for it in tests."""
+        if self.live_state is None:
+            # a DummyCache (development) drops every write; the session keeps them
+            self.live_state = (
+                self.request.session
+                if isinstance(caches["default"], DummyCache)
+                else LiveState(getattr(self.request.user, "pk", None))
+            )
+        return self.live_state
+
     def _session_key(self, tab=None):
         """Key holding the total this tab was last shown."""
         tab = self.tab if tab is None else tab
@@ -937,7 +989,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         """
         if not self.tab:
             return
-        session = self.request.session
+        session = self._live
         tabs = dict(session.get(self._tabs_key()) or {})
         tabs[self.tab] = now
         keep = sorted(
@@ -1020,7 +1072,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # but a session round-trips through JSON, which has none - so a carried
         # key comes back as `"31566704"` and has to be turned back before it can
         # merge with the `31566704` a later payload brings.
-        carry = self.request.session.get(self._carry_key()) or {}
+        carry = self._live.get(self._carry_key()) or {}
         # Drop any runaway backlog: old list-format carries grow without
         # limit; a session over the cap is discarded safely (next full payload
         # rebuilds it, regroup/reload heals the page).
@@ -1038,7 +1090,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
                 self.bundle[:6],
                 carry_size,
             )
-            self.request.session.pop(self._carry_key(), None)
+            self._live.pop(self._carry_key(), None)
             carry = {}
         merged = {_asset_key(key): _bundle(held) for key, held in carry.items()}
 
@@ -1063,7 +1115,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             fresh.append(key)
 
         if _fragments(merged) <= MAX_FRAGMENTS:
-            self.request.session.pop(self._carry_key(), None)
+            self._live.pop(self._carry_key(), None)
             return _rebuilt(payload, merged), bool(merged)
 
         # **What moved this block goes first, and the backlog fills the rest.**
@@ -1093,12 +1145,12 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
                 continue
             going[key] = held
             spent += cost
-        self.request.session[self._carry_key()] = waiting
+        self._live[self._carry_key()] = waiting
         return _rebuilt(payload, going), True
 
     def _last_total(self):
         """Return the total this reader was last shown, or None."""
-        return self.request.session.get(self._session_key())
+        return self._live.get(self._session_key())
 
     def get_context_data(self, *args, **kwargs):
         """Expose the published payload to the fragment template.
