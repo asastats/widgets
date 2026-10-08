@@ -1591,3 +1591,41 @@ the last total on every poll. `_live` now falls back to the session when the
 default cache is a `DummyCache`, which is how it behaved before.
 `TestLiveStateInTheCache` sets its own `LocMemCache`, so it passes under any
 settings module.
+
+## inhouse/liverefresh/views.py, templates/liverefresh/fragments.html, static/liverefresh/liverefresh.js - live log: floor rows (2026-10-08)
+
+The live log's first row kind is a floor move. The engine half is in
+`engine/docs/logbook.md`; the decisions are in `live/LIVELOG-ANALYSIS.md`.
+The shell and the stylesheet are in the frontend repo.
+
+**Where the shell lives.** `_swap_entry.html` holds the `<details id="id-livelog">`,
+because it is per-reader. The cached `address_dynamic.html` must not carry it.
+`liverefresh.js` moves it beside `#charts` when a watch starts, inside a
+`charts-row` grid (two columns from 1024px, stacked below), and hides it when the
+watch hands back. Moving a DOM node keeps its listeners, so `dynamic.js`'s bindings
+on the charts survive.
+
+**Why a row is text, not a copy of a holding's row.** The plan's stage-2 problem
+was that an inserted asset row needs context the poll does not have. A log row
+carries its own name and figures from the engine, so the fragment needs nothing
+from the page it lands on.
+
+**Catch-up.** `_caught_up` concatenates `events` from every missed payload, the
+same way it merges `values`. A tab that has already applied the latest payload
+gets `events: []`, so a repeated poll does not repeat a row. An event-only
+response is not a 204, because a floor can change what a holding is worth
+without moving the account's total.
+
+**Dynamic only.** `fragments.html` renders floor rows when the layout is not
+`classic`, and the shell has nothing to attach to there.
+
+**Not built.** The unread count on the summary, the 200-row cap, and the
+sessionStorage restore. None is needed for floor rows, since they never trigger
+a reload; they come with the kinds that do.
+
+**Test status.** `widgets/inhouse/liverefresh/tests` passes, 221 tests with 4
+skipped, including the new catch-up and rendering cases in `test_views.py`. The
+Jest suite for `liverefresh.js` was not run: `website/` has no `package-lock.json`
+and no `node_modules`, so `npm ci` cannot run here. `liverefresh.js` passes
+`node --check`. The stylesheet was rebuilt from `input.css` with
+`build-tailwind.sh`.

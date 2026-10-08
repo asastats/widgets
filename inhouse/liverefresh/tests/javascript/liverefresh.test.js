@@ -45,6 +45,9 @@ const TAB = "i";
  * @param {boolean} [options.control] render the toolbar's refresh control
  * @param {boolean} [options.classicControl] render the *classic* layout's
  *   Auto-refresh control instead, which is the one a reader below Intro sees
+ * @param {boolean} [options.livelog] render the live log's shell, beside the
+ *   charts panel when `charts` is also set
+ * @param {boolean} [options.charts] render the charts panel the log moves beside
  */
 function page(options = {}) {
   const {
@@ -57,6 +60,8 @@ function page(options = {}) {
     badge = true,
     control = true,
     classicControl = false,
+    livelog = false,
+    charts = true,
   } = options;
   const parts = [];
   if (band) {
@@ -90,6 +95,15 @@ function page(options = {}) {
   }
   if (badge) {
     parts.push('<span id="id-liverefresh-left" hidden></span>');
+  }
+  if (livelog) {
+    // The section the charts and log live in on the dynamic page.
+    parts.push(
+      '<section id="band-section">' +
+        (charts ? '<details id="charts"><div id="charts-grid"></div></details>' : "") +
+        '<details id="id-livelog" hidden><ol id="id-livelog-list"></ol></details>' +
+        "</section>"
+    );
   }
   document.body.innerHTML = parts.join("");
 }
@@ -1352,5 +1366,76 @@ describe("telling the server which tab is polling", () => {
 
     const tabs = window.htmx.ajax.mock.calls.map((call) => call[1].split("tab=")[1]);
     expect(new Set(tabs).size).toBe(2);
+  });
+});
+
+describe("the live log beside the charts", () => {
+  it("moves the log into a row beside the charts when a watch starts", () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    load();
+
+    const log = document.getElementById("id-livelog");
+    const charts = document.getElementById("charts");
+    expect(log.parentNode.className).toBe("charts-row");
+    expect(charts.parentNode).toBe(log.parentNode);
+    expect(log.hidden).toBe(false);
+  });
+
+  it("keeps the charts' own listeners when moving them into the row", () => {
+    // A node moved in the DOM keeps what is bound to it, which is what lets
+    // `dynamic.js` be left alone by the move.
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    const charts = document.getElementById("charts");
+    const clicked = jest.fn();
+    charts.addEventListener("toggle", clicked);
+    load();
+
+    charts.dispatchEvent(new Event("toggle"));
+
+    expect(document.getElementById("charts")).toBe(charts);
+    expect(clicked).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not make a second row when the watch starts again", () => {
+    // Coming back from a hidden tab calls `start` a second time.
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    load();
+    load();
+
+    expect(document.querySelectorAll(".charts-row")).toHaveLength(1);
+    expect(document.getElementById("id-livelog").hidden).toBe(false);
+  });
+
+  it("hides the log again when the watch hands back", () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    const module = load();
+    expect(document.getElementById("id-livelog").hidden).toBe(false);
+
+    module.spent();
+
+    expect(document.getElementById("id-livelog").hidden).toBe(true);
+  });
+
+  it("stays hidden on a page with no charts to sit beside", () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true, charts: false });
+    load();
+
+    const log = document.getElementById("id-livelog");
+    expect(log.parentNode.className).not.toBe("charts-row");
+    expect(log.hidden).toBe(true);
+  });
+
+  it("does nothing on a page without the log, as on the classic layout", () => {
+    localStorage.setItem("refresh", "y");
+    page();
+    load();
+
+    expect(document.querySelector(".charts-row")).toBeNull();
+    expect(window.htmx.ajax).not.toHaveBeenCalled();
   });
 });

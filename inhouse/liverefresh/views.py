@@ -503,7 +503,12 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # **`sending` first**, because a resync can outlive the block that
         # started it: the total settles while values are still going out, and a
         # 204 then would strand the rest of them.
-        if not sending and payload.get("total") == self._last_total():
+        # an event is news even when the total did not move: see docs/logbook.md
+        if (
+            not sending
+            and not payload.get("events")
+            and payload.get("total") == self._last_total()
+        ):
             return self._attach_spans(
                 self._with_seq(
                     self._regrouping(
@@ -547,7 +552,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             return payload
         if since == seq:
             # already applied; only the carry, if any, is still owed
-            return dict(payload, values={}, amounts={}, positions=[])
+            return dict(payload, values={}, amounts={}, positions=[], events=[])
         if seq - since == 1:
             return payload
 
@@ -568,15 +573,21 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
                 len(missed),
             )
 
-        values, amounts, positions = {}, {}, {}
-        # oldest first, so a later figure for the same row wins
+        values, amounts, positions, events = {}, {}, {}, []
+        # oldest first, so a later figure for the same row wins. Events are
+        # not keyed: each one happened once, in the block that published it.
         for each in [missed[number] for number in sorted(missed)] + [payload]:
             values.update(each.get("values") or {})
             amounts.update(each.get("amounts") or {})
+            events.extend(each.get("events") or ())
             for position in each.get("positions") or ():
                 positions[_pid(position)] = position
         return dict(
-            payload, values=values, amounts=amounts, positions=list(positions.values())
+            payload,
+            values=values,
+            amounts=amounts,
+            positions=list(positions.values()),
+            events=events,
         )
 
     @staticmethod

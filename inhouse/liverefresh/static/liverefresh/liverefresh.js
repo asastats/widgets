@@ -123,7 +123,34 @@
     }
   }
 
+  /**
+   * Reveal the live log beside the charts, moving it there once. Dynamic only.
+   */
+  function showLog() {
+    var log = document.getElementById("id-livelog");
+    var charts = document.getElementById("charts");
+    if (!log || !charts) {
+      return;
+    }
+    if (!log.parentNode.classList.contains("charts-row")) {
+      var row = document.createElement("div");
+      row.className = "charts-row";
+      charts.parentNode.insertBefore(row, charts);
+      row.appendChild(charts);
+      row.appendChild(log);
+    }
+    log.hidden = false;
+  }
+
+  function hideLog() {
+    var log = document.getElementById("id-livelog");
+    if (log) {
+      log.hidden = true;
+    }
+  }
+
   function start() {
+    showLog();
     if (timer === null) {
       // The interval runs regardless; `poll` decides whether to ask, by reading
       // the `refresh` key. Never bind to the control: design 1's checkbox fires
@@ -171,6 +198,7 @@
 
   function handBack() {
     stop();
+    hideLog();
     var badge = document.getElementById("id-liverefresh-left");
     if (badge) {
       badge.hidden = true;

@@ -2888,6 +2888,48 @@ class TestLiveRefreshCatchesUpOnMissedPayloads:
         assert rendered.call_args.args[0]["payload"]["values"] == {22: 2.0}
         assert "liverefresh:seq" not in json.loads(response.get("HX-Trigger") or "{}")
 
+    @staticmethod
+    def _floor(block, algo=1.0):
+        return {"kind": "floor", "round": block, "collection": "coll-a", "algo": algo}
+
+    def test_liverefresh_folds_in_the_events_the_tab_missed(self, mocker):
+        """A floor move in a skipped block is a row the tab must still get."""
+        view = self._since(mocker, 5)
+        latest = dict(self._payload(8), events=[self._floor(8, 2.0)])
+        backlog = [
+            latest,
+            dict(self._payload(7), events=[self._floor(7, 1.0)]),
+            self._payload(6),
+        ]
+
+        rendered, _response, _client = self._rendered(mocker, view, latest, backlog)
+
+        assert [e["round"] for e in rendered.call_args.args[0]["payload"]["events"]] == [
+            7,
+            8,
+        ]
+
+    def test_liverefresh_a_tab_that_applied_the_payload_gets_no_events_again(self, mocker):
+        view = self._since(mocker, 8)
+        view.request.session["liverefresh:HASH"] = 5.0
+        latest = dict(self._payload(8), events=[self._floor(8)])
+
+        rendered, response, _client = self._rendered(mocker, view, latest)
+
+        assert response.status_code == 204
+        rendered.assert_not_called()
+
+    def test_liverefresh_an_event_is_sent_even_when_the_total_is_unchanged(self, mocker):
+        """A floor can change a holding's worth without moving the total."""
+        view = self._since(mocker, 7)
+        view.request.session["liverefresh:HASH"] = 5.0
+        latest = dict(self._payload(8, {}, total=5.0), events=[self._floor(8)])
+
+        rendered, response, _client = self._rendered(mocker, view, latest)
+
+        rendered.assert_called_once()
+        assert response.status_code == 200
+
     def test_liverefresh_skips_an_undecodable_backlog_entry(self, mocker):
         view = self._since(mocker, 6)
         latest = self._payload(8, {22: 2.0})
@@ -3070,3 +3112,50 @@ class TestLiveStateInTheCache:
         view.live_state = None
 
         assert view._live is view.request.session
+
+
+class TestLiveLogRowsRender:
+    """A floor move is a row of the live log, on the dynamic layout only."""
+
+    EVENT = {
+        "kind": "floor",
+        "round": 41234567,
+        "collection": "coll-a",
+        "name": "Pixel",
+        "old": 2.0,
+        "new": 2.5,
+        "held": 3,
+        "algo": 1.5,
+    }
+
+    @classmethod
+    def _rendered(cls, layout, events):
+        from django.template.loader import render_to_string
+
+        payload = dict(TestLiveRefreshFragments.PAYLOAD, values={}, events=events)
+        return render_to_string(
+            "liverefresh/fragments.html", {"payload": payload, "layout": layout}
+        )
+
+    def test_liverefresh_a_floor_move_lands_at_the_top_of_the_log(self):
+        html = self._rendered("dynamic", [self.EVENT])
+
+        assert 'hx-swap-oob="afterbegin:#id-livelog-list"' in html
+        assert "Floor of Pixel from 2.00 to 2.50 ALGO" in html
+        assert "+1.50 ALGO" in html
+        assert "3 held" in html
+
+    def test_liverefresh_a_loss_is_marked_negative_and_unsigned(self):
+        html = self._rendered("dynamic", [dict(self.EVENT, new=1.5, algo=-1.5)])
+
+        assert '<span class="livelog-value num neg">-1.50 ALGO</span>' in html
+
+    def test_liverefresh_the_classic_layout_has_no_log_to_write_to(self):
+        html = self._rendered("classic", [self.EVENT])
+
+        assert "livelog" not in html
+
+    def test_liverefresh_an_unknown_event_kind_renders_nothing(self):
+        html = self._rendered("dynamic", [dict(self.EVENT, kind="price")])
+
+        assert "livelog" not in html
