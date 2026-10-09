@@ -87,6 +87,7 @@ LOG_EVENT_KINDS = frozenset(
         "price",
         "online",
         "offline",
+        "transfer",
     }
 )
 
@@ -168,15 +169,17 @@ def _tab(request):
     return tab if _TAB_PATTERN.fullmatch(tab) else ""
 
 
-def _since(request):
-    """Return the `since` the tab sent, or None when absent or malformed.
+def _since(request, name="since"):
+    """Return the `seq` the tab sent as `name`, or None when absent or malformed.
 
     :param request: the poll
     :type request: :class:`HttpRequest`
+    :param name: `since` for what the tab applied, `logsince` for the log
+    :type name: str
     :return: int or None
     """
     try:
-        return int(request.GET.get("since"))
+        return int(request.GET.get(name))
     except (TypeError, ValueError):
         return None
 
@@ -245,33 +248,33 @@ def _bundle(held):
 
 
 def _events_of(payload):
-    """Return the event dicts a payload carries, dropping anything malformed.
+    """Return the drawable event dicts a payload carries, each with its row `id`.
 
-    A payload is msgpack from the engine, and an `events` value of the wrong
-    shape must not take the poll or the whole address page down with it.
+    Malformed entries and kinds the row partial does not draw are dropped here,
+    the one filter for both the poll and the restore. `id` is `<seq>.<index>`,
+    the row's `data-key`; see docs/logbook.md.
     """
     events = payload.get("events") if isinstance(payload, dict) else None
     if not isinstance(events, list):
         return []
-    return [event for event in events if isinstance(event, dict)]
+    seq = payload.get("seq")
+    return [
+        dict(event, id=f"{seq}.{index}") if isinstance(seq, int) else event
+        for index, event in enumerate(events)
+        if isinstance(event, dict) and event.get("kind") in LOG_EVENT_KINDS
+    ]
 
 
 def recent_log_events(path_value):
-    """Return the events of the recent payloads for a page, newest first.
+    """Return `(events, seq)`: the backlog's events newest first, and its newest `seq`.
 
-    The live log is empty when a page loads, and a reload is what a holdings
-    change causes, so a row that arrived by reload would vanish without this.
-    The engine keeps the last `LIVE_BACKLOG_LENGTH` payloads for each page, and
-    each carries its own events, so reading them back restores the recent log.
-
-    **The newest payload is left out.** A tab that loads sends no `since`, and
-    its first poll is answered with the newest payload whole, events included.
-    Restoring it here as well would show its rows twice. A page with no backlog,
-    or no Redis, has nothing to restore and gets none.
+    Every held payload is restored, the newest included. The page hands `seq`
+    to the tab as `data-log-seq`, and its first poll asks only for events
+    after it (`logsince`). See docs/logbook.md.
 
     :param path_value: the address or bundle as the URL carries it
     :type path_value: str
-    :return: list of dict
+    :return: two-tuple of (list of dict, int or None)
     """
     try:
         # `force_bundle=False` for the same reason as the poll: one address is
@@ -280,23 +283,23 @@ def recent_log_events(path_value):
         items = redis_instance().lrange(f"{BACKLOG_PREFIX}:{bundle}", 0, -1)
     except ValidationError:
         # not a page this widget watches, so there is no backlog to read
-        return []
+        return [], None
     except (redis.exceptions.RedisError, ConnectionInterrupted):
         logger.warning("live log backlog unreadable for %s", str(path_value)[:6])
-        return []
-    events = []
-    for raw in items[1:]:
+        return [], None
+    events, newest = [], None
+    # newest first, as the engine pushes them
+    for raw in items:
         try:
             payload = msgpack.unpackb(raw, strict_map_key=False)
         except (ValueError, TypeError, msgpack.UnpackException):
             continue
+        seq = payload.get("seq") if isinstance(payload, dict) else None
+        if newest is None and isinstance(seq, int):
+            newest = seq
         # a payload's events are oldest first, the log is newest first
-        events.extend(
-            event
-            for event in reversed(_events_of(payload))
-            if event.get("kind") in LOG_EVENT_KINDS
-        )
-    return events
+        events.extend(reversed(_events_of(payload)))
+    return events, newest
 
 
 def _fragments(bundles):
@@ -557,7 +560,9 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
 
         seq = payload.get("seq")
         with timed(spans, "caught_up"):
-            payload = self._caught_up(client, payload, _since(request))
+            payload = self._caught_up(
+                client, payload, _since(request), _since(request, "logsince")
+            )
 
         with timed(spans, "reload_response"):
             reload = self._reload_response(request, payload)
@@ -604,7 +609,52 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         )
         return self._attach_spans(self._with_seq(response, seq), spans)
 
-    def _caught_up(self, client, payload, since):
+    def _held_between(self, client, since, seq):
+        """Return the backlog's payloads strictly between `since` and `seq`, by `seq`.
+
+        :param client: Redis client instance
+        :type client: :class:`Redis`
+        :type since: int
+        :type seq: int
+        :return: dict
+        """
+        held = {}
+        for raw in client.lrange(f"{BACKLOG_PREFIX}:{self.bundle}", 0, -1):
+            try:
+                older = msgpack.unpackb(raw, strict_map_key=False)
+            except (ValueError, TypeError, msgpack.UnpackException):
+                continue
+            number = older.get("seq") if isinstance(older, dict) else None
+            if isinstance(number, int) and since < number < seq:
+                held[number] = older
+        return held
+
+    def _logged_after(self, client, payload, log_since):
+        """Return `payload` carrying only the events newer than the page's `log_since`.
+
+        A first poll's figures are the newest payload's, as before; only its
+        events change, so that the rows the page rendered are not sent again and
+        the ones published since it rendered are not lost. See docs/logbook.md.
+
+        :param client: Redis client instance
+        :type client: :class:`Redis`
+        :param payload: the latest payload, its events already normalised
+        :type payload: dict
+        :param log_since: the newest `seq` the page's log was rendered from, or None
+        :type log_since: int or None
+        :return: dict
+        """
+        seq = payload.get("seq")
+        # no cursor, an older engine, or a sequence restarted since the render
+        if not isinstance(seq, int) or log_since is None or log_since > seq:
+            return payload
+        held = self._held_between(client, log_since, seq) if seq - log_since > 1 else {}
+        events = [event for number in sorted(held) for event in _events_of(held[number])]
+        if log_since < seq:
+            events += payload["events"]
+        return dict(payload, events=events)
+
+    def _caught_up(self, client, payload, since, log_since=None):
         """Return `payload` with every diff this tab missed folded in beneath it.
 
         A diff is relative to the payload before it, so a tab that skipped one
@@ -617,16 +667,18 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         :type payload: dict
         :param since: the tab's last applied `seq`, or None
         :type since: int or None
+        :param log_since: before the first `since`, the page's `data-log-seq`
+        :type log_since: int or None
         :return: dict
         """
-        import msgpack
-
         # Normalised before any early return, so the template is never handed a
         # value it cannot iterate. See `_events_of`.
         payload = dict(payload, events=_events_of(payload))
 
         seq = payload.get("seq")
-        if not isinstance(seq, int) or since is None or since > seq:
+        if since is None:
+            return self._logged_after(client, payload, log_since)
+        if not isinstance(seq, int) or since > seq:
             return payload
         if since == seq:
             # already applied; only the carry, if any, is still owed
@@ -634,15 +686,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         if seq - since == 1:
             return payload
 
-        missed = {}
-        for raw in client.lrange(f"{BACKLOG_PREFIX}:{self.bundle}", 0, -1):
-            try:
-                older = msgpack.unpackb(raw, strict_map_key=False)
-            except (ValueError, TypeError, msgpack.UnpackException):
-                continue
-            number = older.get("seq") if isinstance(older, dict) else None
-            if isinstance(number, int) and since < number < seq:
-                missed[number] = older
+        missed = self._held_between(client, since, seq)
         if len(missed) != seq - since - 1:
             logger.debug(
                 "liverefresh: %s missed %d payloads, %d still held",

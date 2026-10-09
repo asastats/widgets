@@ -51,6 +51,7 @@ const TAB = "i";
  * @param {boolean} [options.cons] render the classic consolidated box the log moves below
  * @param {boolean} [options.unreadBadge] render the summary's unread badge (default true)
  * @param {boolean} [options.rowList] render the list the rows land in (default true)
+ * @param {string} [options.logSeq] `data-log-seq` on the log shell, omitted when null
  */
 function page(options = {}) {
   const {
@@ -68,6 +69,7 @@ function page(options = {}) {
     cons = false,
     unreadBadge = true,
     rowList = true,
+    logSeq = null,
   } = options;
   const parts = [];
   if (band) {
@@ -114,7 +116,9 @@ function page(options = {}) {
     parts.push(
       '<section id="band-section">' +
         (charts ? '<details id="charts"><div id="charts-grid"></div></details>' : "") +
-        '<details id="id-livelog" hidden>' +
+        '<details id="id-livelog"' +
+        (logSeq === null ? "" : ` data-log-seq="${logSeq}"`) +
+        " hidden>" +
         (unreadBadge ? '<span id="id-livelog-unread" hidden></span>' : "") +
         (rowList ? '<ol id="id-livelog-list"></ol>' : "") +
         "</details>" +
@@ -1336,6 +1340,27 @@ describe("catching up on payloads a poll missed", () => {
     expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLL_URL}?tab=${TAB}&since=7`);
   });
 
+  it("asks for the log's events after the seq the page was rendered at", () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true, logSeq: "40" });
+    load();
+
+    jest.advanceTimersByTime(3000);
+
+    expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLLED}&tab=${TAB}&logsince=40`);
+  });
+
+  it("stops sending the log's seq once a payload has been applied", () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true, logSeq: "40" });
+    load();
+    seq(41);
+
+    jest.advanceTimersByTime(3000);
+
+    expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLLED}&tab=${TAB}&since=41`);
+  });
+
   it("ignores an event without a numeric seq", () => {
     localStorage.setItem("refresh", "y");
     load();
@@ -1522,58 +1547,129 @@ describe("the live log beside the charts", () => {
     expect(badge.textContent).toBe("2 new");
   });
 
-  it("does not count a row whose key duplicates a server-rendered one", async () => {
-    // When a key already exists on a server-rendered row, an incoming row with
-    // the same key is a duplicate — the existing key set built in restoreLog
-    // (lines 213-214) is what prevents a false unread count here (lines 266-271).
+  /** Put rows on the page as the server renders them, keyed. */
+  function rendered(...keys) {
+    const list = document.getElementById("id-livelog-list");
+    keys.forEach((key) => {
+      const li = row(key);
+      li.setAttribute("data-key", key);
+      list.appendChild(li);
+    });
+    return list;
+  }
+
+  function saved(...rows) {
+    sessionStorage.setItem(`livelog:${POLL_URL}`, JSON.stringify(rows));
+  }
+
+  /** A saved row as `saveLog` writes it; a null key is a gap line. */
+  function savedRow(key, html = key) {
+    return key === null
+      ? { html, className: "livelog-row livelog-gap", key: null }
+      : { html, className: "livelog-row", key };
+  }
+
+  const texts = (list) => Array.from(list.children).map((li) => li.textContent);
+
+  it("drops a row arriving with a key already on the page, uncounted", async () => {
     localStorage.setItem("refresh", "y");
     page({ livelog: true });
-    const list = document.getElementById("id-livelog-list");
-    const serverRow = row("server row");
-    serverRow.setAttribute("data-key", "key-1");
-    list.appendChild(serverRow);
-
-    const pollUrl = document.getElementById("id-liverefresh")?.dataset.pollUrl || "";
-    sessionStorage.setItem(
-      "livelog:" + pollUrl,
-      JSON.stringify([{ html: "<span>saved</span>", className: "livelog-row", key: "key-2" }])
-    );
+    const list = rendered("8.0", "7.0");
     load();
 
-    const newRow = row("new row");
-    newRow.setAttribute("data-key", "key-1");
-    list.appendChild(newRow);
+    const again = row("8.0");
+    again.setAttribute("data-key", "8.0");
+    list.prepend(again);
     await settle();
 
+    expect(texts(list)).toEqual(["8.0", "7.0"]);
     expect(document.getElementById("id-livelog-unread").hidden).toBe(true);
   });
 
-  it("restores saved rows that carry a key not present on the page", async () => {
-    // restoreLog (lines 213-214) builds a key set from server-rendered rows;
-    // saved rows whose key is already present are skipped (line 220). Saved rows
-    // with a key absent from the page are restored (lines 226-228).
+  it("keeps one of two rows that arrive together with the same key", async () => {
     localStorage.setItem("refresh", "y");
     page({ livelog: true });
+    load();
     const list = document.getElementById("id-livelog-list");
-    const serverRow = row("server row");
-    serverRow.setAttribute("data-key", "key-1");
-    list.appendChild(serverRow);
 
-    const pollUrl = document.getElementById("id-liverefresh")?.dataset.pollUrl || "";
-    sessionStorage.setItem(
-      "livelog:" + pollUrl,
-      JSON.stringify([
-        { html: "<span>saved1</span>", className: "livelog-row", key: "key-1" },
-        { html: "<span>saved2</span>", className: "livelog-row", key: "key-2" },
-        { html: "<span>saved3</span>", className: "livelog-row" },
-      ])
-    );
+    ["9.0", "9.0"].forEach((key) => {
+      const li = row(key);
+      li.setAttribute("data-key", key);
+      list.prepend(li);
+    });
+    await settle();
+
+    expect(texts(list)).toEqual(["9.0"]);
+    expect(document.getElementById("id-livelog-unread").textContent).toBe("1 new");
+  });
+
+  it("merges saved rows around the rendered ones, newest first, without duplicates", async () => {
+    // The page rendered K1, K2; the tab had K0..K3 and a gap line before reload.
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    const list = rendered("K1", "K2");
+    saved(savedRow("K0"), savedRow("K1"), savedRow("K2"), savedRow("K3"), savedRow(null, "gap"));
     load();
 
-    expect(list.children).toHaveLength(3);
-    expect(list.children[0].textContent).toBe("server row");
-    expect(list.children[1].textContent).toBe("saved2");
-    expect(list.children[2].textContent).toBe("saved3");
+    const first = row("K0");
+    first.setAttribute("data-key", "K0");
+    list.prepend(first);
+    await settle();
+
+    expect(texts(list)).toEqual(["K0", "K1", "K2", "K3", "gap"]);
+    expect(list.lastElementChild.className).toBe("livelog-row livelog-gap");
+    expect(list.lastElementChild.hasAttribute("data-key")).toBe(false);
+    expect(document.getElementById("id-livelog-unread").hidden).toBe(true);
+  });
+
+  it("keeps a saved gap line between the rows it was between", () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    const list = rendered("K1", "K2");
+    saved(savedRow("K1"), savedRow(null, "gap"), savedRow("K2"));
+    load();
+
+    expect(texts(list)).toEqual(["K1", "gap", "K2"]);
+  });
+
+  it("puts saved rows newer than every rendered row above them", () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    const list = rendered("K2");
+    saved(savedRow("K0"), savedRow("K1"), savedRow("K2"));
+    load();
+
+    expect(texts(list)).toEqual(["K0", "K1", "K2"]);
+  });
+
+  it("restores saved rows into a log the page rendered empty", () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    saved(savedRow("K1"), savedRow("K2"));
+    load();
+
+    expect(texts(document.getElementById("id-livelog-list"))).toEqual(["K1", "K2"]);
+  });
+
+  it("never matches a saved row against a rendered row without a key", () => {
+    // an event from a payload without `seq` renders with no `data-key`
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    const list = rendered("K1");
+    list.prepend(row("unkeyed"));
+    saved(savedRow("K1"), savedRow("K2"));
+    load();
+
+    expect(texts(list)).toEqual(["unkeyed", "K1", "K2"]);
+  });
+
+  it("leaves the rendered rows alone when nothing was saved", () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    const list = rendered("K1");
+    load();
+
+    expect(texts(list)).toEqual(["K1"]);
   });
 
   it("counts a row whose key is new to the page", async () => {
@@ -1601,7 +1697,8 @@ describe("the live log beside the charts", () => {
     await settle();
 
     const log = document.getElementById("id-livelog");
-    log.open = true;
+    // stubbed, not set: setting it queues jsdom's own toggle past teardown
+    Object.defineProperty(log, "open", { value: true });
     log.dispatchEvent(new Event("toggle"));
 
     expect(document.getElementById("id-livelog-unread").hidden).toBe(true);
@@ -1639,7 +1736,8 @@ describe("the live log beside the charts", () => {
     const log = document.getElementById("id-livelog");
     document.getElementById("id-livelog-list").prepend(row());
     await settle();
-    log.open = true;
+    // stubbed, not set: setting it queues jsdom's own toggle past teardown
+    Object.defineProperty(log, "open", { value: true });
     log.dispatchEvent(new Event("toggle"));
 
     expect(document.getElementById("id-livelog-unread")).toBeNull();
@@ -1652,6 +1750,14 @@ describe("the live log beside the charts", () => {
 
     expect(() => load()).not.toThrow();
     expect(document.getElementById("id-livelog").hidden).toBe(false);
+  });
+
+  it("restores nothing into a log with no list", () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true, rowList: false });
+    sessionStorage.setItem(`livelog:${POLL_URL}`, JSON.stringify([{ html: "x", className: "livelog-row", key: "1.0" }]));
+
+    expect(() => load()).not.toThrow();
   });
 
   it("still shows the log when there is no MutationObserver to count with", async () => {
@@ -1708,7 +1814,7 @@ describe("the live log beside the charts", () => {
     sessionStorage.setItem(
       "livelog:" + pollUrl,
       JSON.stringify([
-        { html: htmlContent, className: "livelog-row", key: "123|asset_in|5|TestAsset" }
+        { html: htmlContent, className: "livelog-row", key: "123.0" }
       ])
     );
     load();
@@ -1721,7 +1827,7 @@ describe("the live log beside the charts", () => {
     expect(allRows.length).toBeGreaterThan(0);
     const restoredRow = allRows.find(row => row.classList.contains("livelog-row") && row.innerHTML.includes("Test content"));
     expect(restoredRow).toBeDefined();
-    expect(restoredRow.getAttribute("data-key")).toBe("123|asset_in|5|TestAsset");
+    expect(restoredRow.getAttribute("data-key")).toBe("123.0");
   });
 
   it("silently continues when sessionStorage has invalid JSON", async () => {
@@ -1788,49 +1894,24 @@ describe("the live log beside the charts", () => {
 
     // Row count must not increase; restore runs only once
     expect(list.children.length).toBe(countAfterFirst);
+    expect(document.getElementById("id-livelog-unread").textContent).toBe("1 new");
   });
 
-  it("persists rows across holdings changes if using stable key", async () => {
+  it("restores the log after a reload that changed the holdings", async () => {
+    // The reload a holdings change orders renders a new fingerprint; the log is
+    // keyed by the poll URL, which it does not change.
     localStorage.setItem("refresh", "y");
-    page({ livelog: true });
-    const pollUrl = document.getElementById("id-liverefresh")?.dataset.pollUrl || "";
+    page({ livelog: true, holdings: "beef1234" });
+    load();
+    const before = row("bought");
+    before.setAttribute("data-key", "8.0");
+    document.getElementById("id-livelog-list").prepend(before);
+    await settle();
+
+    page({ livelog: true, holdings: "cafe5678" });
     load();
 
-    document.getElementById("id-livelog-list").prepend(row("persistent row"));
-    await settle();
-
-    const saved = JSON.parse(sessionStorage.getItem("livelog:" + pollUrl) || "[]");
-    expect(saved.length).toBeGreaterThan(0);
-    // If key used holdings, this would fail when holdings change; using pollUrl makes it stable
-    expect(sessionStorage.getItem("livelog:" + pollUrl)).toBeTruthy();
-  });
-
-  it("saveLog gracefully handles missing livelog list element", async () => {
-    localStorage.setItem("refresh", "y");
-    page({ livelog: true });
-    const list = document.getElementById("id-livelog-list");
-    const listParent = list.parentNode;
-    load();
-
-    // Add a row to verify saveLog works when list is in the document
-    list.prepend(row("test row"));
-    await settle();
-
-    const pollUrl = document.getElementById("id-liverefresh")?.dataset.pollUrl || "";
-    let saved = JSON.parse(sessionStorage.getItem("livelog:" + pollUrl) || "[]");
-    expect(saved.length).toBeGreaterThan(0);
-
-    // Remove the list from the DOM. The MutationObserver still holds a
-    // reference to it, so adding a child triggers the callback, which calls
-    // saveLog — and saveLog looks up the list by id, no longer finding it.
-    listParent.removeChild(list);
-    const detachedRow = document.createElement("li");
-    detachedRow.className = "livelog-row";
-    detachedRow.textContent = "detached row";
-    list.appendChild(detachedRow);
-    await settle();
-
-    expect(document.getElementById("id-livelog-list")).toBeNull();
+    expect(texts(document.getElementById("id-livelog-list"))).toEqual(["bought"]);
   });
 
   it("handles non-array values in sessionStorage on restore", async () => {

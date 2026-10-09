@@ -1801,3 +1801,77 @@ the unread badge. Gap rows (no key) are never deduplicated.
 not every 3 seconds on each poll tick. Without the flag, the same saved rows would be
 prepended repeatedly, climbing the unread badge and filling the 200-row cap with
 duplicates by the first poll interval.
+
+**Correction, 2026-10-09.** The deduplication described above did not work.
+The observer skipped *counting* a row whose key was already on the page but
+left the row in the list. On F5 the newest payload's rows appeared twice: once
+restored at the bottom of the list, and once prepended by the first poll. The
+duplicate was then saved. The key (`round|kind|asset|name`) also merged
+distinct events: two positions with the same name opened in one round, or two
+same-named collections whose floors moved in one round (floor events carry
+`collection`, not `asset`). Both were reproduced in jest. The paragraph about
+the `holdings` key means a switch *to* `holdings` was tried and broke. It does
+not mean the original key was `holdings`.
+
+## inhouse/liverefresh - the log cursor, ids and the event-kind filter, 2026-10-09
+
+**The newest payload was usually lost on load.** `recent_log_events` left the
+newest backlog payload out, expecting the first poll to deliver it. The engine
+publishes every watched page on every block (about 2.8 s), and the first poll
+fires on the first 3 s interval tick, sending no `since`. By then a newer
+payload had usually replaced it, and `_caught_up` with no `since` does not
+catch up. Its rows were dropped, including the "Bought X" row of the payload
+that ordered a holdings reload, depending on how long the reload took.
+
+Now:
+
+- `recent_log_events` returns `(events, seq)` and includes the newest payload.
+  The shell carries that `seq` as `data-log-seq`.
+- Until the tab has a `since`, `liverefresh.js` sends `logsince=<data-log-seq>`.
+  `_logged_after` keeps the first poll's figures exactly as before (the newest
+  payload whole), and replaces only its events with those of payloads after
+  `logsince`. A `logsince` ahead of `seq` means the engine restarted its
+  sequence, and gets the latest events. The cursor is separate from `since` on
+  purpose: the page HTML can be older than the backlog, and treating `logsince`
+  as `since` would also fold value diffs into a page that needs the newest
+  figures whole.
+- Every event gets an `id`, `<seq>.<index in its payload>`, in `_events_of`. The
+  same payload gives the same ids whether it is rendered on load or polled, and
+  no two events share one. The row's `data-key` is that id. Payloads without
+  `seq` (an older engine) give rows with no key, which are never deduplicated.
+- `restoreLog` merges the saved rows into the rendered list instead of
+  appending them. Both lists are newest first. A saved row already on the page
+  moves a cursor to it, and any other saved row goes in after the cursor (or
+  above the first rendered row, before any match). Gap lines keep their place.
+- The observer removes an arriving row whose key is already on the page, and
+  does not count it. Keys are compared by scanning the rows, not by building a
+  selector out of them.
+- Rows saved before this change carry the old `round|kind|…` keys, which never
+  match an id. A tab open across the deploy shows its old rows once more after
+  its next reload. It is a one-off and was left alone.
+
+**`online` and `offline` rows never arrived live.** `fragments.html` kept its own
+list of kinds, which lacked both. `LOG_EVENT_KINDS` in the view had them, so
+they appeared only after a reload. The kinds are now filtered once, in
+`_events_of`, for both the poll and the restore, and the template draws
+whatever it is given. Filtering there also means an undrawable event no longer
+turns a 204 into an empty 200.
+
+**Jest coverage of this file** is measured with an explicit
+`--collectCoverageFrom`. The website's `package.json` collects only
+`static/js/*.js`, so without it the report says 0%:
+
+    cd frontend/website && npx jest widgets/inhouse/liverefresh --coverage \
+      --collectCoverageFrom='widgets/inhouse/liverefresh/static/liverefresh/liverefresh.js'
+
+## inhouse/liverefresh - the `transfer` row, 2026-10-09
+
+`transfer` joins `LOG_EVENT_KINDS`. The engine sends one per asset a page's own
+accounts moved in a block (see the engine logbook, `utils/transmitters.py -
+transfer rows from the block's transactions`). The row reads "Received 0.20
+Coin" or "Sent 2.5000 ALGO". The amount uses `amount_repr`, so it shows the
+asset's own decimal places capped at four, as everywhere else on the page. The
+ALGO worth sits on the right. The second line shows the member's address
+(first and last five characters) on a bundle, and the USD figure when there is
+one. An asset with no name reads "an asset" and shows no amount, because
+without its decimals the base units would be wrong by orders of magnitude.

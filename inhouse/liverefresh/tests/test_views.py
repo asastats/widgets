@@ -2948,6 +2948,85 @@ class TestLiveRefreshCatchesUpOnMissedPayloads:
         assert rendered.call_args.args[0]["payload"]["values"] == {11: 1.0, 22: 2.0}
 
 
+class TestLiveRefreshLogCursor:
+    """A first poll sends the `seq` the page's log was rendered at, and gets only
+    the events after it. See docs/logbook.md."""
+
+    _payload = staticmethod(TestLiveRefreshCatchesUpOnMissedPayloads._payload)
+    _rendered = staticmethod(TestLiveRefreshCatchesUpOnMissedPayloads._rendered)
+
+    @staticmethod
+    def _floor(block):
+        return {"kind": "floor", "round": block, "collection": "coll-a", "algo": 1.0}
+
+    def _with(self, seq, block=None, values=None):
+        return dict(self._payload(seq, values), events=[self._floor(block or seq)])
+
+    @staticmethod
+    def _first_poll(mocker, **query):
+        view = _view(mocker, session={})
+        view.request.GET = {key: str(value) for key, value in query.items()}
+        return view
+
+    def _events(self, rendered):
+        return [e["round"] for e in rendered.call_args.args[0]["payload"]["events"]]
+
+    def test_liverefresh_the_next_payload_brings_only_its_own_events(self, mocker):
+        view = self._first_poll(mocker, logsince=7)
+
+        rendered, _response, client = self._rendered(mocker, view, self._with(8))
+
+        client.lrange.assert_not_called()
+        assert self._events(rendered) == [8]
+
+    def test_liverefresh_events_published_since_the_render_are_folded_in(self, mocker):
+        view = self._first_poll(mocker, logsince=5)
+        latest = self._with(8, values={22: 2.0})
+        backlog = [latest, self._with(7), self._with(6, values={11: 1.0}), self._with(5)]
+
+        rendered, _response, _client = self._rendered(mocker, view, latest, backlog)
+
+        payload = rendered.call_args.args[0]["payload"]
+        assert self._events(rendered) == [6, 7, 8]
+        assert [e["id"] for e in payload["events"]] == ["6.0", "7.0", "8.0"]
+        # the figures are the newest payload's, as on any first poll
+        assert payload["values"] == {22: 2.0}
+
+    def test_liverefresh_the_payload_the_page_rendered_is_not_sent_again(self, mocker):
+        view = self._first_poll(mocker, logsince=8)
+
+        rendered, _response, client = self._rendered(mocker, view, self._with(8))
+
+        client.lrange.assert_not_called()
+        assert self._events(rendered) == []
+
+    @pytest.mark.parametrize("logsince", [9, "garbage"])
+    def test_liverefresh_an_unusable_cursor_sends_the_latest_events(self, mocker, logsince):
+        """Ahead of `seq` is an engine that started counting again."""
+        view = self._first_poll(mocker, logsince=logsince)
+
+        rendered, _response, client = self._rendered(mocker, view, self._with(8))
+
+        client.lrange.assert_not_called()
+        assert self._events(rendered) == [8]
+
+    def test_liverefresh_a_tab_with_a_since_ignores_the_cursor(self, mocker):
+        view = self._first_poll(mocker, since=7, logsince=2)
+
+        rendered, _response, client = self._rendered(mocker, view, self._with(8))
+
+        client.lrange.assert_not_called()
+        assert self._events(rendered) == [8]
+
+    def test_liverefresh_an_older_engine_without_seq_keeps_its_events(self, mocker):
+        view = self._first_poll(mocker, logsince=7)
+
+        rendered, _response, client = self._rendered(mocker, view, self._with(None, block=8))
+
+        client.lrange.assert_not_called()
+        assert self._events(rendered) == [8]
+
+
 class TestLiveRefreshKeepsTabsApart:
     """Two tabs on one bundle share a session. Keyed per bundle, one tab took
     the other's carried fragments and its 204 decision. See docs/logbook.md.
@@ -3157,10 +3236,28 @@ class TestLiveLogRowsRender:
         assert 'id="id-livelog-list" hx-swap-oob="afterbegin"' in html
         assert "Floor of Pixel" in html
 
-    def test_liverefresh_an_unknown_event_kind_renders_nothing(self):
-        html = self._rendered("dynamic", [dict(self.EVENT, kind="mystery")])
+    def test_liverefresh_an_unknown_event_kind_is_dropped_before_the_template(self):
+        from widgets.inhouse.liverefresh.views import _events_of
 
-        assert "livelog" not in html
+        assert _events_of({"seq": 3, "events": [dict(self.EVENT, kind="mystery")]}) == []
+
+    @pytest.mark.parametrize("kind, text", [("online", "Account went online"), ("offline", "Account went offline")])
+    def test_liverefresh_online_and_offline_reach_the_log(self, kind, text):
+        html = self._rendered("dynamic", [{"kind": kind, "round": 9, "id": "4.0"}])
+
+        assert 'id="id-livelog-list" hx-swap-oob="afterbegin"' in html
+        assert text in html
+
+    def test_liverefresh_a_row_carries_its_event_id_as_its_key(self):
+        html = self._rendered("dynamic", [dict(self.EVENT, id="12.3")])
+
+        assert '<li class="livelog-row" data-key="12.3">' in html
+
+    def test_liverefresh_a_row_without_an_id_has_no_key(self):
+        html = self._rendered("dynamic", [self.EVENT])
+
+        assert '<li class="livelog-row">' in html
+        assert "data-key" not in html
 
 class TestLiveLogPositionRowsRender:
     """A position opened or closed is a row of the live log, like a floor move."""
@@ -3219,32 +3316,49 @@ class TestLiveLogRestoredOnLoad:
 
         client = mocker.MagicMock()
         client.lrange.return_value = self._backlog(
-            {"events": [{"kind": "asset_in", "name": "Newest"}]},
-            {"events": [{"kind": "floor", "name": "A"}, {"kind": "floor", "name": "B"}]},
+            {"seq": 8, "events": [{"kind": "asset_in", "name": "Newest"}]},
+            {"seq": 7, "events": [{"kind": "floor", "name": "A"}, {"kind": "floor", "name": "B"}]},
         )
         mocker.patch(
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
 
-        events = recent_log_events(ADDRESS)
+        events, seq = recent_log_events(ADDRESS)
 
-        # the newest payload is left to the first poll, so it is not restored here
-        assert [e["name"] for e in events] == ["B", "A"]
+        # the newest payload is restored too; the first poll asks only after it
+        assert [e["name"] for e in events] == ["Newest", "B", "A"]
+        assert [e["id"] for e in events] == ["8.0", "7.1", "7.0"]
+        assert seq == 8
         client.lrange.assert_called_once()
+
+    def test_liverefresh_recent_events_seq_is_the_newest_readable_one(self, mocker):
+        from widgets.inhouse.liverefresh.views import recent_log_events
+
+        client = mocker.MagicMock()
+        client.lrange.return_value = [b"\xc1", msgpack.packb({"events": []})] + self._backlog(
+            {"seq": 6, "events": []}, {"seq": 5, "events": []}
+        )
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+
+        assert recent_log_events(ADDRESS) == ([], 6)
 
     def test_liverefresh_recent_events_skip_what_cannot_be_read(self, mocker):
         from widgets.inhouse.liverefresh.views import recent_log_events
 
         client = mocker.MagicMock()
-        # the newest entry is left to the first poll, so the damage sits below it
-        client.lrange.return_value = [msgpack.packb({"events": []}), b"\xc1", msgpack.packb([1, 2]), self._backlog(
+        client.lrange.return_value = [b"\xc1", msgpack.packb([1, 2]), self._backlog(
             {"events": [{"kind": "asset_out", "name": "Kept"}]}
         )[0]]
         mocker.patch(
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
 
-        assert [e["name"] for e in recent_log_events(ADDRESS)] == ["Kept"]
+        events, seq = recent_log_events(ADDRESS)
+
+        assert [e["name"] for e in events] == ["Kept"]
+        assert seq is None
 
     def test_liverefresh_recent_events_for_no_redis_is_empty(self, mocker):
         import redis
@@ -3257,7 +3371,7 @@ class TestLiveLogRestoredOnLoad:
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
 
-        assert recent_log_events(ADDRESS) == []
+        assert recent_log_events(ADDRESS) == ([], None)
 
     def test_liverefresh_recent_events_for_a_value_that_is_no_address_is_empty(
         self, mocker
@@ -3266,7 +3380,7 @@ class TestLiveLogRestoredOnLoad:
 
         redis = mocker.patch("widgets.inhouse.liverefresh.views.redis_instance")
 
-        assert recent_log_events("NOT-AN-ADDRESS") == []
+        assert recent_log_events("NOT-AN-ADDRESS") == ([], None)
         redis.assert_not_called()
 
     def test_liverefresh_an_asset_bought_row_names_it_and_its_worth(self):
@@ -3303,6 +3417,71 @@ class TestLiveLogNftRowsRender:
         html = self._rendered([{"kind": "nft_out", "round": 1, "asset": 9, "name": "Pixel Punks", "value": 0.0}])
 
         assert "Sold an NFT from Pixel Punks" in html
+
+
+class TestLiveLogTransferRowsRender:
+    """What an account's own transactions moved: a row per asset, signed."""
+
+    RECEIVED = {
+        "kind": "transfer",
+        "round": 1,
+        "asset": 31,
+        "name": "Coin",
+        "amount": 20,
+        "decimals": 2,
+        "algo": 2.0,
+        "usd": 0.4,
+    }
+    ADDRESS = "2EVGZ4BGOSL3J64UYDE2BUGTNTBZZZLI54VUQQNZZLYCDODLY33UGXNSIU"
+
+    @staticmethod
+    def _row(**changes):
+        html = TestLiveLogRowsRender._rendered(
+            "dynamic", [dict(TestLiveLogTransferRowsRender.RECEIVED, **changes)]
+        )
+        return " ".join(html.split())
+
+    def test_liverefresh_a_transfer_in_names_the_amount_and_its_worth(self):
+        html = self._row()
+
+        assert "Received 0.20 Coin" in html
+        assert '<span class="livelog-value num">+2.00 ALGO</span>' in html
+        assert '<span class="livelog-held">+0.40 USD</span>' in html
+
+    def test_liverefresh_a_transfer_out_is_signed_and_marked_negative(self):
+        html = self._row(asset=0, name="ALGO", amount=-2_500_000, decimals=6, algo=-2.5, usd=-0.5)
+
+        # the asset's own places, capped as everywhere on the page
+        assert "Sent 2.5000 ALGO" in html
+        assert '<span class="livelog-value num neg">-2.50 ALGO</span>' in html
+        assert "-0.50 USD" in html
+
+    def test_liverefresh_a_bundle_row_names_its_member(self):
+        html = self._row(address=self.ADDRESS)
+
+        assert '<span class="livelog-held">2EVGZ…XNSIU · +0.40 USD</span>' in html
+
+    def test_liverefresh_a_bundle_row_without_a_dollar_figure(self):
+        html = self._row(address=self.ADDRESS, usd=None)
+
+        assert '<span class="livelog-held">2EVGZ…XNSIU</span>' in html
+
+    def test_liverefresh_an_unpriced_unknown_asset_reads_plainly(self):
+        html = self._row(name="", decimals=None, algo=None, usd=None)
+
+        assert "Received an asset" in html
+        assert "livelog-value" not in html
+        assert "livelog-held" not in html
+
+    def test_liverefresh_a_named_asset_without_decimals_shows_no_amount(self):
+        assert "Received Coin" in self._row(decimals=None)
+
+    def test_liverefresh_a_transfer_is_a_kind_the_view_draws(self):
+        from widgets.inhouse.liverefresh.views import _events_of
+
+        assert [e["kind"] for e in _events_of({"seq": 4, "events": [self.RECEIVED]})] == [
+            "transfer"
+        ]
 
 
 class TestLiveLogPriceRowsRender:
@@ -3376,7 +3555,7 @@ class TestLiveLogRestoreFilters:
         mocker.patch(
             "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
         )
-        return recent_log_events(self.ADDRESS)
+        return recent_log_events(self.ADDRESS)[0]
 
     def test_liverefresh_restore_skips_an_event_kind_the_fragments_do_not_draw(self, mocker):
         events = self._restore(
