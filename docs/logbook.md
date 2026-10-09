@@ -1748,3 +1748,26 @@ Nothing is invented for the missing updates; the line only counts them.
 Unit: the gap count, and the line's wording (singular and plural). Integration:
 a real backlog gap is reported. Browser: a row arriving while the log is folded
 shows "1 new", and opening the log clears it, on both layouts.
+
+## inhouse/alerts/tests/conftest.py - alert tests stay off the engine's Redis (2026-10-09)
+
+Saving an alert rule publishes its page to `lvr`, the set the engine's live pass
+fetches every block. The alert view tests saved rules against placeholder
+addresses, so each test run wrote placeholders into the engine's watch set, and
+they failed on every block. The conftest patches the population module's Redis
+client for the unit suite. The integration suite still uses the real set, on
+purpose. Verified: after the alert, asastats, folks, dustsweep and widgethost
+test packages ran, the engine's `lvr` held no placeholder.
+
+## config/settings/automated_tests.py - the suite uses Redis database 15 (2026-10-09)
+
+Unit and functional tests wrote bundle mappings to database 0, the database the
+engine's live pass reads. `create_bundle` stores a bundle's addresses on every
+call, so a test that used placeholder addresses left them there for the engine
+to fetch. All the integration suites already used database 15; the automated
+settings now do too. Verified: after the widget, core and api suites ran, database
+0 held no placeholder.
+
+Nine tests in `core/tests` failed only in one combined invocation that passed
+the widget config file; they pass with the project's own configuration, alone and
+in the same run as the integration suite.
