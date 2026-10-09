@@ -1700,3 +1700,11 @@ Rows for `nft_in` and `nft_out`, in the same shared partial as the other kinds.
 An NFT purchase reloads the page like an asset, so it is restored on load from
 the backlog too. Tests: unit rendering, integration restore, and one browser test
 mirroring the asset-bought test.
+
+## inhouse/liverefresh - live log: the ALGO price row (2026-10-09)
+
+A `price` event renders as "ALGO price X to Y USD" with the signed move, and
+red when it falls, in the shared partial. It arrives live, and it is restored
+on load from the backlog like the other kinds. Tests: unit (rise, fall),
+real-Redis integration (live and restored), and one browser test that the row
+lands without a reload.

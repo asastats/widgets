@@ -3157,7 +3157,7 @@ class TestLiveLogRowsRender:
         assert "livelog" not in html
 
     def test_liverefresh_an_unknown_event_kind_renders_nothing(self):
-        html = self._rendered("dynamic", [dict(self.EVENT, kind="price")])
+        html = self._rendered("dynamic", [dict(self.EVENT, kind="mystery")])
 
         assert "livelog" not in html
 
@@ -3299,3 +3299,23 @@ class TestLiveLogNftRowsRender:
         html = self._rendered([{"kind": "nft_out", "round": 1, "asset": 9, "name": "Pixel Punks", "value": 0.0}])
 
         assert "Sold an NFT from Pixel Punks" in html
+
+
+class TestLiveLogPriceRowsRender:
+    """The ALGO price moved past the threshold: a row, with its direction."""
+
+    @staticmethod
+    def _rendered(event):
+        return TestLiveLogRowsRender._rendered("dynamic", [event])
+
+    def test_liverefresh_a_price_rise_row_says_so(self):
+        html = self._rendered({"kind": "price", "round": 1, "old": 0.214, "new": 0.2215, "pct": 3.5})
+
+        assert "ALGO price 0.214 to 0.222 USD" in html
+        assert "+3.5%" in html
+
+    def test_liverefresh_a_price_fall_row_is_marked_negative(self):
+        html = self._rendered({"kind": "price", "round": 1, "old": 0.214, "new": 0.2, "pct": -6.54})
+
+        assert '<span class="livelog-value num neg">-6.5%</span>' in html
+

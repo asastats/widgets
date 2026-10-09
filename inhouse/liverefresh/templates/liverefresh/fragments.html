@@ -77,4 +77,4 @@ Design 1 renders no positions, so this half is the money designs only.
 
 {% comment %} Live log rows for this block's events; dynamic only. Each row is
 wrapped so that htmx 4 keeps the row and not just its children. {% endcomment %}
-{% if layout != "classic" %}{% for event in payload.events %}{% if event.kind == "floor" or event.kind == "position_open" or event.kind == "position_close" or event.kind == "asset_in" or event.kind == "asset_out" or event.kind == "nft_in" or event.kind == "nft_out" %}<ol id="id-livelog-list" hx-swap-oob="afterbegin">{% include "snippets/dynamic/livelog.html#livelogevent" with event=event %}</ol>{% endif %}{% endfor %}{% endif %}
+{% if layout != "classic" %}{% for event in payload.events %}{% if event.kind == "floor" or event.kind == "position_open" or event.kind == "position_close" or event.kind == "asset_in" or event.kind == "asset_out" or event.kind == "nft_in" or event.kind == "nft_out" or event.kind == "price" %}<ol id="id-livelog-list" hx-swap-oob="afterbegin">{% include "snippets/dynamic/livelog.html#livelogevent" with event=event %}</ol>{% endif %}{% endfor %}{% endif %}
