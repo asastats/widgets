@@ -3151,10 +3151,11 @@ class TestLiveLogRowsRender:
 
         assert '<span class="livelog-value num neg">-1.50 ALGO</span>' in html
 
-    def test_liverefresh_the_classic_layout_has_no_log_to_write_to(self):
+    def test_liverefresh_the_classic_layout_gets_the_log_too(self):
         html = self._rendered("classic", [self.EVENT])
 
-        assert "livelog" not in html
+        assert 'id="id-livelog-list" hx-swap-oob="afterbegin"' in html
+        assert "Floor of Pixel" in html
 
     def test_liverefresh_an_unknown_event_kind_renders_nothing(self):
         html = self._rendered("dynamic", [dict(self.EVENT, kind="mystery")])
@@ -3196,10 +3197,11 @@ class TestLiveLogPositionRowsRender:
         assert "Closed Pool A on Mallow" in html
         assert "ALGO" not in html.split("Closed Pool A on Mallow", 1)[1].split("</li>")[0]
 
-    def test_liverefresh_a_position_row_on_the_classic_layout_is_not_sent(self):
+    def test_liverefresh_position_rows_reach_the_classic_layout(self):
         html = self._rendered("classic", [self.OPENED, self.CLOSED])
 
-        assert "livelog" not in html
+        assert "Opened Pool B on Mallow" in html
+        assert "Closed Pool A on Mallow" in html
 
 
 

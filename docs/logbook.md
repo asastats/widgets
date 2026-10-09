@@ -1708,3 +1708,24 @@ red when it falls, in the shared partial. It arrives live, and it is restored
 on load from the backlog like the other kinds. Tests: unit (rise, fall),
 real-Redis integration (live and restored), and one browser test that the row
 lands without a reload.
+
+## inhouse/liverefresh - live log on the classic layout, and the dynamic alignment fix (2026-10-09)
+
+**Alignment.** On the wide grid the charts panel carried its own 1rem top
+margin, while the log's wide rule removed its margin, so the log's summary sat
+16px higher than the charts' (the screenshot in `live/`). The row now supplies
+the spacing and neither panel sets a top margin on that grid. The regression
+test measures both summaries and fails at a 16px offset; it was run against the
+old rule to confirm that.
+
+**Classic.** The log is a card in a `livelog-section` directly after `#id-cons`,
+the consolidated box, right aligned. It is a sibling of that box, not a child:
+inside the details it would be hidden whenever the box is folded. `liverefresh.js`
+places it there when a watch starts, and the fragments render its rows on both
+layouts now. The log's CSS is no longer scoped to `.dynamic-page`.
+
+**Tests.** Jest: the placement, and that the log is not moved twice. Browser: the
+inherited log tests run on the classic layout too (floor, price, folded), and the
+position test is skipped there because classic reloads for a new position rather
+than regrouping it. A new classic test checks the section sits below the box and
+its right edge lines up with the box.

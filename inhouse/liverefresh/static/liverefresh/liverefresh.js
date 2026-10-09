@@ -125,22 +125,44 @@
   }
 
   /**
-   * Reveal the live log beside the charts, moving it there once. Dynamic only.
+   * Reveal the live log, moving it once to where its layout puts it.
+   *
+   * Dynamic: beside the charts panel, in a row. Classic: a right-aligned
+   * section below the consolidated box, `#id-cons`. Moving a DOM node keeps its
+   * listeners, so the charts' bindings survive the move.
    */
   function showLog() {
     var log = document.getElementById("id-livelog");
-    var charts = document.getElementById("charts");
-    if (!log || !charts) {
+    if (!log) {
       return;
     }
-    if (!log.parentNode.classList.contains("charts-row")) {
-      var row = document.createElement("div");
-      row.className = "charts-row";
-      charts.parentNode.insertBefore(row, charts);
-      row.appendChild(charts);
-      row.appendChild(log);
+    if (!log.parentNode.classList.contains("charts-row") &&
+        !log.parentNode.classList.contains("livelog-section")) {
+      var charts = document.getElementById("charts");
+      var cons = document.getElementById("id-cons");
+      if (charts) {
+        var row = document.createElement("div");
+        row.className = "charts-row";
+        charts.parentNode.insertBefore(row, charts);
+        row.appendChild(charts);
+        row.appendChild(log);
+      } else if (cons) {
+        var section = document.createElement("div");
+        section.className = "livelog-section";
+        cons.parentNode.insertBefore(section, cons.nextSibling);
+        section.appendChild(log);
+      } else {
+        return;
+      }
     }
     log.hidden = false;
+  }
+
+  function hideLog() {
+    var log = document.getElementById("id-livelog");
+    if (log) {
+      log.hidden = true;
+    }
   }
 
   /**
@@ -154,13 +176,6 @@
       showLog();
     } else {
       hideLog();
-    }
-  }
-
-  function hideLog() {
-    var log = document.getElementById("id-livelog");
-    if (log) {
-      log.hidden = true;
     }
   }
 

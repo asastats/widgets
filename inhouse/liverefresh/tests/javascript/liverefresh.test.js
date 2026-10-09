@@ -48,6 +48,7 @@ const TAB = "i";
  * @param {boolean} [options.livelog] render the live log's shell, beside the
  *   charts panel when `charts` is also set
  * @param {boolean} [options.charts] render the charts panel the log moves beside
+ * @param {boolean} [options.cons] render the classic consolidated box the log moves below
  */
 function page(options = {}) {
   const {
@@ -62,6 +63,7 @@ function page(options = {}) {
     classicControl = false,
     livelog = false,
     charts = true,
+    cons = false,
   } = options;
   const parts = [];
   if (band) {
@@ -95,6 +97,13 @@ function page(options = {}) {
   }
   if (badge) {
     parts.push('<span id="id-liverefresh-left" hidden></span>');
+  }
+  if (cons) {
+    // The classic consolidated box: the log goes in a section below it.
+    parts.push(
+      '<div class="mt-8 consolidated"><details id="id-cons">' +
+        '<summary id="id-cons-header"></summary></details></div>'
+    );
   }
   if (livelog) {
     // The section the charts and log live in on the dynamic page.
@@ -1454,5 +1463,27 @@ describe("the live log beside the charts", () => {
     jest.advanceTimersByTime(3000);
 
     expect(document.getElementById("id-livelog").hidden).toBe(false);
+  });
+
+  it("moves the log into a right-aligned section below the classic consolidated box", () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true, charts: false, cons: true });
+    load();
+
+    const log = document.getElementById("id-livelog");
+    const cons = document.getElementById("id-cons");
+    expect(log.parentNode.className).toBe("livelog-section");
+    expect(log.parentNode.parentNode).toBe(cons.parentNode);
+    expect(cons.nextElementSibling).toBe(log.parentNode);
+    expect(log.hidden).toBe(false);
+  });
+
+  it("does not move the log off the classic box once it is there", () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true, charts: false, cons: true });
+    load();
+    load();
+
+    expect(document.querySelectorAll(".livelog-section")).toHaveLength(1);
   });
 });
