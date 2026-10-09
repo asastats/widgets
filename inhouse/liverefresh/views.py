@@ -74,6 +74,20 @@ MAX_TABS = 8
 #: Cache prefix of a reader's live state, `<prefix>:<user pk>:<key>`.
 LIVE_STATE_PREFIX = "lvc"
 
+#: The event kinds the fragments render. Anything else is not drawn.
+LOG_EVENT_KINDS = frozenset(
+    {
+        "floor",
+        "position_open",
+        "position_close",
+        "asset_in",
+        "asset_out",
+        "nft_in",
+        "nft_out",
+        "price",
+    }
+)
+
 _MISSING = object()
 
 
@@ -228,14 +242,30 @@ def _bundle(held):
     return {"value": held, "amount": None, "positions": {}}
 
 
+def _events_of(payload):
+    """Return the event dicts a payload carries, dropping anything malformed.
+
+    A payload is msgpack from the engine, and an `events` value of the wrong
+    shape must not take the poll or the whole address page down with it.
+    """
+    events = payload.get("events") if isinstance(payload, dict) else None
+    if not isinstance(events, list):
+        return []
+    return [event for event in events if isinstance(event, dict)]
+
+
 def recent_log_events(path_value):
-    """Return the events of the last payloads published for a page, newest first.
+    """Return the events of the recent payloads for a page, newest first.
 
     The live log is empty when a page loads, and a reload is what a holdings
     change causes, so a row that arrived by reload would vanish without this.
     The engine keeps the last `LIVE_BACKLOG_LENGTH` payloads for each page, and
     each carries its own events, so reading them back restores the recent log.
-    A page with no backlog, or no Redis, has nothing to restore and gets none.
+
+    **The newest payload is left out.** A tab that loads sends no `since`, and
+    its first poll is answered with the newest payload whole, events included.
+    Restoring it here as well would show its rows twice. A page with no backlog,
+    or no Redis, has nothing to restore and gets none.
 
     :param path_value: the address or bundle as the URL carries it
     :type path_value: str
@@ -253,15 +283,17 @@ def recent_log_events(path_value):
         logger.warning("live log backlog unreadable for %s", str(path_value)[:6])
         return []
     events = []
-    for raw in items:
+    for raw in items[1:]:
         try:
             payload = msgpack.unpackb(raw, strict_map_key=False)
         except (ValueError, TypeError, msgpack.UnpackException):
             continue
-        if not isinstance(payload, dict):
-            continue
         # a payload's events are oldest first, the log is newest first
-        events.extend(reversed(payload.get("events") or ()))
+        events.extend(
+            event
+            for event in reversed(_events_of(payload))
+            if event.get("kind") in LOG_EVENT_KINDS
+        )
     return events
 
 
@@ -587,6 +619,10 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         """
         import msgpack
 
+        # Normalised before any early return, so the template is never handed a
+        # value it cannot iterate. See `_events_of`.
+        payload = dict(payload, events=_events_of(payload))
+
         seq = payload.get("seq")
         if not isinstance(seq, int) or since is None or since > seq:
             return payload
@@ -619,7 +655,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         for each in [missed[number] for number in sorted(missed)] + [payload]:
             values.update(each.get("values") or {})
             amounts.update(each.get("amounts") or {})
-            events.extend(each.get("events") or ())
+            events.extend(_events_of(each))
             for position in each.get("positions") or ():
                 positions[_pid(position)] = position
         # Updates the backlog no longer holds. Reported, not guessed at: the

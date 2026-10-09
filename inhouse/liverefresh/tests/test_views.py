@@ -3228,14 +3228,16 @@ class TestLiveLogRestoredOnLoad:
 
         events = recent_log_events(ADDRESS)
 
-        assert [e["name"] for e in events] == ["Newest", "B", "A"]
+        # the newest payload is left to the first poll, so it is not restored here
+        assert [e["name"] for e in events] == ["B", "A"]
         client.lrange.assert_called_once()
 
     def test_liverefresh_recent_events_skip_what_cannot_be_read(self, mocker):
         from widgets.inhouse.liverefresh.views import recent_log_events
 
         client = mocker.MagicMock()
-        client.lrange.return_value = [b"\xc1", msgpack.packb([1, 2]), self._backlog(
+        # the newest entry is left to the first poll, so the damage sits below it
+        client.lrange.return_value = [msgpack.packb({"events": []}), b"\xc1", msgpack.packb([1, 2]), self._backlog(
             {"events": [{"kind": "asset_out", "name": "Kept"}]}
         )[0]]
         mocker.patch(
@@ -3359,3 +3361,89 @@ class TestLiveLogGapLine:
         assert "1 update not received" in one
         assert "4 updates not received" in many
         assert 'id="id-livelog-list" hx-swap-oob="afterbegin"' in many
+
+
+class TestLiveLogRestoreFilters:
+    """What is restored is what the live path would have drawn."""
+
+    ADDRESS = "2EVGZ4BGOSL3J64UYDE2BUGTNTBZZZLI54VUQQNZZLYCDODLY33UGXNSIU"
+
+    def _restore(self, mocker, *payloads):
+        from widgets.inhouse.liverefresh.views import recent_log_events
+
+        client = mocker.MagicMock()
+        client.lrange.return_value = [msgpack.packb(p) for p in payloads]
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        return recent_log_events(self.ADDRESS)
+
+    def test_liverefresh_restore_skips_an_event_kind_the_fragments_do_not_draw(self, mocker):
+        events = self._restore(
+            mocker,
+            {"events": []},
+            {"events": [{"kind": "future_kind", "name": "x"}, {"kind": "floor", "name": "kept"}]},
+        )
+
+        assert [e["name"] for e in events] == ["kept"]
+
+    def test_liverefresh_restore_ignores_events_that_are_not_a_list(self, mocker):
+        events = self._restore(
+            mocker,
+            {"events": []},
+            {"events": 7},
+            {"events": [{"kind": "floor", "name": "kept"}]},
+        )
+
+        assert [e["name"] for e in events] == ["kept"]
+
+
+
+class TestLiveLogMalformedEvents:
+    """An events value of the wrong shape is dropped, not allowed to fail the poll."""
+
+    def test_liverefresh_a_payload_whose_events_are_not_a_list_still_renders(self, mocker):
+        view = _view(mocker, session={})
+        view.request.GET = {}
+        latest = {"seq": 8, "total": 5.0, "values": {}, "amounts": {}, "positions": [], "events": 7}
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(latest)
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        rendered = mocker.patch.object(
+            LiveRefreshView, "render_to_response", return_value=HttpResponse()
+        )
+
+        view.get(view.request)
+
+        assert rendered.call_args.args[0]["payload"]["events"] == []
+
+    def test_liverefresh_non_dict_events_are_dropped_from_the_merge(self, mocker):
+        from widgets.inhouse.liverefresh.views import _events_of
+
+        assert _events_of({"events": ["floor", {"kind": "floor"}, 3]}) == [{"kind": "floor"}]
+        assert _events_of({"events": {"kind": "floor"}}) == []
+
+
+class TestLiveLogGapOrder:
+    """The gap line is emitted before the rows it precedes, so it lands below them."""
+
+    def test_liverefresh_the_gap_line_is_emitted_before_the_rows_after_it(self):
+        from django.template.loader import render_to_string
+
+        html = render_to_string(
+            "liverefresh/fragments.html",
+            {
+                "payload": {
+                    **TestLiveRefreshFragments.PAYLOAD,
+                    "values": {},
+                    "missed": 2,
+                    "events": [{"kind": "floor", "round": 1, "collection": "c", "name": "Pixel",
+                                "old": 2.0, "new": 2.5, "held": 3, "algo": 1.5}],
+                },
+                "layout": "dynamic",
+            },
+        )
+
+        assert html.index("2 updates not received") < html.index("Floor of Pixel")
