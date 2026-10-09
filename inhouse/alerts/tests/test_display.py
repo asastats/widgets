@@ -444,3 +444,13 @@ class TestAlertsDisplayTheAssetAndItsCurrency:
         rule = _rule(reader, subject=Subject.ASA_AMOUNT, asset_id=7, threshold="1000")
 
         assert describe(rule) == "My #7 holding rises above 1,000"
+
+
+class TestAlertsDisplayTrimmed:
+    """A whole number has no decimal point to trim, so its zeros are kept."""
+
+    def test_alerts_display_trimmed_keeps_a_whole_number_as_it_is(self):
+        from widgets.inhouse.alerts.display import _trimmed
+
+        assert _trimmed(5, 0) == "5"
+        assert _trimmed(2.5, 3) == "2.5"

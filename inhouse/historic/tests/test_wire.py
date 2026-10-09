@@ -28,3 +28,10 @@ class TestInhouseHistoricWireDeserializeAssetsData:
         total = deserialize_assets_data(self._payload())["total"]
         assert total.total == 25.83
         assert total.noteval is None  # engine omits it; default fills None
+
+    def test_inhouse_historic_wire_a_total_that_is_not_a_dict_is_left_alone(self):
+        """A bare number arrives from older engines; there is nothing to rebuild."""
+        payload = self._payload()
+        payload["total"] = 12.5
+
+        assert deserialize_assets_data(payload)["total"] == 12.5

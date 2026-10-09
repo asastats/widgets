@@ -1438,4 +1438,21 @@ describe("the live log beside the charts", () => {
     expect(document.querySelector(".charts-row")).toBeNull();
     expect(window.htmx.ajax).not.toHaveBeenCalled();
   });
+
+  it("keeps the log hidden while the reader has Auto-refresh off", () => {
+    page({ livelog: true });
+    load();
+
+    expect(document.getElementById("id-livelog").hidden).toBe(true);
+  });
+
+  it("reveals the log on the next tick after the reader turns Auto-refresh on", () => {
+    page({ livelog: true });
+    load();
+
+    localStorage.setItem("refresh", "y");
+    jest.advanceTimersByTime(3000);
+
+    expect(document.getElementById("id-livelog").hidden).toBe(false);
+  });
 });

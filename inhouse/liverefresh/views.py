@@ -22,7 +22,9 @@ import re
 import time
 from hashlib import blake2s
 
+import msgpack
 import redis
+from rest_framework.exceptions import ValidationError
 from django.core.cache import cache, caches
 from django.core.cache.backends.dummy import DummyCache
 from django_redis.exceptions import ConnectionInterrupted
@@ -224,6 +226,43 @@ def _bundle(held):
             "positions": positions,
         }
     return {"value": held, "amount": None, "positions": {}}
+
+
+def recent_log_events(path_value):
+    """Return the events of the last payloads published for a page, newest first.
+
+    The live log is empty when a page loads, and a reload is what a holdings
+    change causes, so a row that arrived by reload would vanish without this.
+    The engine keeps the last `LIVE_BACKLOG_LENGTH` payloads for each page, and
+    each carries its own events, so reading them back restores the recent log.
+    A page with no backlog, or no Redis, has nothing to restore and gets none.
+
+    :param path_value: the address or bundle as the URL carries it
+    :type path_value: str
+    :return: list of dict
+    """
+    try:
+        # `force_bundle=False` for the same reason as the poll: one address is
+        # published under its own name, and only several are hashed.
+        bundle, _addresses = bundle_and_addresses_from_path(path_value, force_bundle=False)
+        items = redis_instance().lrange(f"{BACKLOG_PREFIX}:{bundle}", 0, -1)
+    except ValidationError:
+        # not a page this widget watches, so there is no backlog to read
+        return []
+    except (redis.exceptions.RedisError, ConnectionInterrupted):
+        logger.warning("live log backlog unreadable for %s", str(path_value)[:6])
+        return []
+    events = []
+    for raw in items:
+        try:
+            payload = msgpack.unpackb(raw, strict_map_key=False)
+        except (ValueError, TypeError, msgpack.UnpackException):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        # a payload's events are oldest first, the log is newest first
+        events.extend(reversed(payload.get("events") or ()))
+    return events
 
 
 def _fragments(bundles):

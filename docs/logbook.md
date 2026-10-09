@@ -1629,3 +1629,74 @@ Jest suite for `liverefresh.js` was not run: `website/` has no `package-lock.jso
 and no `node_modules`, so `npm ci` cannot run here. `liverefresh.js` passes
 `node --check`. The stylesheet was rebuilt from `input.css` with
 `build-tailwind.sh`.
+
+## inhouse/liverefresh/static/liverefresh/liverefresh.js, templates/snippets/dynamic/livelog.html - live log: two corrections (2026-10-08)
+
+**The log showed whenever a watch was possible, not whenever one was running.**
+`start()` ran once at load and revealed the log. It runs whenever the reader's
+profile has live refresh on, so a reader with the Auto-refresh checkbox off saw
+an empty log, and one who turned the checkbox on after load saw nothing until a
+reload. `syncLog()` now follows the checkbox on every tick, so both cases are
+right without a reload. Found by the browser test
+`test_the_live_log_is_folded_and_hidden_until_the_reader_watches`, which asserts
+the log is hidden before the checkbox is ticked. Jest covers the same two cases.
+
+**A row on its own arrives without its `li`.** The first row partial put
+`hx-swap-oob="afterbegin:#id-livelog-list"` on the `<li>`. The vendored htmx is
+4.0.0 (the site moved to it on 2026-09-21, see `live/HTMX4.md`), and for any
+strategy other than `outer…` it strips the out-of-band element and keeps only
+its children. The rows arrived as bare `<span>`s in the list. The project's own
+pattern in `historic/templates/historic/assets.html` is the fix: a wrapper that
+carries the target's id and `hx-swap-oob="beforeend"`, with the rows inside. The
+log uses `<ol id="id-livelog-list" hx-swap-oob="afterbegin"><li>…` and the
+integration and unit assertions were updated to match. This was not caught by
+any test until the browser suite ran against the real htmx.
+
+## inhouse/liverefresh - live log: positions opened and closed (2026-10-08)
+
+Rows for `position_open` and `position_close` events, rendered by
+`livelogposition` in `snippets/dynamic/livelog.html`. Same wrapper pattern as the
+floor row, for the reason logged above (htmx 4 strips the wrapper of an
+out-of-band element). A close carries no figure: the position is gone, and the
+row says which one went.
+
+Tests: unit (rendering, classic exclusion), real-Redis integration (open
+delivered; close delivered to a tab that missed its block, named from the
+baseline), and one browser test in which an opened position arrives as a single
+row with the position still in place.
+
+## inhouse/liverefresh/views.py - live log: restored on load (2026-10-08)
+
+**Why the log is restored from the backlog, not from `sessionStorage`.** The
+poll answers a holdings change with `HX-Refresh` and no body, so the events
+cannot be written anywhere before the reload. Writing them from an `HX-Trigger`
+header would depend on htmx 4 running that before the reload, and nothing here
+establishes that order. The engine already keeps the last twenty payloads per
+page, each carrying its events, so the shell reads those back
+(`recent_log_events`). Roughly a minute of rows, with no browser storage and no
+ordering to rely on. A page that loads with a quiet backlog shows an empty log,
+as before.
+
+**Bug caught by the integration suite, not by the unit tests.** The first version
+keyed the backlog by the bundle hash, which exists for several addresses only.
+The pass publishes a single address under its own name, so the lookup found
+nothing in production while every mocked test passed. It now uses
+`force_bundle=False`, as the poll does. The integration test
+`test_liverefresh_integration_a_reload_restores_the_recent_rows` puts the backlog
+in real Redis and reads the swap entry back.
+
+**One row partial for both paths.** `snippets/dynamic/livelog.html#livelogevent`
+renders every kind, both when a row arrives live (inside the wrapper in
+`fragments.html`) and when the shell is rendered on load, so the two cannot
+drift.
+
+**Tests.** Unit: newest-first order, skipped corrupt entries, Redis unavailable,
+a value that is no address, bought and sold rows. Integration: the restore above.
+Browser: an asset bought reloads the page and its row is still there afterwards.
+
+## inhouse/liverefresh - live log: NFTs bought and sold (2026-10-08)
+
+Rows for `nft_in` and `nft_out`, in the same shared partial as the other kinds.
+An NFT purchase reloads the page like an asset, so it is restored on load from
+the backlog too. Tests: unit rendering, integration restore, and one browser test
+mirroring the asset-bought test.

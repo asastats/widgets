@@ -102,6 +102,24 @@ class TestHistoricConsumersReceive:
         assert target.called
 
 
+    def test_historic_consumers_receive_ignores_an_unknown_trigger(self, mocker):
+        consumer = _consumer(mocker)
+        targets = [
+            mocker.patch.object(HistoricConsumer, name)
+            for name in (
+                "_initiate_update",
+                "_change_period",
+                "_process_for_period",
+                "_process_for_timestamp",
+            )
+        ]
+        message = {"HEADERS": {"HX-Trigger": "id-nothing-here"}}
+
+        async_to_sync(consumer.receive)(json.dumps(message))
+
+        assert not any(target.called for target in targets)
+
+
 class TestHistoricConsumersProcessForPeriod:
     """Testing class for :py:meth:`...HistoricConsumer._process_for_period`."""
 

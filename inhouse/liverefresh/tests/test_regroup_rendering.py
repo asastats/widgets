@@ -14,7 +14,7 @@ import pytest
 from django.template.loader import render_to_string
 
 SAMPLE_PATH = (
-    Path(__file__).parent.parent.parent
+    Path(__file__).parents[4]
     / "utils"
     / "tests"
     / "sample_serialized_540A5.json"

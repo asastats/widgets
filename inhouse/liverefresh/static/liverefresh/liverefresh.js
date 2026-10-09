@@ -101,6 +101,7 @@
    * swap: "none" - fragments carry hx-swap-oob; 204 leaves DOM untouched.
    */
   function poll() {
+    syncLog();
     if (!armed()) {
       return;
     }
@@ -142,6 +143,20 @@
     log.hidden = false;
   }
 
+  /**
+   * Show the live log while the reader has Auto-refresh on, hide it otherwise.
+   *
+   * Run on every tick rather than once at load, because the checkbox can be
+   * turned on after the page has loaded and nothing else would reveal the log.
+   */
+  function syncLog() {
+    if (armed()) {
+      showLog();
+    } else {
+      hideLog();
+    }
+  }
+
   function hideLog() {
     var log = document.getElementById("id-livelog");
     if (log) {
@@ -150,7 +165,7 @@
   }
 
   function start() {
-    showLog();
+    syncLog();
     if (timer === null) {
       // The interval runs regardless; `poll` decides whether to ask, by reading
       // the `refresh` key. Never bind to the control: design 1's checkbox fires

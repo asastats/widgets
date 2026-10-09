@@ -3140,7 +3140,8 @@ class TestLiveLogRowsRender:
     def test_liverefresh_a_floor_move_lands_at_the_top_of_the_log(self):
         html = self._rendered("dynamic", [self.EVENT])
 
-        assert 'hx-swap-oob="afterbegin:#id-livelog-list"' in html
+        assert 'id="id-livelog-list" hx-swap-oob="afterbegin"' in html
+        assert '<li class="livelog-row">' in html
         assert "Floor of Pixel from 2.00 to 2.50 ALGO" in html
         assert "+1.50 ALGO" in html
         assert "3 held" in html
@@ -3159,3 +3160,142 @@ class TestLiveLogRowsRender:
         html = self._rendered("dynamic", [dict(self.EVENT, kind="price")])
 
         assert "livelog" not in html
+
+class TestLiveLogPositionRowsRender:
+    """A position opened or closed is a row of the live log, like a floor move."""
+
+    OPENED = {
+        "kind": "position_open",
+        "round": 41234567,
+        "asset": 31566704,
+        "name": "Pool B",
+        "provider": "Mallow",
+        "value": 12.0,
+    }
+    CLOSED = dict(OPENED, kind="position_close", name="Pool A", value=0.0)
+
+    @classmethod
+    def _rendered(cls, layout, events):
+        from django.template.loader import render_to_string
+
+        payload = dict(TestLiveRefreshFragments.PAYLOAD, values={}, events=events)
+        return render_to_string(
+            "liverefresh/fragments.html", {"payload": payload, "layout": layout}
+        )
+
+    def test_liverefresh_a_position_opened_is_a_row_naming_it(self):
+        html = self._rendered("dynamic", [self.OPENED])
+
+        assert 'id="id-livelog-list" hx-swap-oob="afterbegin"' in html
+        assert "Opened Pool B on Mallow" in html
+        assert "+12.00 ALGO" in html
+
+    def test_liverefresh_a_position_closed_is_named_from_before_it_closed(self):
+        html = self._rendered("dynamic", [self.CLOSED])
+
+        assert "Closed Pool A on Mallow" in html
+        assert "ALGO" not in html.split("Closed Pool A on Mallow", 1)[1].split("</li>")[0]
+
+    def test_liverefresh_a_position_row_on_the_classic_layout_is_not_sent(self):
+        html = self._rendered("classic", [self.OPENED, self.CLOSED])
+
+        assert "livelog" not in html
+
+
+
+class TestLiveLogRestoredOnLoad:
+    """The rows a reload would lose come back from the engine's backlog."""
+
+    ADDRESS = "2EVGZ4BGOSL3J64UYDE2BUGTNTBZZZLI54VUQQNZZLYCDODLY33UGXNSIU"
+
+    @staticmethod
+    def _backlog(*payloads):
+        return [msgpack.packb(payload) for payload in payloads]
+
+    def test_liverefresh_recent_events_come_back_newest_first(self, mocker):
+        from widgets.inhouse.liverefresh.views import recent_log_events
+
+        client = mocker.MagicMock()
+        client.lrange.return_value = self._backlog(
+            {"events": [{"kind": "asset_in", "name": "Newest"}]},
+            {"events": [{"kind": "floor", "name": "A"}, {"kind": "floor", "name": "B"}]},
+        )
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+
+        events = recent_log_events(ADDRESS)
+
+        assert [e["name"] for e in events] == ["Newest", "B", "A"]
+        client.lrange.assert_called_once()
+
+    def test_liverefresh_recent_events_skip_what_cannot_be_read(self, mocker):
+        from widgets.inhouse.liverefresh.views import recent_log_events
+
+        client = mocker.MagicMock()
+        client.lrange.return_value = [b"\xc1", msgpack.packb([1, 2]), self._backlog(
+            {"events": [{"kind": "asset_out", "name": "Kept"}]}
+        )[0]]
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+
+        assert [e["name"] for e in recent_log_events(ADDRESS)] == ["Kept"]
+
+    def test_liverefresh_recent_events_for_no_redis_is_empty(self, mocker):
+        import redis
+
+        from widgets.inhouse.liverefresh.views import recent_log_events
+
+        client = mocker.MagicMock()
+        client.lrange.side_effect = redis.exceptions.ConnectionError("down")
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+
+        assert recent_log_events(ADDRESS) == []
+
+    def test_liverefresh_recent_events_for_a_value_that_is_no_address_is_empty(
+        self, mocker
+    ):
+        from widgets.inhouse.liverefresh.views import recent_log_events
+
+        redis = mocker.patch("widgets.inhouse.liverefresh.views.redis_instance")
+
+        assert recent_log_events("NOT-AN-ADDRESS") == []
+        redis.assert_not_called()
+
+    def test_liverefresh_an_asset_bought_row_names_it_and_its_worth(self):
+        html = TestLiveLogRowsRender._rendered(
+            "dynamic",
+            [{"kind": "asset_in", "round": 1, "asset": 5, "name": "Coin", "value": 7.5}],
+        )
+
+        assert "Bought Coin" in html
+        assert "7.50 ALGO" in html
+
+    def test_liverefresh_an_asset_sold_row_names_it(self):
+        html = TestLiveLogRowsRender._rendered(
+            "dynamic",
+            [{"kind": "asset_out", "round": 1, "asset": 5, "name": "Coin", "value": 0.0}],
+        )
+
+        assert "Sold Coin" in html
+
+
+class TestLiveLogNftRowsRender:
+    """An NFT bought or sold is a row naming the collection it came from."""
+
+    @staticmethod
+    def _rendered(events):
+        return TestLiveLogRowsRender._rendered("dynamic", events)
+
+    def test_liverefresh_an_nft_bought_row_names_its_collection(self):
+        html = self._rendered([{"kind": "nft_in", "round": 1, "asset": 9, "name": "Pixel Punks", "value": 0.0}])
+
+        assert "Bought an NFT from Pixel Punks" in html
+
+    def test_liverefresh_an_nft_sold_row_names_its_collection(self):
+        html = self._rendered([{"kind": "nft_out", "round": 1, "asset": 9, "name": "Pixel Punks", "value": 0.0}])
+
+        assert "Sold an NFT from Pixel Punks" in html
