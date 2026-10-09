@@ -156,6 +156,59 @@
       }
     }
     log.hidden = false;
+    watchLog(log);
+  }
+
+  /** Most rows the log keeps in the page. Older ones are dropped from the end. */
+  var LOG_ROW_CAP = 200;
+  /** Rows that arrived while the log was closed, cleared when it is opened. */
+  var unread = 0;
+  var logWatch = null;
+
+  function showUnread() {
+    var badge = document.getElementById("id-livelog-unread");
+    if (!badge) {
+      return;
+    }
+    badge.textContent = unread + " new";
+    badge.hidden = unread === 0;
+  }
+
+  /**
+   * Count rows that arrive while the log is closed, and keep the list short.
+   *
+   * Attached once, when the watch starts. Rows restored on load are already in
+   * the list by then, so they are not counted as new.
+   */
+  function watchLog(log) {
+    var list = document.getElementById("id-livelog-list");
+    if (logWatch || list === null || typeof MutationObserver === "undefined") {
+      return;
+    }
+    logWatch = new MutationObserver(function (records) {
+      var added = 0;
+      records.forEach(function (record) {
+        Array.prototype.forEach.call(record.addedNodes, function (node) {
+          if (node.nodeType === 1 && node.classList.contains("livelog-row")) {
+            added += 1;
+          }
+        });
+      });
+      if (added && !log.open) {
+        unread += added;
+        showUnread();
+      }
+      while (list.children.length > LOG_ROW_CAP) {
+        list.removeChild(list.lastElementChild);
+      }
+    });
+    logWatch.observe(list, { childList: true });
+    log.addEventListener("toggle", function () {
+      if (log.open) {
+        unread = 0;
+        showUnread();
+      }
+    });
   }
 
   function hideLog() {

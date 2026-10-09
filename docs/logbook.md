@@ -1729,3 +1729,22 @@ inherited log tests run on the classic layout too (floor, price, folded), and th
 position test is skipped there because classic reloads for a new position rather
 than regrouping it. A new classic test checks the section sits below the box and
 its right edge lines up with the box.
+
+## inhouse/liverefresh - live log: unread count, row cap, and the gap line (2026-10-09)
+
+**Unread count.** A `MutationObserver` on the list counts rows added while the
+log is closed, and the summary shows "N new". Opening the log clears it. It is
+attached when the watch starts, after the rows restored on load are in the list,
+so restored rows are not counted as new.
+
+**Row cap.** The list keeps 200 rows; the observer drops the oldest beyond that.
+
+**Gap line.** `_caught_up` reports the updates the backlog could no longer give:
+`seq - since - 1` minus what was found. The fragments render "N updates not
+received" once. A gap is news, so a response carrying one is not a 204.
+Nothing is invented for the missing updates; the line only counts them.
+
+**Tests.** Jest: counting, reset on open, restored rows not counted, the cap.
+Unit: the gap count, and the line's wording (singular and plural). Integration:
+a real backlog gap is reported. Browser: a row arriving while the log is folded
+shows "1 new", and opening the log clears it, on both layouts.

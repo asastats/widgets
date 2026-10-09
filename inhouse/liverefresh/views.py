@@ -546,6 +546,7 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         if (
             not sending
             and not payload.get("events")
+            and not payload.get("missed")
             and payload.get("total") == self._last_total()
         ):
             return self._attach_spans(
@@ -621,12 +622,16 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             events.extend(each.get("events") or ())
             for position in each.get("positions") or ():
                 positions[_pid(position)] = position
+        # Updates the backlog no longer holds. Reported, not guessed at: the
+        # reader sees a line saying so, and the rows it was owed are not invented.
+        unheld = max(0, seq - since - 1 - len(missed))
         return dict(
             payload,
             values=values,
             amounts=amounts,
             positions=list(positions.values()),
             events=events,
+            missed=unheld,
         )
 
     @staticmethod

@@ -3321,3 +3321,41 @@ class TestLiveLogPriceRowsRender:
 
         assert '<span class="livelog-value num neg">-6.5%</span>' in html
 
+
+class TestLiveLogGapLine:
+    """Updates the backlog no longer holds are said, not invented."""
+
+    def test_liverefresh_a_gap_beyond_the_backlog_is_counted(self):
+        from widgets.inhouse.liverefresh.views import LiveRefreshView
+
+        from unittest import mock
+
+        view = LiveRefreshView.__new__(LiveRefreshView)
+        view.bundle = "HASH"
+        client = mock.MagicMock()
+        client.lrange.return_value = [
+            msgpack.packb({"seq": 8, "values": {}, "amounts": {}, "positions": []}),
+            msgpack.packb({"seq": 7, "values": {}, "amounts": {}, "positions": [], "events": []}),
+        ]
+        latest = {"seq": 8, "values": {}, "amounts": {}, "positions": [], "events": []}
+
+        payload = view._caught_up(client, latest, 1)
+
+        # 2..7 were owed; 7 was held, so 5 are gone
+        assert payload["missed"] == 5
+
+    def test_liverefresh_a_gap_line_says_how_many_and_reads_plainly(self):
+        from django.template.loader import render_to_string
+
+        one = render_to_string(
+            "liverefresh/fragments.html",
+            {"payload": {**TestLiveRefreshFragments.PAYLOAD, "values": {}, "missed": 1}, "layout": "dynamic"},
+        )
+        many = render_to_string(
+            "liverefresh/fragments.html",
+            {"payload": {**TestLiveRefreshFragments.PAYLOAD, "values": {}, "missed": 4}, "layout": "dynamic"},
+        )
+
+        assert "1 update not received" in one
+        assert "4 updates not received" in many
+        assert 'id="id-livelog-list" hx-swap-oob="afterbegin"' in many

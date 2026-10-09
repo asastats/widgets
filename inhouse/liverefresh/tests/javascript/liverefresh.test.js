@@ -49,6 +49,8 @@ const TAB = "i";
  *   charts panel when `charts` is also set
  * @param {boolean} [options.charts] render the charts panel the log moves beside
  * @param {boolean} [options.cons] render the classic consolidated box the log moves below
+ * @param {boolean} [options.unreadBadge] render the summary's unread badge (default true)
+ * @param {boolean} [options.rowList] render the list the rows land in (default true)
  */
 function page(options = {}) {
   const {
@@ -64,6 +66,8 @@ function page(options = {}) {
     livelog = false,
     charts = true,
     cons = false,
+    unreadBadge = true,
+    rowList = true,
   } = options;
   const parts = [];
   if (band) {
@@ -110,7 +114,10 @@ function page(options = {}) {
     parts.push(
       '<section id="band-section">' +
         (charts ? '<details id="charts"><div id="charts-grid"></div></details>' : "") +
-        '<details id="id-livelog" hidden><ol id="id-livelog-list"></ol></details>' +
+        '<details id="id-livelog" hidden>' +
+        (unreadBadge ? '<span id="id-livelog-unread" hidden></span>' : "") +
+        (rowList ? '<ol id="id-livelog-list"></ol>' : "") +
+        "</details>" +
         "</section>"
     );
   }
@@ -1485,5 +1492,138 @@ describe("the live log beside the charts", () => {
     load();
 
     expect(document.querySelectorAll(".livelog-section")).toHaveLength(1);
+  });
+
+  /** Let the MutationObserver's callbacks run. */
+  async function settle() {
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  function row(text = "Floor of Pixel") {
+    const li = document.createElement("li");
+    li.className = "livelog-row";
+    li.textContent = text;
+    return li;
+  }
+
+  it("counts rows that arrive while the log is folded", async () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    load();
+
+    document.getElementById("id-livelog-list").prepend(row());
+    document.getElementById("id-livelog-list").prepend(row());
+    await settle();
+
+    const badge = document.getElementById("id-livelog-unread");
+    expect(badge.hidden).toBe(false);
+    expect(badge.textContent).toBe("2 new");
+  });
+
+  it("clears the count when the reader opens the log", async () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    load();
+    document.getElementById("id-livelog-list").prepend(row());
+    await settle();
+
+    const log = document.getElementById("id-livelog");
+    log.open = true;
+    log.dispatchEvent(new Event("toggle"));
+
+    expect(document.getElementById("id-livelog-unread").hidden).toBe(true);
+  });
+
+  it("does not count rows that were already there when the watch started", async () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    document.getElementById("id-livelog-list").appendChild(row("restored"));
+    load();
+    await settle();
+
+    expect(document.getElementById("id-livelog-unread").hidden).toBe(true);
+  });
+
+  it("keeps the newest 200 rows and drops the oldest", async () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    load();
+    const list = document.getElementById("id-livelog-list");
+    for (let i = 0; i < 205; i += 1) {
+      list.prepend(row(`row ${i}`));
+    }
+    await settle();
+
+    expect(list.children).toHaveLength(200);
+    expect(list.firstElementChild.textContent).toBe("row 204");
+  });
+
+  it("opens and counts without a badge to show the count in", async () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true, unreadBadge: false });
+    load();
+
+    const log = document.getElementById("id-livelog");
+    document.getElementById("id-livelog-list").prepend(row());
+    await settle();
+    log.open = true;
+    log.dispatchEvent(new Event("toggle"));
+
+    expect(document.getElementById("id-livelog-unread")).toBeNull();
+    expect(document.getElementById("id-livelog-list").children).toHaveLength(1);
+  });
+
+  it("does not watch a log with no list to count rows in", async () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true, rowList: false });
+
+    expect(() => load()).not.toThrow();
+    expect(document.getElementById("id-livelog").hidden).toBe(false);
+  });
+
+  it("still shows the log when there is no MutationObserver to count with", async () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    const native = window.MutationObserver;
+    window.MutationObserver = undefined;
+    try {
+      load();
+      document.getElementById("id-livelog-list").prepend(row());
+      await settle();
+    } finally {
+      window.MutationObserver = native;
+    }
+
+    expect(document.getElementById("id-livelog").hidden).toBe(false);
+    expect(document.getElementById("id-livelog-unread").hidden).toBe(true);
+  });
+
+  it("counts only rows, not other nodes that land in the list", async () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    load();
+    const list = document.getElementById("id-livelog-list");
+
+    list.appendChild(document.createTextNode("stray text"));
+    const span = document.createElement("span");
+    list.appendChild(span);
+    await settle();
+
+    expect(document.getElementById("id-livelog-unread").hidden).toBe(true);
+  });
+
+  it("keeps the count when the log is closed again", async () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: true });
+    load();
+    document.getElementById("id-livelog-list").prepend(row());
+    await settle();
+
+    const log = document.getElementById("id-livelog");
+    log.open = false;
+    log.dispatchEvent(new Event("toggle"));
+
+    expect(document.getElementById("id-livelog-unread").textContent).toBe("1 new");
   });
 });
