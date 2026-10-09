@@ -1771,3 +1771,33 @@ settings now do too. Verified: after the widget, core and api suites ran, databa
 Nine tests in `core/tests` failed only in one combined invocation that passed
 the widget config file; they pass with the project's own configuration, alone and
 in the same run as the integration suite.
+
+## inhouse/liverefresh/static/liverefresh/liverefresh.js - session storage and deduplication, 2026-10-09
+
+### Session storage persistence
+
+The live log is persisted across F5 (user refresh) using sessionStorage, keyed
+by `pollUrl` (stable per address/bundle). Changing the key to `holdings`
+(fingerprint) was broken: holdings change on reload and F5 is what reloads it,
+so saved rows were under the old key and not restored.
+
+Rows are saved as `{html, className, key}` to preserve gap styling (`livelog-gap`)
+and the deduplication key for the next load.
+
+### Keyed deduplication
+
+F5 creates duplicates because rows arrive from three sources: server-rendered
+backlog (from `recent_log_events`), saved rows from sessionStorage, and the
+first poll's payload (no `since` query). Each copy has the same key. The template
+renders each row with `data-key="{{ event.round }}|{{ event.kind }}|{{ event.asset }}|{{ event.name }}"`.
+
+On restore, a set of existing server keys is built, and saved rows matching a key
+are skipped. The observer checks for duplicate keys before counting new rows toward
+the unread badge. Gap rows (no key) are never deduplicated.
+
+### `logRestored` flag
+
+`restoreLog()` runs only once per page load (before `watchLog` attaches the observer),
+not every 3 seconds on each poll tick. Without the flag, the same saved rows would be
+prepended repeatedly, climbing the unread badge and filling the 200-row cap with
+duplicates by the first poll interval.

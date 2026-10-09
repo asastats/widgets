@@ -156,6 +156,7 @@
       }
     }
     log.hidden = false;
+    restoreLog();
     watchLog(log);
   }
 
@@ -164,6 +165,71 @@
   /** Rows that arrived while the log was closed, cleared when it is opened. */
   var unread = 0;
   var logWatch = null;
+  var logRestored = false;
+
+  /**
+   * Save log rows to sessionStorage keyed by pollUrl.
+   * Saves inner HTML, className, and data-key to preserve everything on restore.
+   * @returns {void}
+   */
+  function saveLog() {
+    try {
+      var list = document.getElementById("id-livelog-list");
+      if (!list) return;
+      var rows = [];
+      Array.prototype.forEach.call(list.querySelectorAll(".livelog-row"), function (row) {
+        rows.push({
+          html: row.innerHTML,
+          className: row.className,
+          key: row.getAttribute("data-key")
+        });
+      });
+      sessionStorage.setItem("livelog:" + pollUrl, JSON.stringify(rows));
+    } catch (error) {
+      // sessionStorage might be unavailable or full; silently continue.
+    }
+  }
+
+  /**
+   * Restore the live log from sessionStorage once per page load, deduplicating by key.
+   * Builds a set of existing keys from server-rendered rows, then appends only
+   * saved rows that don't already exist.
+   * @returns {void}
+   */
+  function restoreLog() {
+    if (logRestored) return;
+    logRestored = true;
+    try {
+      var list = document.getElementById("id-livelog-list");
+      if (!list) return;
+      var saved = sessionStorage.getItem("livelog:" + pollUrl);
+      if (!saved) return;
+      var rows = JSON.parse(saved);
+      if (!Array.isArray(rows)) return;
+
+      // Build set of existing keys from server-rendered rows
+      var existingKeys = {};
+      Array.prototype.forEach.call(list.querySelectorAll(".livelog-row"), function (row) {
+        existingKeys[row.getAttribute("data-key")] = true;
+      });
+
+      // Append saved rows that don't duplicate existing keys
+      rows.forEach(function (row) {
+        // Skip if key exists (duplicate)
+        if (row.key && existingKeys[row.key]) return;
+
+        // Restore the row with saved className (preserves livelog-gap)
+        var newLi = document.createElement("li");
+        newLi.className = row.className;
+        newLi.innerHTML = row.html;
+        newLi.setAttribute("data-key", row.key || "");
+        existingKeys[row.key] = true;
+        list.appendChild(newLi);
+      });
+    } catch (error) {
+      // JSON parse or sessionStorage error; silently continue.
+    }
+  }
 
   function showUnread() {
     var badge = document.getElementById("id-livelog-unread");
@@ -190,7 +256,20 @@
       records.forEach(function (record) {
         Array.prototype.forEach.call(record.addedNodes, function (node) {
           if (node.nodeType === 1 && node.classList.contains("livelog-row")) {
-            added += 1;
+            // Check if this row duplicates an existing key
+            var key = node.getAttribute("data-key");
+            if (key) {
+              // Count how many rows already have this key
+              var existingWithKey = 0;
+              Array.prototype.forEach.call(list.querySelectorAll(".livelog-row[data-key='" + key.replace(/'/g, "\\'") + "']"), function (row) {
+                if (row !== node) existingWithKey += 1;
+              });
+              // Only count as new if this is the first row with this key
+              if (existingWithKey === 0) added += 1;
+            } else {
+              // Gap rows (no key) are always counted as new
+              added += 1;
+            }
           }
         });
       });
@@ -201,6 +280,7 @@
       while (list.children.length > LOG_ROW_CAP) {
         list.removeChild(list.lastElementChild);
       }
+      saveLog();
     });
     logWatch.observe(list, { childList: true });
     log.addEventListener("toggle", function () {

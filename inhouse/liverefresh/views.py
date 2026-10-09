@@ -85,6 +85,8 @@ LOG_EVENT_KINDS = frozenset(
         "nft_in",
         "nft_out",
         "price",
+        "online",
+        "offline",
     }
 )
 

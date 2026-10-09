@@ -3141,7 +3141,7 @@ class TestLiveLogRowsRender:
         html = self._rendered("dynamic", [self.EVENT])
 
         assert 'id="id-livelog-list" hx-swap-oob="afterbegin"' in html
-        assert '<li class="livelog-row">' in html
+        assert '<li class="livelog-row"' in html
         assert "Floor of Pixel from 2.00 to 2.50 ALGO" in html
         assert "+1.50 ALGO" in html
         assert "3 held" in html
