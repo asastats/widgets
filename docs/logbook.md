@@ -1910,3 +1910,10 @@ came from. A field holding `;` or `"` is quoted, with quotes doubled, and
 whitespace is flattened onto one line. The click must not open or close the
 log, so it calls `preventDefault`. The button uses its own class, not
 `.copy`: `site.js` binds `.copy` to copy the previous element's text.
+
+## inhouse/liverefresh - `exchange` and `liquidity` rows, 2026-10-10
+
+Two kinds join `LOG_EVENT_KINDS`: `exchange` (several legs in one
+transaction group) and `liquidity` (LP added or removed). See the engine
+logbook, `utils/transmitters.py - one row per transaction group`. The view
+needed nothing else. The rows are rendered by `livelog.html`.

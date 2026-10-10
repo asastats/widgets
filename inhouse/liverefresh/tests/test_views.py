@@ -3536,6 +3536,88 @@ class TestLiveLogRowCells:
         assert "livelog-usd" not in html
 
 
+class TestLiveLogTransactionRowsRender:
+    """One row per transaction group: an exchange, or liquidity added or removed."""
+
+    ADDRESS = "2EVGZ4BGOSL3J64UYDE2BUGTNTBZZZLI54VUQQNZZLYCDODLY33UGXNSIU"
+
+    @staticmethod
+    def _leg(asset, name, amount, decimals=6, algo=1.0):
+        return {"asset": asset, "name": name, "amount": amount, "decimals": decimals, "algo": algo}
+
+    def _exchange(self, outs, ins, **changes):
+        return TestLiveLogRowCells._html(
+            dict({"kind": "exchange", "round": 1, "outs": outs, "ins": ins, "algo": 0.46, "usd": 0.05}, **changes)
+        )
+
+    def test_liverefresh_an_exchange_says_what_went_for_what_and_the_net(self):
+        html = self._exchange(
+            [self._leg(2537013734, "tALGO", -301066628289)],
+            [self._leg(0, "ALGO", 330607997169)],
+            address=self.ADDRESS,
+        )
+
+        assert "Exchanged 301,066.6283 tALGO for 330,607.9972 ALGO" in html
+        assert '<span class="livelog-value num livelog-algo">+0.46 ALGO</span>' in html
+        assert '<span class="livelog-held">2EVGZ…XNSIU</span>' in html
+
+    def test_liverefresh_an_exchange_one_way_lists_its_legs(self):
+        received = self._exchange([], [self._leg(1, "A", 5, 0), self._leg(2, "", 3, None)], algo=None)
+        sent = self._exchange([self._leg(1, "A", -5, 0), self._leg(2, "B", -7, 0)], [])
+
+        assert "Received 5 A, an asset" in received
+        assert "livelog-value" not in received
+        assert "Sent 5 A, 7 B" in sent
+
+    def test_liverefresh_liquidity_removed_names_the_pool_and_what_came_back(self):
+        html = TestLiveLogRowCells._html(
+            {
+                "kind": "liquidity",
+                "action": "removed",
+                "round": 1,
+                "pool": "Tinyman2 LP TALGO-TINY",
+                "legs": [self._leg(2537013734, "tALGO", 32000609), self._leg(2200000000, "TINY", 4536043332)],
+                "algo": 67.41,
+                "usd": 7.8,
+                "address": self.ADDRESS,
+            }
+        )
+
+        assert "Removed liquidity, Tinyman2 LP TALGO-TINY: 32.0006 tALGO, 4,536.0433 TINY" in html
+        assert '<span class="livelog-value num livelog-algo">67.41 ALGO</span>' in html
+        assert '<span class="livelog-held">2EVGZ…XNSIU</span>' in html
+
+    def test_liverefresh_liquidity_added_without_a_pool_or_a_price(self):
+        html = TestLiveLogRowCells._html(
+            {"kind": "liquidity", "action": "added", "round": 1, "pool": "", "legs": [self._leg(31, "Coin", -20, 2)], "algo": None}
+        )
+
+        assert "Added liquidity, a pool: 0.20 Coin" in html
+        assert "livelog-value" not in html
+
+    def test_liverefresh_a_position_row_names_its_pool_and_how_many(self):
+        html = TestLiveLogRowCells._html(
+            {"kind": "position_close", "round": 1, "name": "Liquidity", "provider": "Tinyman2 LP",
+             "pool": "Tinyman2 LP TALGO-TINY", "count": 2, "value": 0.0}
+        )
+
+        assert "Closed Liquidity, Tinyman2 LP TALGO-TINY ×2" in html
+
+    def test_liverefresh_a_single_unpooled_position_keeps_its_provider(self):
+        html = TestLiveLogRowCells._html(
+            {"kind": "position_open", "round": 1, "name": "Staked", "provider": "Folks", "pool": "", "count": 1, "value": 3.0}
+        )
+
+        assert "Opened Staked on Folks</span>" in html
+
+    def test_liverefresh_exchange_and_liquidity_are_kinds_the_view_draws(self):
+        from widgets.inhouse.liverefresh.views import _events_of
+
+        events = _events_of({"seq": 4, "events": [{"kind": "exchange"}, {"kind": "liquidity"}]})
+
+        assert [e["kind"] for e in events] == ["exchange", "liquidity"]
+
+
 class TestLiveLogAssetPriceRowsRender:
     """An ASA's price moved since its last row: a row per currency, one shown."""
 
