@@ -40,59 +40,6 @@
   </p>
   {% endif %}
 
-  <ul class="alerts-list">
-    {% for rule in rules %}
-    <li class="alerts-rule{% if editing and editing.pk == rule.pk %} alerts-rule-editing{% endif %}">
-      <span class="alerts-rule-text">{{ rule.description }}</span>
-      {# Loads this rule into the form below. A GET, because it changes #}
-      {# nothing until the reader saves.                                #}
-      <button type="button" class="alerts-edit"
-              hx-get="{% url 'alerts_rule_edit' address rule.pk %}"
-              hx-target="#id-alerts-panel"
-              hx-swap="outerHTML"
-              aria-label="Change this alert">Edit</button>
-      <button type="button" class="alerts-remove"
-              hx-post="{% url 'alerts_rule_delete' address rule.pk %}"
-              hx-target="#id-alerts-panel"
-              hx-swap="outerHTML"
-              aria-label="Remove this alert">&times;</button>
-    </li>
-    {% empty %}
-    <li class="alerts-empty">No alerts yet.</li>
-    {% endfor %}
-  </ul>
-
-  {% comment %} The remainder, not the total: the view does the arithmetic so
-     this does not, and so there is only one place to get it wrong. {% endcomment %}
-  <p class="alerts-left{% if rules_capped %} alerts-left-capped{% endif %}">
-    {{ rules_left }} of {{ rules_allowed }} left{% if rules_capped %}{% comment %}
-       **Why the number is explained here and not only where the form was.**
-       A reader at the limit sees the form disappear, and the sentence that
-       says why sits where the form used to be - which is below the fold on a
-       phone, and gone entirely while they are editing a rule. The count is the
-       thing they are reading, so the reason belongs next to the count.
-
-       The top tier gets the same sentence without the link: see
-       `tiers.more_rules_available`.
-    {% endcomment %}&nbsp;&mdash;
-    {% if more_rules_available %}
-    <a href="{% url 'subscriptions' %}" class="link">a larger plan</a> keeps more.
-    {% else %}
-    the most any plan keeps.
-    {% endif %}{% endif %}
-  </p>
-
-  {% comment %} The page cap, shown before it is met rather than only as a
-     refusal. It is a second number because it bounds a second cost: a page with
-     a rule on it is valued every block for ever, so rules and pages are not one
-     quantity. See `tiers.ALERT_PAGES_PER_TIER`. {% endcomment %}
-  {% if portfolio_alerts_available %}
-  <p class="alerts-pages">
-    {{ pages_kept }} of {{ pages_allowed }}
-    portfolio {% if pages_allowed == 1 %}page{% else %}pages{% endif %}.
-  </p>
-  {% endif %}
-
   {% comment %} **Every control shows what was sent, not its default.**
 
      A rejected rule comes back as a bound form and this panel replaces the one
@@ -296,4 +243,59 @@
     {% endif %}
   </p>
   {% endif %}
+
+  {# The count and the rules below the form, so adding one never needs a #}
+  {# scroll; see docs/logbook.md.                                         #}
+  {% comment %} The remainder, not the total: the view does the arithmetic so
+     this does not, and so there is only one place to get it wrong. {% endcomment %}
+  <p class="alerts-left{% if rules_capped %} alerts-left-capped{% endif %}">
+    {{ rules_left }} of {{ rules_allowed }} left{% if rules_capped %}{% comment %}
+       **Why the number is explained here and not only where the form was.**
+       A reader at the limit sees the form disappear, and the sentence that
+       says why sits where the form used to be - which is below the fold on a
+       phone, and gone entirely while they are editing a rule. The count is the
+       thing they are reading, so the reason belongs next to the count.
+
+       The top tier gets the same sentence without the link: see
+       `tiers.more_rules_available`.
+    {% endcomment %}&nbsp;&mdash;
+    {% if more_rules_available %}
+    <a href="{% url 'subscriptions' %}" class="link">a larger plan</a> keeps more.
+    {% else %}
+    the most any plan keeps.
+    {% endif %}{% endif %}
+  </p>
+
+  {% comment %} The page cap, shown before it is met rather than only as a
+     refusal. It is a second number because it bounds a second cost: a page with
+     a rule on it is valued every block for ever, so rules and pages are not one
+     quantity. See `tiers.ALERT_PAGES_PER_TIER`. {% endcomment %}
+  {% if portfolio_alerts_available %}
+  <p class="alerts-pages">
+    {{ pages_kept }} of {{ pages_allowed }}
+    portfolio {% if pages_allowed == 1 %}page{% else %}pages{% endif %}.
+  </p>
+  {% endif %}
+
+  <ul class="alerts-list">
+    {% for rule in rules %}
+    <li class="alerts-rule{% if editing and editing.pk == rule.pk %} alerts-rule-editing{% endif %}">
+      <span class="alerts-rule-text">{{ rule.description }}</span>
+      {# Loads this rule into the form above. A GET, because it changes #}
+      {# nothing until the reader saves.                                #}
+      <button type="button" class="alerts-edit"
+              hx-get="{% url 'alerts_rule_edit' address rule.pk %}"
+              hx-target="#id-alerts-panel"
+              hx-swap="outerHTML"
+              aria-label="Change this alert">Edit</button>
+      <button type="button" class="alerts-remove"
+              hx-post="{% url 'alerts_rule_delete' address rule.pk %}"
+              hx-target="#id-alerts-panel"
+              hx-swap="outerHTML"
+              aria-label="Remove this alert">&times;</button>
+    </li>
+    {% empty %}
+    <li class="alerts-empty">No alerts yet.</li>
+    {% endfor %}
+  </ul>
 </div>

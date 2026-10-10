@@ -1917,3 +1917,21 @@ Two kinds join `LOG_EVENT_KINDS`: `exchange` (several legs in one
 transaction group) and `liquidity` (LP added or removed). See the engine
 logbook, `utils/transmitters.py - one row per transaction group`. The view
 needed nothing else. The rows are rendered by `livelog.html`.
+
+## inhouse/alerts/templates/alerts/_panel.html - the form first, the rules below (2026-10-10)
+
+- The panel showed the rules first, then the count, then the form. With a
+  handful of rules, the form and its Add button were below the visible part of
+  the modal, and a reader had to scroll for the one thing they opened it to do.
+  The order is now: any error, the form (or "That is all N of your alerts"),
+  the count and page lines, then the list. A long list is what scrolls, and
+  only when the reader wants to read it.
+- The count stays directly under the form: at the limit it carries the reason
+  the form is gone.
+- Edit still swaps the whole panel by `outerHTML`, and the new panel starts
+  scrolled to the top, so a rule chosen from far down the list opens in the
+  form at the top.
+- The browser test `test_a_long_list_leaves_the_form_in_view` (frontend
+  `functional_tests/test_alerts_page.py`) goes through the address page because
+  the modal's own URL renders without the site stylesheet, so its panel never
+  scrolls. With 30 rules, the old order put Add 1,037 px below the visible panel.
