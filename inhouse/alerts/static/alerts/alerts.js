@@ -109,6 +109,7 @@
     if (!dialog.open) dialog.showModal();
     syncFields(dialog);
     showSupport(dialog);
+    checkBrowser(dialog.querySelector(".alerts-enable"));
     return true;
   }
 
@@ -129,8 +130,8 @@
   }
 
   /**
-   * Put the block into the state the server would render it in now.
-   * Warning and button label are server-rendered from subscribed_browsers.
+   * Mark this browser as on: drop the no-browser warning, relabel the button.
+   * The server renders "Notify this browser"; only the browser knows better.
    * @param {Element} root - the `.alerts-enable` element.
    */
   function markEnabled(root) {
@@ -140,6 +141,26 @@
     }
     var button = root.querySelector(".alerts-enable-btn");
     if (button) button.textContent = "This browser is on";
+  }
+
+  /**
+   * Resolve once `registration` has an active worker, which `subscribe()` needs.
+   * `register()` resolves while a first install is still running.
+   * @param {ServiceWorkerRegistration} registration - from `register()`.
+   * @returns {Promise<ServiceWorkerRegistration>} the same registration, active.
+   */
+  function activated(registration) {
+    if (registration.active) return Promise.resolve(registration);
+    var worker = registration.installing || registration.waiting;
+    if (!worker) return Promise.reject(new Error("The alerts worker did not start."));
+    return new Promise(function (resolve, reject) {
+      worker.addEventListener("statechange", function () {
+        if (worker.state === "activated") resolve(registration);
+        if (worker.state === "redundant") {
+          reject(new Error("The alerts worker did not start."));
+        }
+      });
+    });
   }
 
   /**
@@ -168,6 +189,7 @@
         }
         return navigator.serviceWorker.register(root.dataset.workerUrl);
       })
+      .then(activated)
       .then(function (registration) {
         return registration.pushManager.subscribe({
           // Required by every browser: a push must result in something the
@@ -193,6 +215,43 @@
       })
       .catch(function (error) {
         return say(error.message || "Could not enable notifications.");
+      });
+  }
+
+  /**
+   * Show "on" only when this browser holds a subscription, and re-send it.
+   * The server knows the account's browsers, not which one is asking.
+   * Re-sending restores a row the server dropped; see docs/logbook.md.
+   * @param {Element} root - the `.alerts-enable` element carrying the urls.
+   * @returns {Promise<boolean>} whether this browser is on.
+   */
+  function checkBrowser(root) {
+    if (!root || supportState() !== "ok") return Promise.resolve(false);
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") {
+      return Promise.resolve(false);
+    }
+    return navigator.serviceWorker
+      .getRegistration(root.dataset.workerUrl)
+      .then(function (registration) {
+        return registration ? registration.pushManager.getSubscription() : null;
+      })
+      .then(function (subscription) {
+        if (!subscription) return false;
+        return fetch(root.dataset.subscribeUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": csrfToken(),
+          },
+          body: JSON.stringify(subscription.toJSON()),
+        }).then(function (response) {
+          if (!response.ok) return false;
+          markEnabled(root);
+          return true;
+        });
+      })
+      .catch(function () {
+        return false;
       });
   }
 
@@ -636,6 +695,8 @@
       isApplePortable: isApplePortable,
       isInstalled: isInstalled,
       enablePush: enablePush,
+      activated: activated,
+      checkBrowser: checkBrowser,
       markEnabled: markEnabled,
       vapidKeyBytes: vapidKeyBytes,
     };

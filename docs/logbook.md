@@ -1935,3 +1935,38 @@ needed nothing else. The rows are rendered by `livelog.html`.
   `functional_tests/test_alerts_page.py`) goes through the address page because
   the modal's own URL renders without the site stylesheet, so its panel never
   scrolls. With 30 rules, the old order put Add 1,037 px below the visible panel.
+
+## inhouse/alerts/static/alerts/alerts.js - `checkBrowser`; modal.html's button label (2026-10-10)
+
+- **Reported:** Firefox was subscribed, and Chromium and Vivaldi, signed in as
+  the same reader and never subscribed, also said "This browser is on". The
+  label was rendered from `subscribed_browsers`, which counts the *account's*
+  subscriptions; the server cannot tell which browser is asking. Alerts were
+  always per browser, and only Firefox would have received them.
+- The server now always renders "Notify this browser". It adds an account-wide
+  line, "Alerts go to N browser(s) on your account.", which is the fact it does
+  know. `checkBrowser` runs when the modal opens. With permission granted, it
+  asks the worker's registration for `pushManager.getSubscription()`. Only a
+  subscription held by *this* browser turns the button to "on".
+- **It re-sends that subscription** to `alerts_subscribe`, which updates or
+  creates by endpoint, so this is idempotent. This restores a row the server
+  deleted, for example after a push service answered 410 or the account was
+  re-homed on a shared machine. Without it, the browser would say "on" while
+  the server sent it nothing. If the re-send is refused, the button stays
+  "Notify this browser", so pressing it retries.
+- Not asked without permission: with `Notification.permission` other than
+  `granted` there is nothing to check, and asking would prompt.
+
+## inhouse/alerts/static/alerts/alerts.js - `activated` before `subscribe()` (2026-10-10)
+
+- **Reported:** in Chromium/Vivaldi, pressing "Notify this browser" failed with
+  "Failed to execute 'subscribe' on 'PushManager': Subscription failed - no
+  active Service Worker". `register()` resolves as soon as the worker is
+  registered, and on a first visit it is still installing. Firefox let
+  `subscribe()` through anyway; Chromium-based browsers refuse it.
+- `activated(registration)` resolves at once when there is an active worker.
+  Otherwise it waits for the installing or waiting worker's `statechange` to
+  `activated`, and rejects on `redundant`. Not `navigator.serviceWorker.ready`:
+  that only resolves for a registration whose scope controls the page. Our
+  worker is at the root today (`core/urls.py`), but the wait should not depend
+  on where it is served.

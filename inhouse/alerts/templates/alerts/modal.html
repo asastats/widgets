@@ -99,10 +99,15 @@
         browser is on, so nothing is lost - but nothing arrives either.
       </p>
       {% endif %}
-      <button type="button" class="alerts-enable-btn id-alerts-enable">
-        {% if subscribed_browsers %}This browser is on{% else %}Notify this browser{% endif %}
-      </button>
+      {# Never "on" from here: the server cannot tell which browser is asking. #}
+      {# `checkBrowser` in alerts.js relabels it when this one is subscribed.  #}
+      <button type="button" class="alerts-enable-btn id-alerts-enable">Notify this browser</button>
       <span class="alerts-enable-state" role="status"></span>
+      {% if subscribed_browsers %}
+      <p class="alerts-enable-count">
+        Alerts go to {{ subscribed_browsers }} browser{{ subscribed_browsers|pluralize }} on your account.
+      </p>
+      {% endif %}
       {% else %}
       <p class="alerts-warning">
         <strong>This deployment cannot send notifications.</strong>

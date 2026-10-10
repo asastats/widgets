@@ -498,6 +498,7 @@ describe("turning notifications on", () => {
       value: {
         register: jest.fn(() =>
           Promise.resolve({
+            active: {},
             pushManager: {
               subscribe: jest.fn(() =>
                 subscribeFails
@@ -642,6 +643,7 @@ describe("the edges of the enable flow", () => {
           reject
             ? Promise.reject(reject)
             : Promise.resolve({
+                active: {},
                 pushManager: {
                   subscribe: jest.fn(() =>
                     Promise.resolve({ toJSON: () => ({}) })
@@ -1797,5 +1799,236 @@ describe("the block after it is turned on", () => {
     expect(() =>
       alerts.markEnabled(document.querySelector(".alerts-enable"))
     ).not.toThrow();
+  });
+});
+
+describe("whether this browser, not the account, is on", () => {
+  /** The block as the server renders it now: never "on". */
+  function block() {
+    document.body.innerHTML = `
+      <div class="alerts-enable"
+           data-subscribe-url="/widgets/alerts/subscribe"
+           data-worker-url="/alerts-service-worker.js">
+        <p class="alerts-warning">No browser is set to receive these.</p>
+        <button type="button" class="alerts-enable-btn id-alerts-enable">Notify this browser</button>
+        <span class="alerts-enable-state"></span>
+      </div>`;
+    return document.querySelector(".alerts-enable");
+  }
+
+  /** A capable browser holding `subscription` (or none) under `permission`. */
+  function browser({ permission = "granted", subscription = null, registered = true, ok = true } = {}) {
+    window.PushManager = function () {};
+    global.Notification = { permission };
+    const getRegistration = jest.fn(() =>
+      Promise.resolve(
+        registered
+          ? { pushManager: { getSubscription: jest.fn(() => Promise.resolve(subscription)) } }
+          : undefined
+      )
+    );
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: { getRegistration },
+    });
+    global.fetch = jest.fn(() => Promise.resolve({ ok }));
+    return getRegistration;
+  }
+
+  const label = () => document.querySelector(".alerts-enable-btn").textContent;
+  const held = { toJSON: () => ({ endpoint: "https://push.example/x" }) };
+
+  afterEach(() => {
+    delete window.PushManager;
+    delete global.Notification;
+  });
+
+  test("a subscribed browser says so and re-sends its subscription", async () => {
+    const getRegistration = browser({ subscription: held });
+    const root = block();
+
+    await expect(alerts.checkBrowser(root)).resolves.toBe(true);
+
+    expect(getRegistration).toHaveBeenCalledWith("/alerts-service-worker.js");
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/widgets/alerts/subscribe",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ endpoint: "https://push.example/x" }),
+      })
+    );
+    expect(label()).toBe("This browser is on");
+    expect(root.querySelector(".alerts-warning")).toBeNull();
+  });
+
+  test("another browser on the account leaves this one off", async () => {
+    // **Reported:** Firefox subscribed; Chromium and Vivaldi then said "on".
+    browser({ subscription: null });
+    const root = block();
+
+    await expect(alerts.checkBrowser(root)).resolves.toBe(false);
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(label()).toBe("Notify this browser");
+  });
+
+  test("no worker registered here is off", async () => {
+    browser({ registered: false });
+
+    await expect(alerts.checkBrowser(block())).resolves.toBe(false);
+    expect(label()).toBe("Notify this browser");
+  });
+
+  test.each(["default", "denied"])("permission %s is off without asking", async (permission) => {
+    const getRegistration = browser({ permission, subscription: held });
+
+    await expect(alerts.checkBrowser(block())).resolves.toBe(false);
+    expect(getRegistration).not.toHaveBeenCalled();
+  });
+
+  test("a refused re-send stays off, so the button can retry", async () => {
+    browser({ subscription: held, ok: false });
+
+    await expect(alerts.checkBrowser(block())).resolves.toBe(false);
+    expect(label()).toBe("Notify this browser");
+  });
+
+  test("a failing lookup is off rather than an error", async () => {
+    window.PushManager = function () {};
+    global.Notification = { permission: "granted" };
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: { getRegistration: jest.fn(() => Promise.reject(new Error("no"))) },
+    });
+
+    await expect(alerts.checkBrowser(block())).resolves.toBe(false);
+  });
+
+  test("an unsupported browser or no block is off", async () => {
+    delete window.PushManager;
+    await expect(alerts.checkBrowser(block())).resolves.toBe(false);
+    await expect(alerts.checkBrowser(null)).resolves.toBe(false);
+  });
+
+  test("no Notification at all is off", async () => {
+    window.PushManager = function () {};
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: {} });
+    delete global.Notification;
+
+    await expect(alerts.checkBrowser(block())).resolves.toBe(false);
+  });
+
+  test("opening the modal checks this browser", async () => {
+    const getRegistration = browser({ subscription: held });
+    const enable = block();
+    document.body.innerHTML = '<dialog id="alerts-modal"></dialog>';
+    const dialog = document.getElementById("alerts-modal");
+    dialog.showModal = jest.fn();
+    dialog.appendChild(enable);
+
+    alerts.openModal(document);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(getRegistration).toHaveBeenCalled();
+    expect(label()).toBe("This browser is on");
+  });
+});
+
+
+describe("waiting for the worker before subscribing", () => {
+  // **Reported:** Chromium and Vivaldi answered "Subscription failed - no
+  // active Service Worker". `register()` resolves while a first install is
+  // still running; Firefox let `subscribe()` through anyway.
+
+  /** A worker that moves through `states` once something listens. */
+  function worker(states) {
+    const listeners = [];
+    const it = {
+      state: "installing",
+      addEventListener: jest.fn((name, listener) => listeners.push(listener)),
+    };
+    it.advance = () =>
+      states.forEach((state) => {
+        it.state = state;
+        listeners.forEach((listener) => listener());
+      });
+    return it;
+  }
+
+  test("an already active registration goes straight through", async () => {
+    const registration = { active: {} };
+
+    await expect(alerts.activated(registration)).resolves.toBe(registration);
+  });
+
+  test("a first install is waited for until it activates", async () => {
+    const installing = worker(["installed", "activating", "activated"]);
+    const registration = { active: null, installing };
+
+    const waiting = alerts.activated(registration);
+    installing.advance();
+
+    await expect(waiting).resolves.toBe(registration);
+  });
+
+  test("a waiting worker is waited for too", async () => {
+    const waiting = worker(["activated"]);
+    const registration = { active: null, installing: null, waiting };
+
+    const result = alerts.activated(registration);
+    waiting.advance();
+
+    await expect(result).resolves.toBe(registration);
+  });
+
+  test("a worker that fails to install is reported", async () => {
+    const installing = worker(["redundant"]);
+
+    const result = alerts.activated({ active: null, installing });
+    installing.advance();
+
+    await expect(result).rejects.toThrow("The alerts worker did not start.");
+  });
+
+  test("no worker at all is reported", async () => {
+    await expect(alerts.activated({ active: null })).rejects.toThrow(
+      "The alerts worker did not start."
+    );
+  });
+
+  test("the enable flow subscribes only once the worker is active", async () => {
+    const installing = worker(["activated"]);
+    const subscribe = jest.fn(() =>
+      Promise.resolve({ toJSON: () => ({ endpoint: "https://push.example/x" }) })
+    );
+    window.PushManager = function () {};
+    global.Notification = { requestPermission: jest.fn(() => Promise.resolve("granted")) };
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: {
+        register: jest.fn(() =>
+          Promise.resolve({ active: null, installing, pushManager: { subscribe } })
+        ),
+      },
+    });
+    global.fetch = jest.fn(() => Promise.resolve({ ok: true }));
+    global.atob = (s) => Buffer.from(s, "base64").toString("binary");
+    document.body.innerHTML = `
+      <div class="alerts-enable" data-vapid-key="AAAA" data-subscribe-url="/s"
+           data-worker-url="/alerts-service-worker.js">
+        <button class="alerts-enable-btn">Notify this browser</button>
+        <span class="alerts-enable-state"></span>
+      </div>`;
+
+    const done = alerts.enablePush(document.querySelector(".alerts-enable"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(subscribe).not.toHaveBeenCalled();
+
+    installing.advance();
+
+    await expect(done).resolves.toBe("This browser is on.");
+    expect(subscribe).toHaveBeenCalled();
+    delete window.PushManager;
+    delete global.Notification;
   });
 });

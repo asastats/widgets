@@ -1711,3 +1711,45 @@ class TestInhouseAlertsPanelDom:
             "`.alerts-asset-unit` must be inside `.alerts-asset-field`, or "
             "`chooseAsset` cannot reach it and every rule stores a blank unit"
         )
+
+
+class TestInhouseAlertsEnableLabel:
+    """The server never says "this browser is on": it cannot tell which is asking."""
+
+    def _modal(self, subscribed_browsers, rules_kept=0):
+        from django.template.loader import render_to_string
+
+        from widgets.inhouse.alerts.models import Direction, Subject
+
+        return render_to_string(
+            "alerts/modal.html",
+            {
+                "alerts_entitled": True,
+                "push_configured": True,
+                "alerts_live": True,
+                "vapid_public_key": "key",
+                "subscribed_browsers": subscribed_browsers,
+                "rules_kept": rules_kept,
+                "form": AlertRuleForm(user=None, address="A" * 58),
+                "address": "A" * 58,
+                "rules": [],
+                "rules_left": 5,
+                "rules_allowed": 5,
+                "subjects": Subject.choices,
+                "directions": Direction.choices,
+                "windows": (),
+                "units": (("algo", "ALGO"), ("usd", "USD")),
+            },
+        )
+
+    def test_inhouse_alerts_another_browser_on_the_account_is_not_this_one(self):
+        """Reported: Firefox subscribed, and Chromium and Vivaldi then said "on"."""
+        html = self._modal(subscribed_browsers=1)
+
+        assert "This browser is on" not in html
+        assert "Notify this browser" in html
+        assert "Alerts go to 1 browser on your account." in html
+
+    def test_inhouse_alerts_the_count_is_plural_and_absent_at_zero(self):
+        assert "Alerts go to 2 browsers on your account." in self._modal(2)
+        assert "alerts-enable-count" not in self._modal(0)
