@@ -3445,26 +3445,30 @@ class TestLiveLogTransferRowsRender:
         html = self._row()
 
         assert "Received 0.20 Coin" in html
-        assert '<span class="livelog-value num">+2.00 ALGO</span>' in html
-        assert '<span class="livelog-held">+0.40 USD</span>' in html
+        # both currencies; the log shows the page's one
+        assert '<span class="livelog-value num livelog-algo">+2.00 ALGO</span>' in html
+        assert '<span class="livelog-value num livelog-usd">+0.40 USD</span>' in html
+        assert "livelog-held" not in html
 
     def test_liverefresh_a_transfer_out_is_signed_and_marked_negative(self):
         html = self._row(asset=0, name="ALGO", amount=-2_500_000, decimals=6, algo=-2.5, usd=-0.5)
 
         # the asset's own places, capped as everywhere on the page
         assert "Sent 2.5000 ALGO" in html
-        assert '<span class="livelog-value num neg">-2.50 ALGO</span>' in html
-        assert "-0.50 USD" in html
+        assert '<span class="livelog-value num neg livelog-algo">-2.50 ALGO</span>' in html
+        assert '<span class="livelog-value num neg livelog-usd">-0.50 USD</span>' in html
 
     def test_liverefresh_a_bundle_row_names_its_member(self):
         html = self._row(address=self.ADDRESS)
 
-        assert '<span class="livelog-held">2EVGZ…XNSIU · +0.40 USD</span>' in html
-
-    def test_liverefresh_a_bundle_row_without_a_dollar_figure(self):
-        html = self._row(address=self.ADDRESS, usd=None)
-
         assert '<span class="livelog-held">2EVGZ…XNSIU</span>' in html
+
+    def test_liverefresh_a_row_without_a_dollar_figure_shows_algo_in_both_currencies(self):
+        """No USD twin, so the ALGO figure is not marked to hide in USD."""
+        html = self._row(usd=None)
+
+        assert '<span class="livelog-value num">+2.00 ALGO</span>' in html
+        assert "livelog-usd" not in html
 
     def test_liverefresh_an_unpriced_unknown_asset_reads_plainly(self):
         html = self._row(name="", decimals=None, algo=None, usd=None)
@@ -3484,6 +3488,99 @@ class TestLiveLogTransferRowsRender:
         ]
 
 
+class TestLiveLogRowCells:
+    """Every row starts with its time, and carries its figure in both currencies."""
+
+    @staticmethod
+    def _html(*events, missed=0):
+        from django.template.loader import render_to_string
+
+        payload = dict(TestLiveRefreshFragments.PAYLOAD, values={}, events=list(events), missed=missed)
+        return " ".join(
+            render_to_string("liverefresh/fragments.html", {"payload": payload, "layout": "dynamic"}).split()
+        )
+
+    def test_liverefresh_a_row_carries_its_time_for_the_browser_to_write(self):
+        html = self._html({"kind": "online", "round": 1, "ts": 1791615649})
+
+        assert '<time class="livelog-time" data-ts="1791615649"></time>' in html
+
+    def test_liverefresh_a_row_without_a_time_has_an_empty_cell(self):
+        html = self._html({"kind": "online", "round": 1}, missed=2)
+
+        assert html.count('<time class="livelog-time"></time>') == 2
+        assert '<span class="livelog-what">2 updates not received</span>' in html
+
+    @pytest.mark.parametrize(
+        "event, algo, usd",
+        [
+            (
+                {"kind": "floor", "name": "Pixel", "old": 2.0, "new": 2.5, "held": 3, "algo": 1.5, "usd": 0.3},
+                "+1.50 ALGO",
+                "+0.30 USD",
+            ),
+            ({"kind": "position_open", "name": "Pool", "value": 12.0, "usd": 2.4}, "+12.00 ALGO", "+2.40 USD"),
+            ({"kind": "asset_in", "name": "Coin", "value": 7.5, "usd": 1.5}, "7.50 ALGO", "1.50 USD"),
+        ],
+    )
+    def test_liverefresh_figures_come_in_both_currencies(self, event, algo, usd):
+        html = self._html(dict(event, round=1))
+
+        assert f'<span class="livelog-value num livelog-algo">{algo}</span>' in html
+        assert f'<span class="livelog-value num livelog-usd">{usd}</span>' in html
+
+    def test_liverefresh_a_row_from_before_usd_figures_keeps_its_algo(self):
+        html = self._html({"kind": "asset_in", "round": 1, "name": "Coin", "value": 7.5})
+
+        assert '<span class="livelog-value num">7.50 ALGO</span>' in html
+        assert "livelog-usd" not in html
+
+
+class TestLiveLogAssetPriceRowsRender:
+    """An ASA's price moved since its last row: a row per currency, one shown."""
+
+    ROW = {
+        "kind": "asset_price",
+        "basis": "algo",
+        "round": 1,
+        "asset": 31,
+        "name": "Coin",
+        "old": 0.5,
+        "new": 0.52,
+        "pct": 4.0,
+        "amount": 500000,
+        "decimals": 2,
+        "impact": 100.0,
+    }
+
+    def _html(self, **changes):
+        return TestLiveLogRowCells._html(dict(self.ROW, **changes))
+
+    def test_liverefresh_an_asset_price_row_in_algo(self):
+        html = self._html()
+
+        assert '<li class="livelog-row" data-basis="algo">' in html
+        assert "Coin price 0.50000000 to 0.52000000 ALGO" in html
+        assert '<span class="livelog-value num">+4.0%</span>' in html
+        assert '<span class="livelog-held">+100.00 ALGO on 5,000 held</span>' in html
+
+    def test_liverefresh_an_asset_price_fall_in_usd(self):
+        html = self._html(basis="usd", old=0.1, new=0.09, pct=-10.0, impact=-50.0)
+
+        assert '<li class="livelog-row" data-basis="usd">' in html
+        assert "Coin price 0.10000000 to 0.09000000 USD" in html
+        assert '<span class="livelog-value num neg">-10.0%</span>' in html
+        assert '<span class="livelog-held">-50.00 USD on 5,000 held</span>' in html
+
+    def test_liverefresh_an_unnamed_asset_price_row(self):
+        assert "An asset price" in self._html(name="")
+
+    def test_liverefresh_asset_price_is_a_kind_the_view_draws(self):
+        from widgets.inhouse.liverefresh.views import _events_of
+
+        assert [e["kind"] for e in _events_of({"seq": 4, "events": [self.ROW]})] == ["asset_price"]
+
+
 class TestLiveLogPriceRowsRender:
     """The ALGO price moved past the threshold: a row, with its direction."""
 
@@ -3496,6 +3593,16 @@ class TestLiveLogPriceRowsRender:
 
         assert "ALGO price 0.214 to 0.222 USD" in html
         assert "+3.5%" in html
+
+    def test_liverefresh_a_price_row_says_what_it_did_to_the_algo_held_in_usd(self):
+        html = self._rendered({"kind": "price", "round": 1, "old": 0.2, "new": 0.21, "pct": 5.0, "held": 120.0, "impact": 1.2})
+
+        assert '<span class="livelog-held livelog-usd">+1.20 USD on 120.00 ALGO held</span>' in html
+
+    def test_liverefresh_a_price_row_from_before_the_impact_has_no_line(self):
+        html = self._rendered({"kind": "price", "round": 1, "old": 0.2, "new": 0.21, "pct": 5.0})
+
+        assert "livelog-held" not in html
 
     def test_liverefresh_a_price_fall_row_is_marked_negative(self):
         html = self._rendered({"kind": "price", "round": 1, "old": 0.214, "new": 0.2, "pct": -6.54})

@@ -88,6 +88,7 @@ LOG_EVENT_KINDS = frozenset(
         "online",
         "offline",
         "transfer",
+        "asset_price",
     }
 )
 

@@ -1875,3 +1875,38 @@ ALGO worth sits on the right. The second line shows the member's address
 (first and last five characters) on a bundle, and the USD figure when there is
 one. An asset with no name reads "an asset" and shows no amount, because
 without its decimals the base units would be wrong by orders of magnitude.
+
+## inhouse/liverefresh - currency, row times and the CSV copy, 2026-10-10
+
+**The log follows the page's currency.** Both layouts keep the reader's
+ALGO/USD choice in `localStorage` under `cur` (`toolbar.js` names it
+`SHARED.ccy`). `liverefresh.js` copies it to the shell as `data-cur`, on every
+tick, after any click (the page's control has written it by then), and on the
+`storage` event from other tabs. CSS hides the other currency: the
+`livelog-algo` / `livelog-usd` figure twins, and the asset price rows whose
+`data-basis` is the other one. A separate setting just for the log was
+considered and rejected (2026-10-10). It would disagree with the page, and a
+switch would need a reload.
+
+- The unread count counts only rows of the reader's currency. The other
+  currency's rows are kept, but they are not news to this reader.
+- The 200-row cap is per currency view (`trimLog`). A row with no basis is in
+  both views, and stays while either view has room. Without this, a day of
+  USD asset rows would push ALGO rows out of the log for a reader who never
+  sees USD.
+
+**Times.** Each row's first cell is `<time data-ts>`, and the browser writes
+it with `Intl.DateTimeFormat(undefined, {hour, minute})`. That uses the
+browser's own locale, so it is 12- or 24-hour as the reader prefers. A row
+that arrives live without `ts` (a gap line, an older engine) is stamped with
+its arrival. A row rendered on load without one is left blank, because its
+time is not known.
+
+**CSV copy.** The clipboard button in the summary (`#id-livelog-copy`)
+copies what the reader sees: a `Time;Event;Value;Details` header, then one
+line per row of their currency, newest first. The time is the local
+`YYYY-MM-DD HH:MM`, date included, because a pasted log outlives the page it
+came from. A field holding `;` or `"` is quoted, with quotes doubled, and
+whitespace is flattened onto one line. The click must not open or close the
+log, so it calls `preventDefault`. The button uses its own class, not
+`.copy`: `site.js` binds `.copy` to copy the previous element's text.

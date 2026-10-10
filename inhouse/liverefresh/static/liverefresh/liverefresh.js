@@ -164,7 +164,12 @@
       }
     }
     log.hidden = false;
+    syncCurrency();
     restoreLog();
+    var rendered = document.getElementById("id-livelog-list");
+    if (rendered) {
+      stampTimes(rendered.children, false);
+    }
     watchLog(log);
   }
 
@@ -251,6 +256,147 @@
     });
   }
 
+  /** The page's currency, which both layouts keep under `cur`. */
+  function currency() {
+    try {
+      return localStorage.getItem("cur") === "USD" ? "USD" : "ALGO";
+    } catch (error) {
+      return "ALGO";
+    }
+  }
+
+  /** The `data-basis` a row needs to be seen in the page's currency. */
+  function basis() {
+    return currency() === "USD" ? "usd" : "algo";
+  }
+
+  /** Show the log in the page's currency; CSS hides the other one's figures. */
+  function syncCurrency() {
+    var log = document.getElementById("id-livelog");
+    if (log) {
+      log.setAttribute("data-cur", currency());
+    }
+  }
+
+  /** The browser's own hour:minute, so 12- or 24-hour as the reader prefers. */
+  var clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+
+  /**
+   * Write each row's time from its `data-ts`.
+   *
+   * A row that arrives live without one (a gap line, an older engine) is
+   * stamped with its arrival; one rendered on load is left blank.
+   * @param {Element[]} rows
+   * @param {boolean} live
+   */
+  function stampTimes(rows, live) {
+    Array.prototype.forEach.call(rows, function (row) {
+      var time = row.querySelector && row.querySelector(".livelog-time");
+      if (!time || time.textContent) return;
+      if (!time.getAttribute("data-ts")) {
+        if (!live) return;
+        time.setAttribute("data-ts", String(Math.floor(Date.now() / 1000)));
+      }
+      var when = new Date(Number(time.getAttribute("data-ts")) * 1000);
+      time.setAttribute("datetime", when.toISOString());
+      time.textContent = clock.format(when);
+    });
+  }
+
+  /** Whether `element` shows in the page's currency, or is the hidden twin. */
+  function shown(element) {
+    return !element.classList.contains(currency() === "USD" ? "livelog-algo" : "livelog-usd");
+  }
+
+  /**
+   * Return a semicolon-separated field on one line, quoted when it holds `;` or `"`.
+   * @param {string} text
+   * @returns {string}
+   */
+  function csvField(text) {
+    var flat = (text || "").replace(/\s+/g, " ").trim();
+    return /[;"]/.test(flat) ? '"' + flat.replace(/"/g, '""') + '"' : flat;
+  }
+
+  /**
+   * Return the log as the reader sees it, as CSV: a header, then a line per row.
+   * @param {Element} list - `#id-livelog-list`
+   * @returns {string}
+   */
+  function logCsv(list) {
+    var view = basis();
+    var lines = ["Time;Event;Value;Details"];
+    Array.prototype.forEach.call(list.children, function (row) {
+      var rowBasis = row.getAttribute("data-basis");
+      if (rowBasis && rowBasis !== view) return;
+      var time = row.querySelector(".livelog-time");
+      var seconds = time && Number(time.getAttribute("data-ts"));
+      var when = "";
+      if (seconds) {
+        var date = new Date(seconds * 1000);
+        var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+        when = date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) +
+          " " + pad(date.getHours()) + ":" + pad(date.getMinutes());
+      }
+      var text = function (selector) {
+        return Array.prototype.filter
+          .call(row.querySelectorAll(selector), shown)
+          .map(function (element) { return element.textContent; })
+          .join(" ");
+      };
+      lines.push(
+        [when, text(".livelog-what"), text(".livelog-value"), text(".livelog-held")]
+          .map(csvField)
+          .join(";")
+      );
+    });
+    return lines.join("\n");
+  }
+
+  /**
+   * Copy the log to the clipboard as CSV. Inside `<summary>`, so it must not
+   * also open or close the log.
+   * @param {Event} event
+   */
+  function copyLog(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    var list = document.getElementById("id-livelog-list");
+    var button = event.currentTarget;
+    if (!list || !navigator.clipboard) {
+      return;
+    }
+    navigator.clipboard.writeText(logCsv(list)).then(function () {
+      button.classList.add("copied");
+      window.setTimeout(function () {
+        button.classList.remove("copied");
+      }, 500);
+    }, function () {});
+  }
+
+  /**
+   * Keep the newest `LOG_ROW_CAP` rows in each currency's view. A row without
+   * a basis is in both, so it stays while either view still has room.
+   * @param {Element} list
+   */
+  function trimLog(list) {
+    var seen = { algo: 0, usd: 0 };
+    Array.prototype.slice.call(list.children).forEach(function (row) {
+      var rowBasis = row.getAttribute("data-basis");
+      var views = rowBasis ? [rowBasis] : ["algo", "usd"];
+      var room = views.some(function (view) {
+        return seen[view] < LOG_ROW_CAP;
+      });
+      if (!room) {
+        list.removeChild(row);
+        return;
+      }
+      views.forEach(function (view) {
+        seen[view] += 1;
+      });
+    });
+  }
+
   function showUnread() {
     var badge = document.getElementById("id-livelog-unread");
     if (!badge) {
@@ -285,16 +431,19 @@
             list.removeChild(node);
             return;
           }
-          added += 1;
+          stampTimes([node], true);
+          // a row of the other currency is kept, but is not news to this reader
+          var rowBasis = node.getAttribute("data-basis");
+          if (!rowBasis || rowBasis === basis()) {
+            added += 1;
+          }
         });
       });
       if (added && !log.open) {
         unread += added;
         showUnread();
       }
-      while (list.children.length > LOG_ROW_CAP) {
-        list.removeChild(list.lastElementChild);
-      }
+      trimLog(list);
       saveLog(list);
     });
     logWatch.observe(list, { childList: true });
@@ -641,6 +790,16 @@
   document.body.addEventListener("liverefresh:regroup", regroup);
   document.body.addEventListener("liverefresh:regrouped", regrouped);
   document.body.addEventListener("liverefresh:seq", caughtUp);
+  // The currency is the page's, changed by its own controls: follow it after
+  // any click, and from other tabs. The poll's tick catches anything else.
+  document.addEventListener("click", function () {
+    window.setTimeout(syncCurrency, 0);
+  });
+  window.addEventListener("storage", syncCurrency);
+  var copyButton = document.getElementById("id-livelog-copy");
+  if (copyButton) {
+    copyButton.addEventListener("click", copyLog);
+  }
 
   // Re-apply currency/total-no-NFT formatting after OOB swaps
   // (wireFetchedItems may not catch swap:"none" responses)

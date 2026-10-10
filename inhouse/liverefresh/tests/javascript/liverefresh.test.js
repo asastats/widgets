@@ -120,6 +120,7 @@ function page(options = {}) {
         (logSeq === null ? "" : ` data-log-seq="${logSeq}"`) +
         " hidden>" +
         (unreadBadge ? '<span id="id-livelog-unread" hidden></span>' : "") +
+        '<button type="button" id="id-livelog-copy"></button>' +
         (rowList ? '<ol id="id-livelog-list"></ol>' : "") +
         "</details>" +
         "</section>"
@@ -1371,6 +1372,259 @@ describe("catching up on payloads a poll missed", () => {
     jest.advanceTimersByTime(3000);
 
     expect(window.htmx.ajax.mock.calls[0][1]).toBe(`${POLLED}&tab=${TAB}&since=41`);
+  });
+});
+
+describe("the live log's currency, times and CSV copy", () => {
+  const settle = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+
+  /** A row as the partial renders it, with its figures in both currencies. */
+  function logRow({ key = null, basis = null, ts = "1791615649", what = "Floor of Pixel", algo = "+1.50 ALGO", usd = "+0.30 USD", held = "" } = {}) {
+    const li = document.createElement("li");
+    li.className = "livelog-row";
+    if (key) li.setAttribute("data-key", key);
+    if (basis) li.setAttribute("data-basis", basis);
+    li.innerHTML =
+      `<time class="livelog-time"${ts ? ` data-ts="${ts}"` : ""}></time>` +
+      `<span class="livelog-what">${what}</span>` +
+      (algo ? `<span class="livelog-value num${usd ? " livelog-algo" : ""}">${algo}</span>` : "") +
+      (usd ? `<span class="livelog-value num livelog-usd">${usd}</span>` : "") +
+      (held ? `<span class="livelog-held">${held}</span>` : "");
+    return li;
+  }
+
+  const log = () => document.getElementById("id-livelog");
+  const list = () => document.getElementById("id-livelog-list");
+
+  function watched(cur) {
+    localStorage.setItem("refresh", "y");
+    if (cur) localStorage.setItem("cur", cur);
+    page({ livelog: true });
+  }
+
+  it("shows the log in ALGO unless the page is in USD", () => {
+    watched();
+    load();
+
+    expect(log().getAttribute("data-cur")).toBe("ALGO");
+  });
+
+  it("follows the page's USD choice", () => {
+    watched("USD");
+    load();
+
+    expect(log().getAttribute("data-cur")).toBe("USD");
+  });
+
+  it("follows a currency changed by the page's own control, after the click", () => {
+    watched();
+    load();
+
+    localStorage.setItem("cur", "USD");
+    document.body.click();
+    jest.advanceTimersByTime(0);
+
+    expect(log().getAttribute("data-cur")).toBe("USD");
+  });
+
+  it("follows a currency changed in another tab", () => {
+    watched();
+    load();
+
+    localStorage.setItem("cur", "USD");
+    window.dispatchEvent(new Event("storage"));
+
+    expect(log().getAttribute("data-cur")).toBe("USD");
+  });
+
+  it("falls back to ALGO when storage is blocked", () => {
+    watched("USD");
+    load();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("storage is blocked");
+      },
+    });
+
+    document.body.click();
+    jest.advanceTimersByTime(0);
+
+    expect(log().getAttribute("data-cur")).toBe("ALGO");
+  });
+
+  it("does nothing on a click when the page has no log", () => {
+    localStorage.setItem("refresh", "y");
+    page({ livelog: false });
+    load();
+
+    document.body.click();
+    expect(() => jest.advanceTimersByTime(0)).not.toThrow();
+  });
+
+  it("writes each rendered row's time in the reader's own clock", () => {
+    watched();
+    list().appendChild(logRow());
+    load();
+
+    const time = list().querySelector(".livelog-time");
+    const expected = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" })
+      .format(new Date(1791615649 * 1000));
+    expect(time.textContent).toBe(expected);
+    expect(time.getAttribute("datetime")).toBe(new Date(1791615649 * 1000).toISOString());
+  });
+
+  it("leaves a rendered row without a time blank", () => {
+    watched();
+    list().appendChild(logRow({ ts: null }));
+    list().appendChild(document.createElement("li"));
+    load();
+
+    expect(list().querySelector(".livelog-time").textContent).toBe("");
+  });
+
+  it("stamps a row that arrives live without a time with its arrival", async () => {
+    watched();
+    load();
+    jest.setSystemTime(new Date("2026-10-10T08:05:30Z"));
+
+    list().prepend(logRow({ ts: null }));
+    await settle();
+
+    const time = list().querySelector(".livelog-time");
+    expect(time.getAttribute("data-ts")).toBe(String(Date.parse("2026-10-10T08:05:00Z") / 1000 + 30));
+    expect(time.textContent).not.toBe("");
+  });
+
+  it("keeps a time already written, as on a row restored from storage", async () => {
+    watched();
+    load();
+    const row = logRow();
+    row.querySelector(".livelog-time").textContent = "9:41";
+
+    list().prepend(row);
+    await settle();
+
+    expect(row.querySelector(".livelog-time").textContent).toBe("9:41");
+  });
+
+  it("does not count a row of the other currency as new", async () => {
+    watched();
+    load();
+
+    list().prepend(logRow({ basis: "usd" }));
+    list().prepend(logRow({ basis: "algo" }));
+    await settle();
+
+    expect(document.getElementById("id-livelog-unread").textContent).toBe("1 new");
+  });
+
+  it("keeps 200 rows in each currency's view", async () => {
+    watched();
+    load();
+    for (let i = 0; i < 210; i += 1) list().prepend(logRow({ basis: "usd", what: `usd ${i}` }));
+    for (let i = 0; i < 150; i += 1) list().prepend(logRow({ basis: "algo", what: `algo ${i}` }));
+    list().prepend(logRow({ what: "both" }));
+    await settle();
+
+    const rows = Array.from(list().children);
+    expect(rows.filter((row) => row.dataset.basis === "usd")).toHaveLength(199);
+    expect(rows.filter((row) => row.dataset.basis === "algo")).toHaveLength(150);
+    expect(rows[0].textContent).toContain("both");
+  });
+
+  describe("the CSV", () => {
+    let written;
+
+    beforeEach(() => {
+      written = jest.fn(() => Promise.resolve());
+      Object.defineProperty(navigator, "clipboard", { value: { writeText: written }, configurable: true });
+    });
+
+    afterEach(() => {
+      delete navigator.clipboard;
+    });
+
+    function copy() {
+      const button = document.getElementById("id-livelog-copy");
+      const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+      button.dispatchEvent(click);
+      return click;
+    }
+
+    function local(seconds) {
+      const date = new Date(seconds * 1000);
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
+    it("copies a header and one line per row the reader sees, in their currency", async () => {
+      watched("USD");
+      list().appendChild(logRow({ held: "3 held" }));
+      list().appendChild(logRow({ basis: "algo", what: "Coin price 0.5 to 0.52 ALGO", algo: "+4.0%", usd: "" }));
+      list().appendChild(logRow({ basis: "usd", what: "Coin price 0.1 to 0.104 USD", algo: "+4.0%", usd: "" }));
+      load();
+
+      copy();
+      await settle();
+
+      expect(written.mock.calls[0][0]).toBe(
+        "Time;Event;Value;Details\n" +
+          `${local(1791615649)};Floor of Pixel;+0.30 USD;3 held\n` +
+          `${local(1791615649)};Coin price 0.1 to 0.104 USD;+4.0%;`
+      );
+    });
+
+    it("quotes a field holding a semicolon or a quote, and flattens whitespace", async () => {
+      watched();
+      list().appendChild(logRow({ ts: null, what: 'Bought  "A;B"\n coin', usd: "" }));
+      load();
+
+      copy();
+      await settle();
+
+      expect(written.mock.calls[0][0].split("\n")[1]).toBe(';"Bought ""A;B"" coin";+1.50 ALGO;');
+    });
+
+    it("marks the button for a moment and does not open the log", async () => {
+      watched();
+      load();
+
+      const click = copy();
+      await settle();
+
+      const button = document.getElementById("id-livelog-copy");
+      expect(click.defaultPrevented).toBe(true);
+      expect(button.classList.contains("copied")).toBe(true);
+      jest.advanceTimersByTime(500);
+      expect(button.classList.contains("copied")).toBe(false);
+    });
+
+    it("says nothing when the clipboard refuses", async () => {
+      written.mockImplementation(() => Promise.reject(new Error("denied")));
+      watched();
+      load();
+
+      copy();
+      await settle();
+
+      expect(document.getElementById("id-livelog-copy").classList.contains("copied")).toBe(false);
+    });
+
+    it("does nothing without a clipboard or a list", () => {
+      delete navigator.clipboard;
+      watched();
+      load();
+      expect(() => copy()).not.toThrow();
+
+      Object.defineProperty(navigator, "clipboard", { value: { writeText: written }, configurable: true });
+      list().remove();
+      copy();
+      expect(written).not.toHaveBeenCalled();
+    });
   });
 });
 
