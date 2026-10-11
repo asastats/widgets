@@ -135,7 +135,7 @@
   /**
    * Reveal the live log, moving it once to where its layout puts it.
    *
-   * Dynamic: beside the charts panel, in a row. Classic: a right-aligned
+   * Dynamic: below the charts panel, in a row. Classic: a right-aligned
    * section below the consolidated box, `#id-cons`. Moving a DOM node keeps its
    * listeners, so the charts' bindings survive the move.
    */
@@ -746,6 +746,24 @@
   }
 
   /**
+   * Carry `event.detail.holdings` as the page's fingerprint from now on.
+   * Also sent alone, to a page rendered while the engine was not watching it.
+   * @param {CustomEvent} event carrying `{ holdings }`
+   */
+  function adopt(event) {
+    var detail = (event && event.detail) || {};
+    if (!detail.holdings) {
+      return;
+    }
+    holdings = detail.holdings;
+    url = withHoldings(pollUrl, holdings);
+    var carrier = document.querySelector("[data-holdings]");
+    if (carrier) {
+      carrier.dataset.holdings = holdings;
+    }
+  }
+
+  /**
    * Take the new groups, and put the reader's view back around them.
    * Group-by-venue: toolbar moves pgroup; drop old copies.
    * Updates holdings fingerprint to avoid re-regroup loop.
@@ -753,16 +771,8 @@
    */
   function regrouped(event) {
     regrouping = false;
-    var detail = (event && event.detail) || {};
-    if (detail.holdings) {
-      // Fingerprint page has now caught up to; avoids re-regroup loop.
-      holdings = detail.holdings;
-      url = withHoldings(pollUrl, holdings);
-      var carrier = document.querySelector("[data-holdings]");
-      if (carrier) {
-        carrier.dataset.holdings = holdings;
-      }
-    }
+    // Fingerprint page has now caught up to; avoids re-regroup loop.
+    adopt(event);
     var toolbar = window.asastatsToolbar;
     if (!toolbar || typeof toolbar.regroup !== "function") {
       return;
@@ -789,6 +799,7 @@
   document.body.addEventListener("liverefresh:left", showLeft);
   document.body.addEventListener("liverefresh:regroup", regroup);
   document.body.addEventListener("liverefresh:regrouped", regrouped);
+  document.body.addEventListener("liverefresh:holdings", adopt);
   document.body.addEventListener("liverefresh:seq", caughtUp);
   // The currency is the page's, changed by its own controls: follow it after
   // any click, and from other tabs. The poll's tick catches anything else.
@@ -832,6 +843,7 @@
       settlePosition,
       regroup,
       regrouped,
+      adopt,
       withHoldings,
     };
   }

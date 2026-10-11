@@ -593,9 +593,13 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         ):
             return self._attach_spans(
                 self._with_seq(
-                    self._regrouping(
-                        self._with_left(HttpResponse(status=204), remaining_seconds),
-                        regroup,
+                    self._adopting(
+                        request,
+                        payload,
+                        self._regrouping(
+                            self._with_left(HttpResponse(status=204), remaining_seconds),
+                            regroup,
+                        ),
                     ),
                     seq,
                 ),
@@ -606,9 +610,10 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         with timed(spans, "context_and_render"):
             context = self.get_context_data(payload=payload, **kwargs)
             response = self.render_to_response(context)
-        response = self._regrouping(
-            self._with_left(response, remaining_seconds),
-            regroup,
+        response = self._adopting(
+            request,
+            payload,
+            self._regrouping(self._with_left(response, remaining_seconds), regroup),
         )
         return self._attach_spans(self._with_seq(response, seq), spans)
 
@@ -718,6 +723,30 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
             events=events,
             missed=unheld,
         )
+
+    @staticmethod
+    def _adopting(request, payload, response):
+        """Hand a page rendered without a fingerprint the published one.
+
+        Such a page was rendered while the engine was not watching it, so there
+        was nothing current to carry; from here on it compares like any other.
+        See docs/logbook.md.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :param payload: what the pass last published for this page
+        :type payload: dict
+        :param response: the response this poll is about to return
+        :type response: :class:`HttpResponse`
+        :return: :class:`HttpResponse`
+        """
+        published = payload.get("holdings")
+        if request.GET.get("holdings") or not published:
+            return response
+        triggers = json.loads(response.get("HX-Trigger") or "{}")
+        triggers["liverefresh:holdings"] = {"holdings": published}
+        response["HX-Trigger"] = json.dumps(triggers)
+        return response
 
     @staticmethod
     def _with_seq(response, seq):

@@ -2255,6 +2255,49 @@ class TestLiveRefreshPositionsHalf:
         assert response.status_code == 204
         assert "liverefresh:regroup" in json.loads(response["HX-Trigger"])
 
+    def test_liverefresh_poll_hands_a_page_without_one_the_fingerprint(
+        self, mocker
+    ):
+        """A page rendered while the engine was not watching it carries no
+        fingerprint, so the first poll hands it the published one instead of
+        ordering a reload."""
+        view = _view(mocker, holdings="", session={})
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(
+            {"total": 5.0, "values": {}, "holdings": "5:assets:after"}
+        )
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        view.request.session[view._session_key()] = 5.0
+
+        response = view.get(view.request)
+
+        assert response.status_code == 204
+        assert "HX-Refresh" not in response
+        triggers = json.loads(response["HX-Trigger"])
+        assert triggers["liverefresh:holdings"] == {"holdings": "5:assets:after"}
+
+    def test_liverefresh_poll_hands_no_fingerprint_to_a_page_carrying_one(
+        self, mocker
+    ):
+        view = _view(mocker, holdings="5:assets:after")
+        client = mocker.MagicMock()
+        client.get.return_value = msgpack.packb(
+            {"total": 6.0, "values": {1: 2.0}, "holdings": "5:assets:after"}
+        )
+        mocker.patch(
+            "widgets.inhouse.liverefresh.views.redis_instance", return_value=client
+        )
+        mocker.patch.object(
+            LiveRefreshView, "render_to_response", return_value=HttpResponse()
+        )
+
+        response = view.get(view.request)
+
+        triggers = json.loads(response.get("HX-Trigger") or "{}")
+        assert "liverefresh:holdings" not in triggers
+
     def test_liverefresh_regrouping_keeps_the_allowance_badge(self, mocker):
         """`_with_left` has usually written the allowance into this header
         already, and overwriting it would stop the badge for as long as a

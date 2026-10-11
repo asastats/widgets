@@ -1970,3 +1970,25 @@ needed nothing else. The rows are rendered by `livelog.html`.
   that only resolves for a registration whose scope controls the page. Our
   worker is at the root today (`core/urls.py`), but the wait should not depend
   on where it is served.
+
+## inhouse/liverefresh/static/liverefresh/liverefresh.js - `showLog` puts the log above the charts (2026-10-11)
+
+The log is now the row's first child and the charts the second, so it sits
+above them. The two-column layout for wide screens has been removed from the
+frontend's `input.css` (frontend logbook, same date).
+
+## inhouse/liverefresh/views.py - `_adopting`: a page without a fingerprint is handed one (2026-10-11)
+
+When the engine is not publishing a page, the frontend now renders it with
+an empty `data-holdings` (frontend logbook, `utils/cache.py`, same date). A
+poll without `holdings` is never reloaded, so such a page needs a baseline.
+Every poll that arrives without one, and finds a published fingerprint, gets
+`liverefresh:holdings` with it. That covers the 204 path and the body path.
+`liverefresh.js` adopts it through `adopt`, which `regrouped` now uses too,
+and the page then compares like any other.
+
+### Correction, same day: below the charts
+
+`showLog` appends the charts first and the log second, so the log sits below
+the charts. "Above" came from a typo in the request (frontend logbook, same
+date). The classic placement is unchanged.

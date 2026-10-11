@@ -45,9 +45,9 @@ const TAB = "i";
  * @param {boolean} [options.control] render the toolbar's refresh control
  * @param {boolean} [options.classicControl] render the *classic* layout's
  *   Auto-refresh control instead, which is the one a reader below Intro sees
- * @param {boolean} [options.livelog] render the live log's shell, beside the
+ * @param {boolean} [options.livelog] render the live log's shell, below the
  *   charts panel when `charts` is also set
- * @param {boolean} [options.charts] render the charts panel the log moves beside
+ * @param {boolean} [options.charts] render the charts panel the log moves below
  * @param {boolean} [options.cons] render the classic consolidated box the log moves below
  * @param {boolean} [options.unreadBadge] render the summary's unread badge (default true)
  * @param {boolean} [options.rowList] render the list the rows land in (default true)
@@ -299,6 +299,28 @@ describe("the interval", () => {
       "GET",
       `${POLL_URL}?tab=${TAB}`,
       expect.anything()
+    );
+  });
+
+  it("adopts the fingerprint the engine publishes when it has none", () => {
+    // A page rendered while the engine was not watching it carries an empty
+    // fingerprint; the first poll hands it the published one.
+    localStorage.setItem("refresh", "y");
+    page({ holdings: "" });
+    load();
+
+    document.body.dispatchEvent(
+      new CustomEvent("liverefresh:holdings", { detail: { holdings: "3:a:b" } })
+    );
+    jest.advanceTimersByTime(3000);
+
+    expect(window.htmx.ajax).toHaveBeenCalledWith(
+      "GET",
+      `${POLL_URL}?holdings=3%3Aa%3Ab&tab=${TAB}`,
+      expect.anything()
+    );
+    expect(document.querySelector("[data-holdings]").dataset.holdings).toBe(
+      "3:a:b"
     );
   });
 
@@ -1149,6 +1171,15 @@ describe("regrouping instead of reloading", () => {
     ).toBe("7:assets:positions");
   });
 
+  it("ignores an adoption that carries no fingerprint", () => {
+    const module = load();
+
+    expect(() => module.adopt()).not.toThrow();
+    expect(document.querySelector("[data-holdings]").dataset.holdings).toBe(
+      "beef1234"
+    );
+  });
+
   it("keeps the fingerprint it has when the answer carries none", () => {
     const module = load();
     positions([[31566704, "p1-31566704-aaaa"]]);
@@ -1665,8 +1696,8 @@ describe("telling the server which tab is polling", () => {
   });
 });
 
-describe("the live log beside the charts", () => {
-  it("moves the log into a row beside the charts when a watch starts", () => {
+describe("the live log below the charts", () => {
+  it("moves the log into a row below the charts when a watch starts", () => {
     localStorage.setItem("refresh", "y");
     page({ livelog: true });
     load();
@@ -1675,6 +1706,7 @@ describe("the live log beside the charts", () => {
     const charts = document.getElementById("charts");
     expect(log.parentNode.className).toBe("charts-row");
     expect(charts.parentNode).toBe(log.parentNode);
+    expect(charts.nextElementSibling).toBe(log);
     expect(log.hidden).toBe(false);
   });
 
@@ -1716,7 +1748,7 @@ describe("the live log beside the charts", () => {
     expect(document.getElementById("id-livelog").hidden).toBe(true);
   });
 
-  it("stays hidden on a page with no charts to sit beside", () => {
+  it("stays hidden on a page with no charts to sit below", () => {
     localStorage.setItem("refresh", "y");
     page({ livelog: true, charts: false });
     load();
