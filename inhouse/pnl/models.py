@@ -26,7 +26,9 @@ class PnlBundle(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["user", "bundle"], name="pnl_user_bundle_uniq")
+            models.UniqueConstraint(
+                fields=["user", "bundle"], name="pnl_user_bundle_uniq"
+            )
         ]
 
     def __str__(self):

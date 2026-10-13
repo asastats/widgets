@@ -10,13 +10,18 @@ from django.urls import resolve
 
 from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
 from widgets.inhouse.pnl.models import PnlBundle
+from widgets.inhouse.pnl.manifest import MANIFEST
+from widgets.inhouse.alerts.models import AlertRule
 from widgets.inhouse.pnl.views import (
+    PnlAlertView,
     PnlAssetView,
     PnlProcessView,
     PnlRemoveView,
     PnlStatusView,
     PnlView,
+    _engine,
     addresses_in_use,
+    period_start,
 )
 
 ASASTATSER = SUBSCRIPTION_TIER_PERMISSIONS["Asastatser"]
@@ -75,6 +80,29 @@ def _engine_results():
     }
 
 
+class TestPnlViewsEngine:
+    """Testing class for :py:func:`...pnl.views._engine`."""
+
+    def test_pnl_views_engine_returns_json(self, mocker):
+        request = mocker.patch("widgets.inhouse.pnl.views.engine_request")
+        request.return_value.content = b"{}"
+        returned = _engine("pnl:evaluate", "POST", BUNDLE, "evaluate/", json={"a": 1})
+        assert returned == request.return_value.json.return_value
+        request.assert_called_once_with(
+            "pnl:evaluate",
+            "POST",
+            f"/api/v2/pnl/{BUNDLE}/evaluate/",
+            MANIFEST.engine_endpoints,
+            json={"a": 1},
+        )
+
+    def test_pnl_views_engine_returns_none_without_content(self, mocker):
+        request = mocker.patch("widgets.inhouse.pnl.views.engine_request")
+        request.return_value.content = b""
+        assert _engine("pnl:reset", "DELETE", BUNDLE) is None
+        assert request.call_args.args[2] == f"/api/v2/pnl/{BUNDLE}/"
+
+
 class TestPnlViewsAccess:
     """Testing class for :py:class:`...pnl.views.PnlAccessMixin`."""
 
@@ -100,9 +128,7 @@ class TestPnlViewsAccess:
             return_value=(BUNDLE, "ADDRA"),
         )
         mocker.patch.object(PnlView, "manifest_test_func", return_value=True)
-        mocker.patch(
-            "widgets.inhouse.pnl.views.is_linked_to_user", side_effect=linked
-        )
+        mocker.patch("widgets.inhouse.pnl.views.is_linked_to_user", side_effect=linked)
         assert view.test_func() is expected
 
     def test_pnl_views_test_func_fails_on_manifest_gate(self, mocker):
@@ -115,7 +141,11 @@ class TestPnlViewsAccess:
 
     @pytest.mark.parametrize(
         "permission,limit,expected",
-        [(0, 1, "subscriptions"), (ASASTATSER, 1, "home"), (ASASTATSER, 0, "subscriptions")],
+        [
+            (0, 1, "subscriptions"),
+            (ASASTATSER, 1, "home"),
+            (ASASTATSER, 0, "subscriptions"),
+        ],
     )
     def test_pnl_views_handle_no_permission(self, mocker, permission, limit, expected):
         view = _view(PnlView, permission)
@@ -135,6 +165,19 @@ class TestPnlViewsAccess:
         assert _view(PnlView, 0, "?currency=algo").currency() == "usd"
         assert _view(PnlView, ASASTATSER, "?currency=algo").currency() == "algo"
         assert _view(PnlView, ASASTATSER, "?currency=eur").currency() == "usd"
+
+    def test_pnl_views_period_respects_tier(self):
+        assert _view(PnlView, 0, "?period=7d").period() == "all"
+        assert _view(PnlView, ASASTATSER, "?period=7d").period() == "7d"
+        assert _view(PnlView, ASASTATSER, "?period=1y").period() == "all"
+
+    def test_pnl_views_period_start(self):
+        now = 1_700_000_000  # 14 Nov 2023
+        assert period_start("all", now) is None
+        assert period_start("7d", now) == now - 7 * 86400
+        assert period_start("30d", now) == now - 30 * 86400
+        assert period_start("ytd", now) == 1_672_531_200
+        assert period_start("7d") is not None
 
     def test_pnl_views_page_context(self, mocker):
         mocker.patch(
@@ -158,7 +201,7 @@ class TestPnlViewsStatus:
         )
         response = _view(PnlStatusView).get(None)
         assert b"<progress" in response.content
-        assert b"hx-trigger=\"load delay:3s\"" in response.content
+        assert b'hx-trigger="load delay:3s"' in response.content
 
     def test_pnl_views_status_offers_processing(self, mocker):
         engine = mocker.patch(
@@ -180,7 +223,32 @@ class TestPnlViewsStatus:
         response = view.get(view.request)
         assert b"+$0.25" in response.content
         assert b"2 events without a price" in response.content
-        assert b"hx-get=\"/widgets/pnl/" in response.content
+        assert b'hx-get="/widgets/pnl/' in response.content
+
+
+class TestPnlViewsStatusPeriod:
+    """Testing class for the status view's period."""
+
+    def test_pnl_views_status_sends_period_and_renders_its_card(self, mocker):
+        results = _engine_results()
+        results["totals"]["period"] = {
+            "pnl": 3_000_000,
+            "return": 0.5,
+            "start_value": 6_000_000,
+            "end_value": 9_000_000,
+            "net_flows": 0,
+            "unvalued_assets": 0,
+        }
+        engine = mocker.patch(
+            "widgets.inhouse.pnl.views._engine",
+            side_effect=[{}, results],
+        )
+        view = _view(PnlStatusView, ASASTATSER, "?period=30d")
+        response = view.get(view.request)
+        assert "period_start" in engine.call_args.kwargs["json"]
+        assert b"30 days" in response.content
+        assert b"+$3.00" in response.content
+        assert b"period=30d" in response.content
 
 
 @pytest.mark.django_db
@@ -200,7 +268,9 @@ class TestPnlViewsProcessAndRemove:
         user = django_user_model.objects.create(username="reader")
         PnlBundle.objects.create(user=user, bundle="X" * 40, address_count=4)
         engine = mocker.patch("widgets.inhouse.pnl.views._engine")
-        view = _view(PnlProcessView, SUBSCRIPTION_TIER_PERMISSIONS["Professional"], user=user)
+        view = _view(
+            PnlProcessView, SUBSCRIPTION_TIER_PERMISSIONS["Professional"], user=user
+        )
         response = view.post(view.request)
         assert b"allows profit and loss for 5 addresses" in response.content
         assert b"XXXX" in response.content
@@ -235,6 +305,47 @@ class TestPnlViewsProcessAndRemove:
         PnlRemoveView().post(request, BUNDLE)
         engine.assert_called_once_with("pnl:reset", "DELETE", BUNDLE)
         assert not PnlBundle.objects.exists()
+
+
+@pytest.mark.django_db
+class TestPnlViewsAlert:
+    """Testing class for :py:class:`...pnl.views.PnlAlertView`."""
+
+    def _post(self, user, permission, data, query=""):
+        view = _view(
+            PnlAlertView, permission, query, user=user, path="ADDRA" * 11 + "ABC"
+        )
+        view.request = RequestFactory().post(f"/{query}", data)
+        view.request.user = user
+        return view.post(view.request, view.args[0], "31566704")
+
+    def test_pnl_views_alert_creates_price_rule(self, django_user_model):
+        user = django_user_model.objects.create(username="reader")
+        response = self._post(
+            user,
+            ASASTATSER,
+            {"direction": "up", "threshold": "1.25", "unit": "USDC"},
+            "?currency=algo",
+        )
+        rule = AlertRule.objects.get(user=user)
+        assert (rule.subject, rule.direction, rule.asset_id) == (
+            "asa_price",
+            "up",
+            31566704,
+        )
+        assert (str(rule.threshold.normalize()), rule.threshold_unit) == ("1.25", "algo")
+        assert rule.asset_unit == "USDC"
+        assert b"Alert set: rises above 1.25 ALGO" in response.content
+        assert b"Manage alerts" in response.content
+
+    def test_pnl_views_alert_reports_the_alert_widgets_refusal(self, django_user_model):
+        user = django_user_model.objects.create(username="reader")
+        for _ in range(2):
+            self._post(user, 0, {"direction": "up", "threshold": "1"})
+        response = self._post(user, 0, {"direction": "up", "threshold": "1"})
+        assert AlertRule.objects.filter(user=user).count() == 2
+        assert b"pnl-warning" in response.content
+        assert b"Alert set" not in response.content
 
 
 class TestPnlViewsAsset:
@@ -290,6 +401,7 @@ class TestPnlUrls:
             ("/process", PnlProcessView),
             ("/remove", PnlRemoveView),
             ("/asset/LP123", PnlAssetView),
+            ("/alert/31566704", PnlAlertView),
         ],
     )
     def test_pnl_urls_resolve(self, suffix, view_class):

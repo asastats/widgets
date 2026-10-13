@@ -1,5 +1,9 @@
 """Module containing the profit and loss widget's views."""
 
+import time
+from datetime import UTC, datetime
+from urllib.parse import urlencode
+
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -16,9 +20,11 @@ from walletauth.gating import is_linked_to_user
 from widgethost.enforcement import WidgetAccessMixin
 from widgethost.manifest import addresses_limit_for_permission
 from widgets.inhouse.historic.consumers import _restore_event_phase_keys
+from widgets.inhouse.alerts.forms import AlertRuleForm
+from widgets.inhouse.alerts.models import Subject
 from widgets.inhouse.historic.structs import UpdateStatus
 
-from .display import asset_label, event_row, summary, table_row
+from .display import asset_label, event_row, period_summary, summary, table_row
 from .manifest import MANIFEST
 from .models import PnlBundle
 from .tiers import features_for
@@ -27,6 +33,12 @@ ADDRESSES_LIMIT_ERROR = (
     "Your <a href='/subscriptions/' target='_blank' rel='noopener'>subscription tier"
     "</a> allows profit and loss for up to %s address(es)."
 )
+PERIOD_LABELS = {
+    "all": "All time",
+    "ytd": "This year",
+    "30d": "30 days",
+    "7d": "7 days",
+}
 LINKED_ONLY_ERROR = (
     "Without a subscription, profit and loss is available for one address you "
     "have linked to your account."
@@ -64,6 +76,25 @@ def _engine(scope, method, bundle, suffix="", **kwargs):
         **kwargs,
     )
     return response.json() if response.content else None
+
+
+def period_start(period, now=None):
+    """Return the first second of `period`, or None for all-time.
+
+    :param period: one of the keys of `PERIOD_LABELS`
+    :type period: str
+    :param now: current seconds since epoch
+    :type now: int
+    :return: int or None
+    """
+    now = now or int(time.time())
+    if period == "ytd":
+        return int(
+            datetime(datetime.fromtimestamp(now, UTC).year, 1, 1, tzinfo=UTC).timestamp()
+        )
+
+    days = {"30d": 30, "7d": 7}.get(period)
+    return now - days * 86400 if days else None
 
 
 def addresses_in_use(user, exclude_bundle=None):
@@ -115,6 +146,16 @@ class PnlAccessMixin(WidgetAccessMixin):
         currency = self.request.GET.get("currency", "usd")
         return currency if currency in self.features["currencies"] else "usd"
 
+    def period(self):
+        """Return the requested period if the tier allows it, else all-time.
+
+        :var period: requested period
+        :type period: str
+        :return: str
+        """
+        period = self.request.GET.get("period", "all")
+        return period if period in self.features["periods"] else "all"
+
     def test_func(self):
         """Return whether the reader may see P&L for the URL's bundle.
 
@@ -126,9 +167,7 @@ class PnlAccessMixin(WidgetAccessMixin):
         self.bundle, self.addresses = bundle_and_addresses_from_path(
             url_path, force_bundle=True
         )
-        if not self.addresses or not self.manifest_test_func(
-            len(self.addresses.split())
-        ):
+        if not self.addresses or not self.manifest_test_func(len(self.addresses.split())):
             return False
 
         if self.features["linked_only"]:
@@ -168,6 +207,9 @@ class PnlAccessMixin(WidgetAccessMixin):
         :return: dict
         """
         return {
+            "query": urlencode({"currency": self.currency(), "period": self.period()}),
+            "period": self.period(),
+            "period_labels": PERIOD_LABELS,
             "path": self.args[0].upper(),
             "bundle": self.bundle,
             "addresses": self.addresses,
@@ -225,19 +267,26 @@ class PnlStatusView(PnlAccessMixin, View):
         :type currency: str
         :return: :class:`django.http.HttpResponse`
         """
-        events = _restore_event_phase_keys(_engine("pnl:events", "GET", self.bundle, "events/") or {})
+        events = _restore_event_phase_keys(
+            _engine("pnl:events", "GET", self.bundle, "events/") or {}
+        )
         if events and events.get(self.bundle, {}).get(-1, {}).get("state") != "finished":
             return self._progress(events)
 
         currency = self.currency()
-        data = _engine(
-            "pnl:evaluate", "POST", self.bundle, "evaluate/", json={"currency": currency}
-        )
+        payload = {"currency": currency}
+        start = period_start(self.period())
+        if start is not None:
+            payload["period_start"] = start
+
+        data = _engine("pnl:evaluate", "POST", self.bundle, "evaluate/", json=payload)
         context = self.base_context()
         if not data or data.get("type") == "show_update":
             return render(request, "pnl/_process.html", context)
 
         context["summary"] = summary(data["totals"], currency)
+        if data["totals"].get("period"):
+            context["period_summary"] = period_summary(data["totals"]["period"], currency)
         context["rows"] = [table_row(row, currency) for row in data["assets"]]
         return render(request, "pnl/_table.html", context)
 
@@ -271,7 +320,13 @@ class PnlProcessView(PnlAccessMixin, View):
             )
             return render(request, "pnl/_process.html", context)
 
-        _engine("pnl:process", "POST", self.bundle, "process/", json={"addresses": self.addresses})
+        _engine(
+            "pnl:process",
+            "POST",
+            self.bundle,
+            "process/",
+            json={"addresses": self.addresses},
+        )
         PnlBundle.objects.update_or_create(
             user=request.user, bundle=self.bundle, defaults={"address_count": count}
         )
@@ -341,3 +396,38 @@ class PnlAssetView(PnlAccessMixin, View):
             event_row(event, data.get("decimals"), currency) for event in data["events"]
         ]
         return render(request, "pnl/_asset.html", context)
+
+
+class PnlAlertView(PnlAccessMixin, View):
+    """Create a price alert for an asset at a multiple of its average cost."""
+
+    def post(self, request, *args, **kwargs):
+        """Store the rule through the alerts widget's own form and confirm it.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :var form: the alerts widget's rule form, which enforces the tier
+        :type form: :class:`AlertRuleForm`
+        :return: :class:`django.http.HttpResponse`
+        """
+        form = AlertRuleForm(
+            data={
+                "subject": Subject.ASA_PRICE,
+                "direction": request.POST.get("direction"),
+                "threshold": request.POST.get("threshold"),
+                "asset_id": args[1],
+                "threshold_unit": self.currency(),
+                "asset_unit": request.POST.get("unit", "")[:32],
+            },
+            user=request.user,
+            address=self.args[0].upper(),
+        )
+        context = self.base_context()
+        if form.is_valid():
+            context["rule"] = form.save()
+        else:
+            context["errors"] = [
+                message for messages in form.errors.values() for message in messages
+            ]
+
+        return render(request, "pnl/_alert.html", context)

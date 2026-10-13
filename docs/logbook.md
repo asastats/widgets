@@ -2045,3 +2045,29 @@ free account costs nothing to create.
 `PnlRemoveView` frees a bundle's addresses for the reader. It resets the
 engine's P&L state only when no other reader keeps the bundle; historic's
 ledger is never touched.
+
+### Price alerts from the average cost (2026-10-13)
+
+`PnlAlertView` creates an ordinary `asa_price` rule through the alerts
+widget's own `AlertRuleForm`, so tier, rule count and validation are that
+widget's, enforced in its one place. The engine's price task answers it per
+asset, so a free reader's rule costs nothing extra.
+
+The threshold arrives from the page rather than being recomputed from the
+engine. That is safe because the alerts modal lets a reader type any threshold
+anyway, and it saves a full evaluate per click. The presets in
+`display.alert_presets` are per whole unit, as `Carrier.unit_price` is.
+
+Known limit: the threshold is fixed when the rule is created; a later purchase
+moves the average cost but not the rule.
+
+### No CSS in the widget (2026-10-13)
+
+The widget shipped `static/pnl/style.css` and used daisyUI classes (`btn`,
+`badge`, `table`, `link`, `sr-only`) in its templates. Both broke the rule the
+host's `static/css/input.css` states: widget templates are framework-free and
+emit only semantic hooks, and the host styles those hooks. The templates now
+name only `pnl-*` classes, the stylesheet and the manifest's `static` asset
+are gone, and the styling lives in the frontend's `input.css`.
+`tests/test_templates.py` fails on any class that is not a `pnl` hook, and on
+a `static/` directory reappearing.

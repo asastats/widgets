@@ -1,0 +1,5 @@
+{% if rule %}
+  <span class="pnl-muted">Alert set: {{ rule.get_direction_display|lower }} {{ rule.threshold.normalize }} {{ rule.threshold_unit|upper }}. <a class="pnl-link" href="{% url 'alerts' path %}">Manage alerts</a></span>
+{% else %}
+  {% for error in errors %}<span class="pnl-warning">{{ error }}</span>{% endfor %}
+{% endif %}

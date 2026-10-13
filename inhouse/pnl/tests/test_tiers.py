@@ -25,6 +25,7 @@ class TestPnlTiers:
             "linked_only": True,
             "currencies": ("usd",),
             "drilldown": False,
+            "periods": ("all",),
         }
 
     def test_pnl_tiers_features_for_subscribers(self):
@@ -32,6 +33,7 @@ class TestPnlTiers:
             "linked_only": False,
             "currencies": ("usd", "algo"),
             "drilldown": True,
+            "periods": ("all", "ytd", "30d", "7d"),
         }
 
     @pytest.mark.parametrize(

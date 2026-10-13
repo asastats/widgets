@@ -5,6 +5,7 @@ are per base unit.
 """
 
 from datetime import UTC, datetime
+from decimal import Decimal
 
 MICRO = 1_000_000
 
@@ -136,6 +137,56 @@ def asset_label(row):
     return row.get("unit") or row.get("name") or f"#{row['asset']}"
 
 
+#: Price alert presets as (label, multiple of the average cost).
+ALERT_PRESETS = (("Break-even", 1), ("+25%", 1.25), ("+50%", 1.5), ("-20%", 0.8))
+
+
+def alert_presets(row):
+    """Return price alert choices built from the asset's average cost.
+
+    Thresholds are per whole unit, as asset prices are; none for ALGO itself,
+    LP tokens, assets without a market or no longer held.
+
+    :param row: engine's asset result
+    :type row: dict
+    :var unit_cost: average cost of one whole unit
+    :type unit_cost: :class:`decimal.Decimal`
+    :return: list
+    """
+    if (
+        row["asset"] == "0"
+        or row.get("lp")
+        or row.get("no_market")
+        or row["average_cost"] is None
+        or row["quantity"] <= 0
+    ):
+        return []
+
+    scale = Decimal(10) ** (row.get("decimals") or 0) / MICRO
+    unit_cost = Decimal(str(row["average_cost"])) * scale
+    unit_price = Decimal(str(row["price"])) * scale if row["price"] else None
+    presets = []
+    for label, factor in ALERT_PRESETS:
+        threshold = (unit_cost * Decimal(str(factor))).quantize(Decimal("1e-10"))
+        if threshold <= 0:
+            continue
+
+        if factor == 1:
+            direction = "up" if unit_price is None or unit_price < threshold else "down"
+        else:
+            direction = "up" if factor > 1 else "down"
+
+        presets.append(
+            {
+                "label": label,
+                "direction": direction,
+                "threshold": f"{threshold.normalize():f}",
+            }
+        )
+
+    return presets
+
+
 def table_row(row, currency):
     """Return the engine's asset result formatted for the table.
 
@@ -167,6 +218,7 @@ def table_row(row, currency):
         and (row["missing_quantity"] > 0 or row["unpriced"] > 0),
         "no_market": bool(row.get("no_market")),
         "held": row["quantity"] > 0,
+        "alerts": alert_presets(row),
     }
 
 
@@ -196,6 +248,26 @@ def summary(totals, currency):
         "assets_missing_history": int(totals.get("assets_missing_history") or 0),
         "unpriced_events": int(totals.get("unpriced_events") or 0),
         "no_market_assets": int(totals.get("no_market_assets") or 0),
+    }
+
+
+def period_summary(period, currency):
+    """Return the engine's period figures formatted for the summary card.
+
+    :param period: engine's period P&L
+    :type period: dict
+    :param currency: "usd" or "algo"
+    :type currency: str
+    :return: dict
+    """
+    return {
+        "pnl": signed_money(period["pnl"], currency),
+        "pnl_tone": tone(period["pnl"]),
+        "return": percent(period["return"]),
+        "start_value": money(period["start_value"], currency),
+        "end_value": money(period["end_value"], currency),
+        "net_flows": signed_money(period["net_flows"], currency),
+        "unvalued_assets": int(period.get("unvalued_assets") or 0),
     }
 
 

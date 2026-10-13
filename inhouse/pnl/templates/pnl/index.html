@@ -1,23 +1,27 @@
-{% extends 'base.html' %}{% load static %}{% load core_extras %}
+{% extends 'base.html' %}{% load core_extras %}
 {% block title %}Profit and loss - {{ website_name }}{% endblock %}
-{% block otherheader %}
-<link href="{% static 'pnl/style.css' %}" type="text/css" rel="stylesheet" media="screen">
-{% endblock %}
 {% block content %}
 <div class="pnl" hx-headers:inherited='{"X-CSRFToken": "{{ csrf_token }}"}'>
-  <h1>Profit and loss</h1>
+  <h1 class="pnl-page-title">Profit and loss</h1>
   <p class="pnl-addresses">
     {% for addr in addresses|split_by_space %}<span title="{{ addr }}">{{ addr|short_address }}</span>{% endfor %}
   </p>
-  {% if features.currencies|length > 1 %}
-  <nav class="pnl-currency" aria-label="Currency">
-    {% for option in features.currencies %}
-      <a href="?currency={{ option }}"{% if option == currency %} aria-current="true"{% endif %}>{{ option|upper }}</a>
-    {% endfor %}
-  </nav>
+  {% if features.currencies|length > 1 or features.periods|length > 1 %}
+  <div class="pnl-switches">
+    <nav class="pnl-currency" aria-label="Currency">
+      {% for option in features.currencies %}
+        <a href="?currency={{ option }}&amp;period={{ period }}"{% if option == currency %} aria-current="true"{% endif %}>{{ option|upper }}</a>
+      {% endfor %}
+    </nav>
+    <nav class="pnl-currency" aria-label="Period">
+      {% for option in features.periods %}
+        <a href="?currency={{ currency }}&amp;period={{ option }}"{% if option == period %} aria-current="true"{% endif %}>{% for key, label in period_labels.items %}{% if key == option %}{{ label }}{% endif %}{% endfor %}</a>
+      {% endfor %}
+    </nav>
+  </div>
   {% endif %}
   {# id-pnl-body is the target every fragment of this widget swaps into. #}
-  <div id="id-pnl-body" hx-get="{% url 'pnl_status' path %}?currency={{ currency }}" hx-trigger="load">
+  <div id="id-pnl-body" hx-get="{% url 'pnl_status' path %}?{{ query }}" hx-trigger="load">
     <p class="pnl-muted">Loading…</p>
   </div>
   <div id="id-pnl-asset"></div>

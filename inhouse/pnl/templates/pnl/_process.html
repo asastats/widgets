@@ -9,12 +9,12 @@
       {% for kept_bundle in kept %}
         <li>
           {{ kept_bundle.bundle|short_address }} ({{ kept_bundle.address_count }})
-          <button type="button" class="btn btn-sm" hx-post="{% url 'pnl_remove' kept_bundle.bundle %}" hx-target="closest li" hx-swap="outerHTML">Remove</button>
+          <button type="button" class="pnl-button" hx-post="{% url 'pnl_remove' kept_bundle.bundle %}" hx-target="closest li" hx-swap="outerHTML">Remove</button>
         </li>
       {% endfor %}
     </ul>
   {% else %}
     <p>Profit and loss needs every transaction of {% if addresses|split_by_space|length > 1 %}these addresses{% else %}this address{% endif %} processed once.</p>
   {% endif %}
-  <button type="button" class="btn btn-primary" hx-post="{% url 'pnl_process' path %}?currency={{ currency }}" hx-target="#id-pnl-body">Process</button>
+  <button type="button" class="pnl-button pnl-button-primary" hx-post="{% url 'pnl_process' path %}?{{ query }}" hx-target="#id-pnl-body">Process</button>
 </div>

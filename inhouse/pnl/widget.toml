@@ -16,7 +16,6 @@ data = ["portfolio:bundle", "profile:permission"]
 hosts = []
 
 [assets]
-static = "static/"
 templates = "templates/"
 
 # Bands are addresses per bundle; the total across a reader's bundles is capped

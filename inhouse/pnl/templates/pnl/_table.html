@@ -1,4 +1,15 @@
 <section class="pnl-summary">
+  {% if period_summary %}
+  <div class="pnl-period">
+    <span>{% for key, label in period_labels.items %}{% if key == period %}{{ label }}{% endif %}{% endfor %}</span>
+    <strong class="{{ period_summary.pnl_tone }}">{{ period_summary.pnl }}</strong>
+    <small>{{ period_summary.return }}</small>
+    <p class="pnl-muted">
+      Value {{ period_summary.start_value }} → {{ period_summary.end_value }}, money added or withdrawn {{ period_summary.net_flows }}.
+      {% if period_summary.unvalued_assets %}{{ period_summary.unvalued_assets }} holding{{ period_summary.unvalued_assets|pluralize }} without a price at one end of the period.{% endif %}
+    </p>
+  </div>
+  {% endif %}
   <div class="pnl-total">
     <span>Total profit and loss</span>
     <strong class="{{ summary.total_tone }}">{{ summary.total }}</strong>
@@ -17,7 +28,7 @@
       {% if summary.assets_missing_history %}{{ summary.assets_missing_history }} asset{{ summary.assets_missing_history|pluralize }} sold beyond the known history.{% endif %}
       {% if summary.unpriced_events %}{{ summary.unpriced_events }} event{{ summary.unpriced_events|pluralize }} without a price.{% endif %}
       {% if summary.unvalued_assets %}{{ summary.unvalued_assets }} holding{{ summary.unvalued_assets|pluralize }} without a current price.{% endif %}
-      Rows marked <span class="badge badge-sm">incomplete</span> are affected.
+      Rows marked <span class="pnl-badge">incomplete</span> are affected.
     </p>
   {% endif %}
   {% if summary.no_market_assets %}
@@ -25,11 +36,11 @@
   {% endif %}
 </section>
 <div class="pnl-table-wrap">
-  <table class="table table-sm pnl-table">
+  <table class="pnl-table">
     <thead>
       <tr>
         <th>Asset</th><th>Quantity</th><th>Avg cost</th><th>Price</th><th>Value</th>
-        <th>Unrealized</th><th>Realized</th><th>Income</th><th>Return</th>
+        <th>Unrealized</th><th>Realized</th><th>Income</th><th>Return</th><th aria-label="Alerts"></th>
       </tr>
     </thead>
     <tbody>
@@ -37,10 +48,10 @@
         <tr{% if not row.held or row.no_market %} class="pnl-closed"{% endif %}>
           <th scope="row" title="{{ row.name }}">
             {% if features.drilldown %}
-              <button type="button" class="link" hx-get="{% url 'pnl_asset' path row.asset %}?currency={{ currency }}" hx-target="#id-pnl-asset">{{ row.label }}</button>
+              <button type="button" class="pnl-link" hx-get="{% url 'pnl_asset' path row.asset %}?{{ query }}" hx-target="#id-pnl-asset">{{ row.label }}</button>
             {% else %}{{ row.label }}{% endif %}
-            {% if row.incomplete %}<span class="badge badge-sm">incomplete</span>{% endif %}
-            {% if row.no_market %}<span class="badge badge-sm badge-ghost">no market</span>{% endif %}
+            {% if row.incomplete %}<span class="pnl-badge">incomplete</span>{% endif %}
+            {% if row.no_market %}<span class="pnl-badge pnl-badge-muted">no market</span>{% endif %}
           </th>
           <td>{{ row.quantity }}</td>
           <td>{{ row.average_cost }}</td>
@@ -50,6 +61,21 @@
           <td class="{{ row.realized_tone }}">{{ row.realized }}</td>
           <td>{{ row.income }}</td>
           <td class="{{ row.return_tone }}">{{ row.return }}</td>
+          <td class="pnl-alert-cell">
+            {% if row.alerts %}
+              <details class="pnl-alert">
+                <summary title="Price alert from your average cost">Alert</summary>
+                {% for preset in row.alerts %}
+                  <form hx-post="{% url 'pnl_alert' path row.asset %}?{{ query }}" hx-target="closest td">
+                    <input type="hidden" name="direction" value="{{ preset.direction }}">
+                    <input type="hidden" name="threshold" value="{{ preset.threshold }}">
+                    <input type="hidden" name="unit" value="{{ row.label }}">
+                    <button type="submit" class="pnl-alert-option">{{ preset.label }}</button>
+                  </form>
+                {% endfor %}
+              </details>
+            {% endif %}
+          </td>
         </tr>
       {% endfor %}
     </tbody>

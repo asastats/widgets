@@ -3,10 +3,12 @@
 import pytest
 
 from widgets.inhouse.pnl.display import (
+    alert_presets,
     asset_label,
     event_row,
     money,
     percent,
+    period_summary,
     quantity,
     signed_money,
     summary,
@@ -157,3 +159,64 @@ class TestPnlDisplayRows:
         position = event_row({**event, "kind": "position_in", "value": None}, 2, "usd")
         assert position["unpriced"] is False
         assert event_row({**event, "value": None}, 2, "usd")["unpriced"] is True
+
+    def test_pnl_display_period_summary(self):
+        period = {
+            "pnl": -2_000_000,
+            "return": -0.1,
+            "start_value": 20_000_000,
+            "end_value": 19_000_000,
+            "net_flows": 1_000_000,
+            "unvalued_assets": 2,
+        }
+        assert period_summary(period, "usd") == {
+            "pnl": "-$2.00",
+            "pnl_tone": "pnl-loss",
+            "return": "-10.0%",
+            "start_value": "$20.00",
+            "end_value": "$19.00",
+            "net_flows": "+$1.00",
+            "unvalued_assets": 2,
+        }
+
+
+class TestPnlDisplayAlertPresets:
+    """Testing class for :py:func:`...pnl.display.alert_presets`."""
+
+    def test_pnl_display_alert_presets_from_average_cost(self):
+        row = _engine_row(asset="5", decimals=2, average_cost=20_000, price=15_000)
+        assert alert_presets(row) == [
+            {"label": "Break-even", "direction": "up", "threshold": "2"},
+            {"label": "+25%", "direction": "up", "threshold": "2.5"},
+            {"label": "+50%", "direction": "up", "threshold": "3"},
+            {"label": "-20%", "direction": "down", "threshold": "1.6"},
+        ]
+
+    def test_pnl_display_alert_presets_break_even_below_price(self):
+        row = _engine_row(asset="5", decimals=0, average_cost=1_000_000, price=3_000_000)
+        assert alert_presets(row)[0] == {
+            "label": "Break-even",
+            "direction": "down",
+            "threshold": "1",
+        }
+        row = _engine_row(asset="5", decimals=0, average_cost=1_000_000, price=None)
+        assert alert_presets(row)[0]["direction"] == "up"
+
+    @pytest.mark.parametrize(
+        "changes",
+        [
+            {"asset": "0"},
+            {"lp": True},
+            {"no_market": True},
+            {"average_cost": None},
+            {"quantity": 0},
+        ],
+    )
+    def test_pnl_display_alert_presets_none(self, changes):
+        row = _engine_row(asset="5")
+        row.update(changes)
+        assert alert_presets(row) == []
+
+    def test_pnl_display_alert_presets_skip_thresholds_too_small(self):
+        row = _engine_row(asset="5", decimals=0, average_cost=1e-8)
+        assert alert_presets(row) == []

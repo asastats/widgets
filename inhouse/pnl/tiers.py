@@ -27,4 +27,5 @@ def features_for(permission):
         "linked_only": not subscriber,
         "currencies": ("usd", "algo") if subscriber else ("usd",),
         "drilldown": subscriber,
+        "periods": ("all", "ytd", "30d", "7d") if subscriber else ("all",),
     }
