@@ -3716,7 +3716,7 @@ class TestLiveLogPriceRowsRender:
     def test_liverefresh_a_price_rise_row_says_so(self):
         html = self._rendered({"kind": "price", "round": 1, "old": 0.214, "new": 0.2215, "pct": 3.5})
 
-        assert "ALGO price 0.214 to 0.222 USD" in html
+        assert "ALGO price 0.2140 to 0.2215 USD" in html
         assert "+3.5%" in html
 
     def test_liverefresh_a_price_row_says_what_it_did_to_the_algo_held_in_usd(self):
