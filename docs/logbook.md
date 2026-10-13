@@ -1992,3 +1992,18 @@ and the page then compares like any other.
 `showLog` appends the charts first and the log second, so the log sits below
 the charts. "Above" came from a typo in the request (frontend logbook, same
 date). The classic placement is unchanged.
+
+## inhouse/historic/widget.toml
+
+### The Cluster band: 10 → 20 addresses (2026-10-13)
+
+Raised to match liverefresh's Cluster band and the planned profit and loss
+widget, which will share historic's fetch-and-classify pass (see
+`p-l/PLAN.md` in the workspace, §2.1 and §8). With one processing pass behind
+both widgets, a bundle allowed in one and refused by the other would make no
+sense to a reader. Decided by the account holder.
+
+The band is only half the gate: the engine also enforces the deployment
+credential's `limits.historic.max_addresses`, so that limit must be raised to
+20 *before* this ships. Otherwise bundles of 11-20 addresses pass this band and
+are refused by the engine with a 403.

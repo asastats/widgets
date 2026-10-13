@@ -28,5 +28,5 @@ max_addresses = 5
 permission = 258885438200
 
 [[required_permission]]
-max_addresses = 10
+max_addresses = 20
 permission = 3236067977500
