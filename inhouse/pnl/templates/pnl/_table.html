@@ -1,0 +1,58 @@
+<section class="pnl-summary">
+  <div class="pnl-total">
+    <span>Total profit and loss</span>
+    <strong class="{{ summary.total_tone }}">{{ summary.total }}</strong>
+    <small>{{ summary.return }}</small>
+  </div>
+  <dl class="pnl-figures">
+    <div><dt>Realized</dt><dd>{{ summary.realized }}</dd></div>
+    <div><dt>Unrealized</dt><dd>{{ summary.unrealized }}</dd></div>
+    <div><dt>Income</dt><dd>{{ summary.income }}</dd></div>
+    <div><dt>Costs and fees</dt><dd>{{ summary.expenses }}</dd></div>
+    <div><dt>Current value</dt><dd>{{ summary.value }}</dd></div>
+    <div><dt>Cost basis</dt><dd>{{ summary.cost }}</dd></div>
+  </dl>
+  {% if summary.assets_missing_history or summary.unpriced_events or summary.unvalued_assets %}
+    <p class="pnl-coverage">
+      {% if summary.assets_missing_history %}{{ summary.assets_missing_history }} asset{{ summary.assets_missing_history|pluralize }} sold beyond the known history.{% endif %}
+      {% if summary.unpriced_events %}{{ summary.unpriced_events }} event{{ summary.unpriced_events|pluralize }} without a price.{% endif %}
+      {% if summary.unvalued_assets %}{{ summary.unvalued_assets }} holding{{ summary.unvalued_assets|pluralize }} without a current price.{% endif %}
+      Rows marked <span class="badge badge-sm">incomplete</span> are affected.
+    </p>
+  {% endif %}
+  {% if summary.no_market_assets %}
+    <p class="pnl-muted">{{ summary.no_market_assets }} asset{{ summary.no_market_assets|pluralize }} never had a market price, usually unsolicited tokens; they are listed last and count for nothing.</p>
+  {% endif %}
+</section>
+<div class="pnl-table-wrap">
+  <table class="table table-sm pnl-table">
+    <thead>
+      <tr>
+        <th>Asset</th><th>Quantity</th><th>Avg cost</th><th>Price</th><th>Value</th>
+        <th>Unrealized</th><th>Realized</th><th>Income</th><th>Return</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr{% if not row.held or row.no_market %} class="pnl-closed"{% endif %}>
+          <th scope="row" title="{{ row.name }}">
+            {% if features.drilldown %}
+              <button type="button" class="link" hx-get="{% url 'pnl_asset' path row.asset %}?currency={{ currency }}" hx-target="#id-pnl-asset">{{ row.label }}</button>
+            {% else %}{{ row.label }}{% endif %}
+            {% if row.incomplete %}<span class="badge badge-sm">incomplete</span>{% endif %}
+            {% if row.no_market %}<span class="badge badge-sm badge-ghost">no market</span>{% endif %}
+          </th>
+          <td>{{ row.quantity }}</td>
+          <td>{{ row.average_cost }}</td>
+          <td>{{ row.price }}</td>
+          <td>{{ row.value }}</td>
+          <td class="{{ row.unrealized_tone }}">{{ row.unrealized }}</td>
+          <td class="{{ row.realized_tone }}">{{ row.realized }}</td>
+          <td>{{ row.income }}</td>
+          <td class="{{ row.return_tone }}">{{ row.return }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="pnl-muted">Average cost per asset. Transfers between this bundle's addresses are not sales; sending to other addresses removes holdings at cost. Not tax advice.</p>

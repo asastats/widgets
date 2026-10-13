@@ -1,0 +1,14 @@
+{% load core_extras %}
+<div class="pnl-progress" hx-get="{% url 'pnl_status' path %}?currency={{ currency }}" hx-trigger="load delay:3s" hx-target="#id-pnl-body">
+  <p>Processing every transaction. The first run for an address can take from minutes to hours; you can leave this page and come back.</p>
+  {% for address in addresses %}
+    <div class="pnl-phase">
+      <h5>{% if forloop.last %}Bundle{% else %}{{ address|short_address }}{% endif %}</h5>
+      {% for label in labels %}
+        <label>{{ label }}
+          <progress max="100" value="{{ statuses|list_item:forloop.parentloop.counter0|list_item:forloop.counter0 }}"></progress>
+        </label>
+      {% endfor %}
+    </div>
+  {% endfor %}
+</div>

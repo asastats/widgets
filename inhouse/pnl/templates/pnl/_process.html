@@ -1,0 +1,20 @@
+{% load core_extras %}
+<div class="pnl-process">
+  {% if over_allowance %}
+    <p class="pnl-warning">
+      Your tier allows profit and loss for {{ over_allowance.allowed }} address{{ over_allowance.allowed|pluralize:"es" }}
+      across all bundles, and {{ over_allowance.used }} are in use. Remove a bundle to make room:
+    </p>
+    <ul class="pnl-kept">
+      {% for kept_bundle in kept %}
+        <li>
+          {{ kept_bundle.bundle|short_address }} ({{ kept_bundle.address_count }})
+          <button type="button" class="btn btn-sm" hx-post="{% url 'pnl_remove' kept_bundle.bundle %}" hx-target="closest li" hx-swap="outerHTML">Remove</button>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>Profit and loss needs every transaction of {% if addresses|split_by_space|length > 1 %}these addresses{% else %}this address{% endif %} processed once.</p>
+  {% endif %}
+  <button type="button" class="btn btn-primary" hx-post="{% url 'pnl_process' path %}?currency={{ currency }}" hx-target="#id-pnl-body">Process</button>
+</div>

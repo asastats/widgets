@@ -19,7 +19,7 @@ class TestWidgetsUrls:
         assert "widgets.inhouse.historic.urls" in str(url.urlconf_name)
 
     def test_widgets_urls_patterns_count(self):
-        assert len(urls.urlpatterns) == 9
+        assert len(urls.urlpatterns) == 10
 
     def test_widgets_urls_mounts_the_dust_sweep(self):
         """Mounted, which is what makes `dustsweep_plan` reversible.
@@ -69,6 +69,7 @@ class TestWidgetsUrlsFallback:
                 ("re", ("include", "inhouse.dustsweep.urls")),
                 ("re", ("include", "inhouse.liverefresh.urls")),
                 ("re", ("include", "inhouse.alerts.urls")),
+                ("re", ("include", "inhouse.pnl.urls")),
             ]
         finally:
             mocker.stopall()

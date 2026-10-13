@@ -17,6 +17,7 @@ class TestWidgetsConstants:
             "dustsweep",
             "liverefresh",
             "alerts",
+            "pnl",
         ]
 
     def test_widgets_constants_lists_every_widget_it_discovers(self):

@@ -1,0 +1,39 @@
+id = "pnl"
+name = "Profit and loss"
+version = "0.1.0"
+origin = "inhouse"
+capability = "engine-backed"
+revenue_account = ""
+
+engine_endpoints = [
+    "pnl:process",
+    "pnl:events",
+    "pnl:evaluate",
+    "pnl:asset",
+    "pnl:reset",
+]
+data = ["portfolio:bundle", "profile:permission"]
+hosts = []
+
+[assets]
+static = "static/"
+templates = "templates/"
+
+# Bands are addresses per bundle; the total across a reader's bundles is capped
+# by the same numbers in `views.py`. Below Asastatser the one address must be
+# linked to the reader. See docs/logbook.md, inhouse/pnl/widget.toml.
+[[required_permission]]
+max_addresses = 1
+permission = 0
+
+[[required_permission]]
+max_addresses = 1
+permission = 23299689438
+
+[[required_permission]]
+max_addresses = 5
+permission = 258885438200
+
+[[required_permission]]
+max_addresses = 20
+permission = 3236067977500

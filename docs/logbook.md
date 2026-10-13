@@ -2007,3 +2007,41 @@ The band is only half the gate: the engine also enforces the deployment
 credential's `limits.historic.max_addresses`, so that limit must be raised to
 20 *before* this ships. Otherwise bundles of 11-20 addresses pass this band and
 are refused by the engine with a 403.
+
+## inhouse/pnl/
+
+### Module (2026-10-13)
+
+Profit and loss per bundle; the plan is the workspace's `p-l/PLAN.md`. The
+engine half is `engine/pnl/`. Processing is historic's own pipeline:
+`pnl:process` starts it and `pnl:events` reads its event records. So progress
+reuses `historic.structs.UpdateStatus` and `historic.consumers._restore_event_phase_keys`
+instead of a second copy.
+
+**Polling, not a websocket.** The page shows one of three states (progress, a
+process button, or the table) and changes state a handful of times per run.
+`_progress.html` re-requests `pnl_status` every three seconds until the events
+say finished. The table itself never needs pushing, so a channel and a
+consumer would be machinery for nothing.
+
+**Fragment URLs use the page's own URL value** (`path` in the context), not the
+bundle hash. For a single address the hash resolves back to addresses only
+through `check_bundle_addresses`, a cache that can be empty.
+
+### widget.toml — bands and the total cap (2026-10-13)
+
+The bands are 1 / 1 / 5 / 20 addresses: any authenticated reader, then
+Asastatser, Professional and Cluster. The manifest gate checks one bundle;
+`views.addresses_in_use` adds up the reader's `PnlBundle` rows, so the band is
+also the total across all of a reader's P&L bundles. Liverefresh cannot
+enforce that, because a watched page leaves no record; a processed P&L bundle
+does.
+
+Below Asastatser, Intro included, the one address must be linked to the reader
+(`walletauth.gating.is_linked_to_user`), as liverefresh's free allowance
+requires. Full-history processing is the engine's most expensive job, and a
+free account costs nothing to create.
+
+`PnlRemoveView` frees a bundle's addresses for the reader. It resets the
+engine's P&L state only when no other reader keeps the bundle; historic's
+ledger is never touched.
