@@ -40,7 +40,9 @@
     <thead>
       <tr>
         <th>Asset</th><th>Quantity</th><th>Avg cost</th><th>Price</th><th>Value</th>
-        <th>Unrealized</th><th>Realized</th><th>Income</th><th>Return</th><th aria-label="Alerts"></th>
+        <th>Unrealized</th><th>Realized</th><th>Income</th><th>Return</th>
+        {% if features.lp_analytics %}<th title="LP position now, against holding the tokens it was made of">vs holding</th>{% endif %}
+        <th aria-label="Alerts"></th>
       </tr>
     </thead>
     <tbody>
@@ -50,7 +52,7 @@
             {% if features.drilldown %}
               <button type="button" class="pnl-link" hx-get="{% url 'pnl_asset' path row.asset %}?{{ query }}" hx-target="#id-pnl-asset" hx-swap="innerHTML show:top">{{ row.label }}</button>
             {% else %}{{ row.label }}{% endif %}
-            {% if row.incomplete %}<span class="pnl-badge">incomplete</span>{% endif %}
+            {% if row.incomplete %}<span class="pnl-badge" title="Sold beyond the known history, or an acquisition, income or cost without a price">incomplete</span>{% endif %}
             {% if row.no_market %}<span class="pnl-badge pnl-badge-muted">no market</span>{% endif %}
           </th>
           <td data-label="Quantity">{{ row.quantity }}</td>
@@ -61,6 +63,7 @@
           <td data-label="Realized" class="{{ row.realized_tone }}">{{ row.realized }}</td>
           <td data-label="Income">{{ row.income }}</td>
           <td data-label="Return" class="{{ row.return_tone }}">{{ row.return }}</td>
+          {% if features.lp_analytics %}<td{% if row.vs_hold %} data-label="vs holding"{% endif %} class="{{ row.vs_hold_tone }}">{{ row.vs_hold }}</td>{% endif %}
           <td class="pnl-alert-cell">
             {% if row.alerts %}
               <details class="pnl-alert">

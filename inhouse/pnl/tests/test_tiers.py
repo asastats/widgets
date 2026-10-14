@@ -26,6 +26,7 @@ class TestPnlTiers:
             "currencies": ("usd",),
             "drilldown": False,
             "periods": ("all",),
+            "lp_analytics": False,
         }
 
     def test_pnl_tiers_features_for_subscribers(self):
@@ -34,7 +35,13 @@ class TestPnlTiers:
             "currencies": ("usd", "algo"),
             "drilldown": True,
             "periods": ("all", "ytd", "30d", "7d"),
+            "lp_analytics": False,
         }
+
+    def test_pnl_tiers_lp_analytics_for_cluster(self):
+        assert (
+            features_for(SUBSCRIPTION_TIER_PERMISSIONS["Cluster"])["lp_analytics"] is True
+        )
 
     @pytest.mark.parametrize(
         "tier,expected",

@@ -228,6 +228,23 @@ class TestPnlViewsStatus:
         assert b'data-label="Avg cost"' in response.content
 
 
+class TestPnlViewsVsHold:
+    """Testing class for the LP vs holding column."""
+
+    @pytest.mark.parametrize("permission,shown", [(CLUSTER, True), (ASASTATSER, False)])
+    def test_pnl_views_status_vs_holding_column_for_cluster(
+        self, mocker, permission, shown
+    ):
+        results = _engine_results()
+        results["assets"][0]["vs_hold"] = 3_000_000
+        events = {BUNDLE: {"-1": {"state": "finished"}}}
+        mocker.patch("widgets.inhouse.pnl.views._engine", side_effect=[events, results])
+        view = _view(PnlStatusView, permission)
+        content = view.get(view.request).content
+        assert (b"vs holding" in content) is shown
+        assert (b"+$3.00" in content) is shown
+
+
 class TestPnlViewsStatusPricing:
     """Testing class for the status view while the engine prices rows."""
 
@@ -403,6 +420,7 @@ class TestPnlViewsAsset:
                     "value": 2_000_000,
                     "cost": 2_000_000,
                     "realized": None,
+                    "description": "CyberSkulls staking reward",
                 }
             ],
         }
@@ -410,6 +428,7 @@ class TestPnlViewsAsset:
         view = _view(PnlAssetView, ASASTATSER, "?currency=algo")
         response = view.get(view.request, BUNDLE, "5")
         assert b"Income" in response.content
+        assert b'class="pnl-event-note">CyberSkulls staking reward' in response.content
         assert b"2.00 ALGO" in response.content
         assert engine.call_args.kwargs == {"json": {"asset": "5", "currency": "algo"}}
 

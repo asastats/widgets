@@ -9,6 +9,7 @@
 import ast
 import os
 import sys
+import tempfile
 from unittest.mock import MagicMock
 
 import django
@@ -44,6 +45,16 @@ def get_version():
 # (`widgethost`, `core`) and which stays on the path for that reason.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+# Make the `widgets` package importable for Django's INSTALLED_APPS.
+# ReadTheDocs checks out the repo to a directory named after the version (e.g.
+# `latest`), not `widgets`. Python needs a `widgets/` directory on sys.path to
+# `import widgets`. Create a temporary directory with a symlink.
+_repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+_temp_dir = tempfile.mkdtemp(prefix="widgets-import-")
+_widgets_link = os.path.join(_temp_dir, "widgets")
+os.symlink(_repo_root, _widgets_link)
+sys.path.insert(0, _temp_dir)
 
 
 if not settings.configured:

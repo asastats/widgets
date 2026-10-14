@@ -165,6 +165,10 @@ class TestPnlDisplayRows:
         assert row["quantity"] == "-2.50"
         assert row["realized_tone"] == "pnl-gain"
         assert row["unpriced"] is False
+        assert row["description"] == ""
+        assert event_row({**event, "description": "Pact AMM swap"}, 2, "usd")[
+            "description"
+        ] == "Pact AMM swap"
         position = event_row({**event, "kind": "position_in", "value": None}, 2, "usd")
         assert position["unpriced"] is False
         assert event_row({**event, "value": None}, 2, "usd")["unpriced"] is True
@@ -229,3 +233,13 @@ class TestPnlDisplayAlertPresets:
     def test_pnl_display_alert_presets_skip_thresholds_too_small(self):
         row = _engine_row(asset="5", decimals=0, average_cost=1e-8)
         assert alert_presets(row) == []
+
+
+class TestPnlDisplayVsHold:
+    """Testing class for the LP vs holding figure."""
+
+    def test_pnl_display_vs_hold(self):
+        row = table_row(_engine_row(vs_hold=-2_000_000), "usd")
+        assert (row["vs_hold"], row["vs_hold_tone"]) == ("-$2.00", "pnl-loss")
+        row = table_row(_engine_row(), "usd")
+        assert (row["vs_hold"], row["vs_hold_tone"]) == ("", "")

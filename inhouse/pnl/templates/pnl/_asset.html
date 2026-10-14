@@ -9,7 +9,7 @@
       {% for event in events %}
         <tr>
           <td data-label="Date" class="pnl-text">{{ event.date }}</td>
-          <td data-label="Event" class="pnl-text">{{ event.kind }}{% if event.unpriced %} <span class="pnl-badge">no price</span>{% endif %}</td>
+          <td data-label="Event" class="pnl-text">{{ event.kind }}{% if event.unpriced %} <span class="pnl-badge">no price</span>{% endif %}{% if event.description %}<span class="pnl-event-note">{{ event.description }}</span>{% endif %}</td>
           <td data-label="Quantity">{{ event.quantity }}</td>
           <td data-label="Value">{{ event.value }}</td>
           <td data-label="Cost">{{ event.cost }}</td>

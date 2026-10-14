@@ -227,6 +227,10 @@ def table_row(row, currency):
         "no_market": bool(row.get("no_market")),
         "held": row["quantity"] > 0,
         "alerts": alert_presets(row),
+        "vs_hold": signed_money(row.get("vs_hold"), currency)
+        if row.get("vs_hold") is not None
+        else "",
+        "vs_hold_tone": tone(row.get("vs_hold")),
     }
 
 
@@ -304,4 +308,5 @@ def event_row(event, decimals, currency):
         "unpriced": event["value"] is None
         and event["kind"] not in ("position_in", "position_out"),
         "id": event["id"],
+        "description": event.get("description") or "",
     }
