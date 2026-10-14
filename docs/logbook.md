@@ -2122,3 +2122,10 @@ Cluster tier. When the engine returns `fees` for an LP row (ALGO constant-produc
 pools only, see the engine logbook), the vs-holding cell adds a small line
 "fees +x · divergence −y" (`pnl-cell-note`) rather than two more columns, to
 keep the table's width.
+
+## inhouse/pnl — farm yield note (2026-10-14)
+
+Cluster (`lp_analytics`). An asset that was staked in farms or staking dApps
+shows "farm yield $x" under its Income cell: the rewards those dApps paid,
+already counted as income of the tokens paid, so the note attributes them and
+adds nothing to totals.

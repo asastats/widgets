@@ -72,7 +72,7 @@
           <td data-label="Value">{{ row.value }}</td>
           <td data-label="Unrealized" class="{{ row.unrealized_tone }}">{{ row.unrealized }}</td>
           <td data-label="Realized" class="{{ row.realized_tone }}">{{ row.realized }}</td>
-          <td data-label="Income">{{ row.income }}</td>
+          <td data-label="Income">{{ row.income }}{% if features.lp_analytics and row.farm_income %}<span class="pnl-cell-note" title="Rewards paid by the farms and staking this asset was in, already counted as income of the tokens paid">farm yield {{ row.farm_income }}</span>{% endif %}</td>
           <td data-label="Return" class="{{ row.return_tone }}">{{ row.return }}</td>
           {% if features.lp_analytics %}<td{% if row.vs_hold %} data-label="vs holding"{% endif %} class="{{ row.vs_hold_tone }}">{{ row.vs_hold }}{% if row.fees %}<span class="pnl-cell-note" title="Fees earned since adding liquidity, and the rest: price divergence">fees {{ row.fees }} · divergence {{ row.divergence }}</span>{% endif %}</td>{% endif %}
           <td class="pnl-alert-cell">

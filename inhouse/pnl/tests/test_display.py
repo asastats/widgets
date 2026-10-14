@@ -131,6 +131,8 @@ class TestPnlDisplayRows:
         assert row["illiquid"] is False
         assert table_row(_engine_row(illiquid=True), "usd")["illiquid"] is True
         assert (row["fees"], row["divergence"]) == ("", "")
+        assert row["farm_income"] == ""
+        assert table_row(_engine_row(farm_income=3_500_000), "usd")["farm_income"] == "$3.50"
         split = table_row(_engine_row(fees=2_000_000, divergence=-500_000), "algo")
         assert (split["fees"], split["divergence"]) == ("+2.00 ALGO", "-0.50 ALGO")
 

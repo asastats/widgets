@@ -232,6 +232,9 @@ def table_row(row, currency):
         if row.get("vs_hold") is not None
         else "",
         "vs_hold_tone": tone(row.get("vs_hold")),
+        "farm_income": money(row["farm_income"], currency)
+        if row.get("farm_income") is not None
+        else "",
         "fees": signed_money(row["fees"], currency)
         if row.get("fees") is not None
         else "",
