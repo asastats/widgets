@@ -2103,3 +2103,15 @@ every tier. An engine error or timeout used to raise `BackendError` out of
 The engine computes MVE in a background task and answers `valuing` until it is
 saved; `_valuing.html` polls every 5 s like `_pricing.html`, keeping `query`
 (and so `valuation=mve`).
+
+## inhouse/pnl — cumulative P&L chart (2026-10-14)
+
+Professional and up (`features["chart"]`). The table fragment holds
+`#id-pnl-chart`, which loads `pnl_chart`. That view calls the engine's
+`chart/` under the `pnl:evaluate` scope and renders `_chart.html`, or
+`_chart_wait.html` polling every 5 s while the engine draws it, or a plain
+note if the engine fails (no poll, so a broken engine is not hammered).
+The chart is an inline SVG laid out in `display.chart`, with no JavaScript, so
+the template stays framework-free. Hover titles come from `<title>` on
+invisible points. The chart is all-time whatever period is selected, and in
+the selected currency.

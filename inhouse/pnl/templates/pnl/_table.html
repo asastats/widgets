@@ -23,6 +23,10 @@
     <div><dt>Current value</dt><dd>{{ summary.value }}</dd></div>
     <div><dt>Cost basis</dt><dd>{{ summary.cost }}</dd></div>
   </dl>
+  {% if features.chart %}
+    {# id-pnl-chart: _chart_wait.html polls and swaps itself out inside it. #}
+    <div id="id-pnl-chart" class="pnl-chart" hx-get="{% url 'pnl_chart' path %}?{{ query }}" hx-trigger="load"></div>
+  {% endif %}
   {% if summary.assets_missing_history or summary.unpriced_events or summary.unvalued_assets %}
     <p class="pnl-coverage">
       {% if summary.assets_missing_history %}{{ summary.assets_missing_history }} asset{{ summary.assets_missing_history|pluralize }} sold beyond the known history.{% endif %}
@@ -35,7 +39,7 @@
     <p class="pnl-muted">Holdings valued at what selling each would fetch from its pools now (MVE); ALGO and LP tokens at spot.</p>
   {% endif %}
   {% if summary.illiquid_assets %}
-    <p class="pnl-muted">{{ summary.illiquid_assets }} holding{{ summary.illiquid_assets|pluralize }} marked <span class="pnl-badge pnl-badge-muted">illiquid</span> would fetch less than 80% of {{ summary.illiquid_assets|pluralize:"its,their" }} spot value if sold.</p>
+    <p class="pnl-muted">{{ summary.illiquid_assets }} holding{{ summary.illiquid_assets|pluralize }} marked <span class="pnl-badge pnl-badge-illiquid">illiquid</span> would fetch less than 80% of {{ summary.illiquid_assets|pluralize:"its,their" }} spot value if sold.</p>
   {% endif %}
   {% if summary.no_market_assets %}
     <p class="pnl-muted">{{ summary.no_market_assets }} asset{{ summary.no_market_assets|pluralize }} never had a market price, usually unsolicited tokens; they are listed last and count for nothing.</p>
@@ -60,7 +64,7 @@
             {% else %}{{ row.label }}{% endif %}
             {% if row.incomplete %}<span class="pnl-badge" title="Sold beyond the known history, or an acquisition, income or cost without a price">incomplete</span>{% endif %}
             {% if row.no_market %}<span class="pnl-badge pnl-badge-muted">no market</span>{% endif %}
-            {% if row.illiquid %}<span class="pnl-badge pnl-badge-muted" title="Selling the whole holding would fetch less than 80% of its spot value">illiquid</span>{% endif %}
+            {% if row.illiquid %}<span class="pnl-badge pnl-badge-illiquid" title="Selling the whole holding would fetch less than 80% of its spot value">illiquid</span>{% endif %}
           </th>
           <td data-label="Quantity">{{ row.quantity }}</td>
           <td data-label="Avg cost">{{ row.average_cost }}</td>

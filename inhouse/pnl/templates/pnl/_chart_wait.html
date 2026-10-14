@@ -1,0 +1,5 @@
+{% if failed %}
+<p class="pnl-muted">The profit and loss chart could not be loaded just now.</p>
+{% else %}
+<p class="pnl-muted" hx-get="{% url 'pnl_chart' path %}?{{ query }}" hx-trigger="load delay:5s" hx-target="#id-pnl-chart">Drawing profit and loss over time…</p>
+{% endif %}

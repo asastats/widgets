@@ -16,6 +16,7 @@ from widgets.inhouse.alerts.models import AlertRule
 from widgets.inhouse.pnl.views import (
     PnlAlertView,
     PnlAssetView,
+    PnlChartView,
     PnlProcessView,
     PnlRemoveView,
     PnlStatusView,
@@ -278,6 +279,67 @@ class TestPnlViewsValuation:
         assert b">illiquid</span>" in content
         assert b"1 holding marked" in content
         assert b"(MVE)" in content
+
+
+class TestPnlViewsChart:
+    """Testing class for the cumulative P&L chart fragment."""
+
+    def test_pnl_views_chart_needs_professional(self):
+        view = _view(PnlChartView, ASASTATSER)
+        with pytest.raises(Http404):
+            view.get(view.request)
+
+    def test_pnl_views_chart_draws_points(self, mocker):
+        engine = mocker.patch(
+            "widgets.inhouse.pnl.views._engine",
+            return_value={
+                "points": [
+                    {"date": 1_700_000_000, "pnl": 0.0},
+                    {"date": 1_700_086_400, "pnl": 3_000_000.0},
+                ]
+            },
+        )
+        view = _view(PnlChartView, CLUSTER, "?currency=algo")
+        response = view.get(view.request)
+        assert engine.call_args.args[:4] == ("pnl:evaluate", "POST", BUNDLE, "chart/")
+        assert engine.call_args.kwargs == {"json": {"currency": "algo"}}
+        assert b'class="pnl-chart-line"' in response.content
+        assert b"+3.00 ALGO" in response.content
+
+    @pytest.mark.parametrize("state", ["charting", "pricing"])
+    def test_pnl_views_chart_polls_while_drawn(self, mocker, state):
+        mocker.patch("widgets.inhouse.pnl.views._engine", return_value={"type": state})
+        view = _view(PnlChartView, CLUSTER)
+        content = view.get(view.request).content
+        assert b'hx-trigger="load delay:5s" hx-target="#id-pnl-chart"' in content
+
+    @pytest.mark.parametrize("data", [None, {"type": "show_update"}, {"points": []}])
+    def test_pnl_views_chart_renders_nothing_without_points(self, mocker, data):
+        mocker.patch("widgets.inhouse.pnl.views._engine", return_value=data)
+        view = _view(PnlChartView, CLUSTER)
+        assert view.get(view.request).content.strip() == b""
+
+    def test_pnl_views_chart_when_engine_fails(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine", side_effect=BackendError("timed out")
+        )
+        view = _view(PnlChartView, CLUSTER)
+        content = view.get(view.request).content
+        assert b"chart could not be loaded" in content
+        assert b"hx-trigger" not in content
+
+    @pytest.mark.parametrize("permission,shown", [(CLUSTER, True), (ASASTATSER, False)])
+    def test_pnl_views_table_loads_chart_for_professional(
+        self, mocker, permission, shown
+    ):
+        events = {BUNDLE: {"-1": {"state": "finished"}}}
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine",
+            side_effect=[events, _engine_results()],
+        )
+        view = _view(PnlStatusView, permission)
+        content = view.get(view.request).content
+        assert (b'id="id-pnl-chart"' in content) is shown
 
 
 class TestPnlViewsStatusValuing:

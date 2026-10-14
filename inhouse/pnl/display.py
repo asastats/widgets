@@ -313,3 +313,77 @@ def event_row(event, decimals, currency):
         "id": event["id"],
         "description": event.get("description") or "",
     }
+
+
+#: The chart's SVG viewBox: width, height and inner padding.
+CHART_WIDTH, CHART_HEIGHT, CHART_PAD = 600, 180, 6
+
+
+def _chart_date(timestamp):
+    """Return `timestamp` as a short date for the chart.
+
+    :param timestamp: seconds since epoch
+    :type timestamp: int
+    :return: str
+    """
+    return datetime.fromtimestamp(int(timestamp), UTC).strftime("%-d %b %Y")
+
+
+def chart(points, currency):
+    """Return the engine's cumulative P&L points laid out for an inline SVG.
+
+    :param points: engine's chart points, ascending by date
+    :type points: list
+    :param currency: "usd" or "algo"
+    :type currency: str
+    :var low: lowest P&L, or zero if higher
+    :type low: float
+    :var high: highest P&L, or zero if lower
+    :type high: float
+    :return: dict or None
+    """
+    if not points:
+        return None
+
+    values = [point["pnl"] for point in points]
+    low, high = min(values + [0.0]), max(values + [0.0])
+    if high == low:  # a flat line sits mid-height
+        low, high = low - 1.0, high + 1.0
+    span = high - low
+    first, last = points[0]["date"], points[-1]["date"]
+    width = (last - first) or 1
+
+    def x(date):
+        return round(CHART_PAD + (date - first) / width * (CHART_WIDTH - 2 * CHART_PAD), 1)
+
+    def y(value):
+        return round(
+            CHART_PAD + (high - value) / span * (CHART_HEIGHT - 2 * CHART_PAD), 1
+        )
+
+    laid = [
+        {
+            "x": x(point["date"]),
+            "y": y(point["pnl"]),
+            "title": f"{_chart_date(point['date'])}: "
+            f"{signed_money(point['pnl'], currency)}",
+        }
+        for point in points
+    ]
+    line = " ".join(f"{point['x']},{point['y']}" for point in laid)
+    return {
+        "width": CHART_WIDTH,
+        "height": CHART_HEIGHT,
+        "line": line,
+        "area": f"{laid[0]['x']},{y(0.0)} {line} {laid[-1]['x']},{y(0.0)}",
+        "zero_y": y(0.0),
+        "points": laid,
+        "start": _chart_date(first),
+        "end": _chart_date(last),
+        "high": signed_money(max(values + [0.0]), currency),
+        "low": signed_money(min(values + [0.0]), currency),
+        "last": signed_money(values[-1], currency),
+        "last_tone": tone(values[-1]),
+        "unvalued": max(point.get("unvalued_assets") or 0 for point in points),
+    }
+

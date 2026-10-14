@@ -1,0 +1,16 @@
+{% if chart %}
+<figure class="pnl-chart-figure">
+  <figcaption>
+    <span>Profit and loss over time</span>
+    <strong class="{{ chart.last_tone }}">{{ chart.last }}</strong>
+  </figcaption>
+  <svg class="pnl-chart-svg" viewBox="0 0 {{ chart.width }} {{ chart.height }}" preserveAspectRatio="none" role="img" aria-label="Cumulative profit and loss from {{ chart.start }} to {{ chart.end }}, now {{ chart.last }}">
+    <polygon class="pnl-chart-area" points="{{ chart.area }}"></polygon>
+    <line class="pnl-chart-zero" x1="0" x2="{{ chart.width }}" y1="{{ chart.zero_y }}" y2="{{ chart.zero_y }}"></line>
+    <polyline class="pnl-chart-line" points="{{ chart.line }}"></polyline>
+    {% for point in chart.points %}<circle class="pnl-chart-point" cx="{{ point.x }}" cy="{{ point.y }}" r="4"><title>{{ point.title }}</title></circle>{% endfor %}
+  </svg>
+  <div class="pnl-chart-axis"><span>{{ chart.start }}</span><span>high {{ chart.high }}, low {{ chart.low }}</span><span>{{ chart.end }}</span></div>
+  {% if chart.unvalued %}<p class="pnl-muted">Holdings without a price at a point count for nothing there, so the line can dip where prices are missing.</p>{% endif %}
+</figure>
+{% endif %}

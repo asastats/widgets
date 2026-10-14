@@ -35,5 +35,6 @@ def features_for(permission):
         "drilldown": subscriber,
         "periods": ("all", "ytd", "30d", "7d") if subscriber else ("all",),
         "valuations": ("spot", "mve") if professional else ("spot",),
+        "chart": professional,
         "lp_analytics": cluster,
     }

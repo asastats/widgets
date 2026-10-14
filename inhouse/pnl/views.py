@@ -24,7 +24,14 @@ from widgets.inhouse.alerts.forms import AlertRuleForm
 from widgets.inhouse.alerts.models import Subject
 from widgets.inhouse.historic.structs import UpdateStatus
 
-from .display import asset_label, event_row, period_summary, summary, table_row
+from .display import (
+    asset_label,
+    chart,
+    event_row,
+    period_summary,
+    summary,
+    table_row,
+)
 from .manifest import MANIFEST
 from .models import PnlBundle
 from .tiers import features_for
@@ -432,6 +439,40 @@ class PnlAssetView(PnlAccessMixin, View):
             event_row(event, data.get("decimals"), currency) for event in data["events"]
         ]
         return render(request, "pnl/_asset.html", context)
+
+
+class PnlChartView(PnlAccessMixin, View):
+    """Fragment drawing cumulative P&L over time, for tiers with the chart."""
+
+    def get(self, request, *args, **kwargs):
+        """Render the chart, a polling placeholder while it is drawn, or nothing.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :var data: engine's chart points or a state marker
+        :type data: dict
+        :return: :class:`django.http.HttpResponse`
+        """
+        if not self.features["chart"]:
+            raise Http404
+
+        context = self.base_context()
+        try:
+            data = _engine(
+                "pnl:evaluate",
+                "POST",
+                self.bundle,
+                "chart/",
+                json={"currency": self.currency()},
+            )
+        except BackendError:
+            return render(request, "pnl/_chart_wait.html", {**context, "failed": True})
+
+        if data and data.get("type") in ("charting", "pricing"):
+            return render(request, "pnl/_chart_wait.html", context)
+
+        context["chart"] = chart((data or {}).get("points"), self.currency())
+        return render(request, "pnl/_chart.html", context)
 
 
 class PnlAlertView(PnlAccessMixin, View):

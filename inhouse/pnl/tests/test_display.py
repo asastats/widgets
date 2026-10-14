@@ -5,6 +5,7 @@ import pytest
 from widgets.inhouse.pnl.display import (
     alert_presets,
     asset_label,
+    chart,
     event_row,
     money,
     percent,
@@ -247,3 +248,45 @@ class TestPnlDisplayVsHold:
         assert (row["vs_hold"], row["vs_hold_tone"]) == ("-$2.00", "pnl-loss")
         row = table_row(_engine_row(), "usd")
         assert (row["vs_hold"], row["vs_hold_tone"]) == ("", "")
+
+
+class TestPnlDisplayChart:
+    """Testing class for the cumulative P&L chart layout."""
+
+    def test_pnl_display_chart_without_points(self):
+        assert chart([], "usd") is None
+        assert chart(None, "usd") is None
+
+    def test_pnl_display_chart_layout(self):
+        day = 86_400
+        points = [
+            {"date": 1_700_000_000, "pnl": 0.0, "unvalued_assets": 0},
+            {"date": 1_700_000_000 + day, "pnl": -2_000_000.0, "unvalued_assets": 1},
+            {"date": 1_700_000_000 + 2 * day, "pnl": 6_000_000.0},
+        ]
+        returned = chart(points, "usd")
+        # 8 USD span over 168 units of height: zero sits three quarters down
+        assert returned["zero_y"] == 132.0
+        assert [(point["x"], point["y"]) for point in returned["points"]] == [
+            (6.0, 132.0),
+            (300.0, 174.0),
+            (594.0, 6.0),
+        ]
+        assert returned["line"] == "6.0,132.0 300.0,174.0 594.0,6.0"
+        assert returned["area"] == (
+            "6.0,132.0 6.0,132.0 300.0,174.0 594.0,6.0 594.0,132.0"
+        )
+        assert returned["points"][1]["title"] == "15 Nov 2023: -$2.00"
+        assert (returned["start"], returned["end"]) == ("14 Nov 2023", "16 Nov 2023")
+        assert (returned["high"], returned["low"]) == ("+$6.00", "-$2.00")
+        assert (returned["last"], returned["last_tone"]) == ("+$6.00", "pnl-gain")
+        assert returned["unvalued"] == 1
+
+    def test_pnl_display_chart_single_flat_point(self):
+        returned = chart([{"date": 5, "pnl": 0.0}], "algo")
+        assert returned["points"] == [
+            {"x": 6.0, "y": 90.0, "title": "1 Jan 1970: 0.00 ALGO"}
+        ]
+        assert (returned["high"], returned["low"]) == ("0.00 ALGO", "0.00 ALGO")
+        assert returned["unvalued"] == 0
+

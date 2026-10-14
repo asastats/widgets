@@ -27,6 +27,7 @@ class TestPnlTiers:
             "drilldown": False,
             "periods": ("all",),
             "valuations": ("spot",),
+            "chart": False,
             "lp_analytics": False,
         }
 
@@ -37,6 +38,7 @@ class TestPnlTiers:
             "drilldown": True,
             "periods": ("all", "ytd", "30d", "7d"),
             "valuations": ("spot",),
+            "chart": False,
             "lp_analytics": False,
         }
 
@@ -46,6 +48,10 @@ class TestPnlTiers:
             "spot",
             "mve",
         )
+
+    @pytest.mark.parametrize("tier,expected", [("Asastatser", False), ("Professional", True)])
+    def test_pnl_tiers_chart_for_professional_and_up(self, tier, expected):
+        assert features_for(SUBSCRIPTION_TIER_PERMISSIONS[tier])["chart"] is expected
 
     def test_pnl_tiers_lp_analytics_for_cluster(self):
         assert (
