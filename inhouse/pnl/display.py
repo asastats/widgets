@@ -140,7 +140,7 @@ def asset_label(row):
     :return: str
     """
     if row.get("lp"):
-        return f"LP {row['asset']}"
+        return row.get("pool") or f"LP {row['asset']}"
 
     return row.get("unit") or row.get("name") or f"#{row['asset']}"
 
@@ -210,7 +210,7 @@ def table_row(row, currency):
     return {
         "asset": row["asset"],
         "label": asset_label(row),
-        "name": row.get("name") or "",
+        "name": f"LP token {row['asset']}" if row.get("lp") else row.get("name") or "",
         "quantity": quantity(row["quantity"], decimals),
         "average_cost": unit_price(row["average_cost"], decimals, currency),
         "price": unit_price(row["price"], decimals, currency),

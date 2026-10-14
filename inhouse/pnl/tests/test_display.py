@@ -103,6 +103,12 @@ class TestPnlDisplayRows:
 
     def test_pnl_display_asset_label(self):
         assert asset_label({"asset": "1041116468", "lp": True}) == "LP 1041116468"
+        assert (
+            asset_label({"asset": "55", "lp": True, "pool": "Tinyman2 LP ALGO/U"})
+            == "Tinyman2 LP ALGO/U"
+        )
+        lp_row = table_row(_engine_row(lp=True, pool="Pact LP ALGO/U", name="PLP"), "usd")
+        assert (lp_row["label"], lp_row["name"]) == ("Pact LP ALGO/U", "LP token 31566704")
         assert asset_label({"asset": "5", "unit": "", "name": "Five"}) == "Five"
         assert asset_label({"asset": "5", "unit": "", "name": ""}) == "#5"
 
