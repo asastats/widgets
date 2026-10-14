@@ -124,6 +124,9 @@ class TestPnlDisplayRows:
         assert row["no_market"] is True
         assert row["illiquid"] is False
         assert table_row(_engine_row(illiquid=True), "usd")["illiquid"] is True
+        assert (row["fees"], row["divergence"]) == ("", "")
+        split = table_row(_engine_row(fees=2_000_000, divergence=-500_000), "algo")
+        assert (split["fees"], split["divergence"]) == ("+2.00 ALGO", "-0.50 ALGO")
 
     def test_pnl_display_table_row_incomplete_and_closed(self):
         row = table_row(_engine_row(quantity=0, missing_quantity=3), "algo")

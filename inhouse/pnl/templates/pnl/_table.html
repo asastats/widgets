@@ -74,7 +74,7 @@
           <td data-label="Realized" class="{{ row.realized_tone }}">{{ row.realized }}</td>
           <td data-label="Income">{{ row.income }}</td>
           <td data-label="Return" class="{{ row.return_tone }}">{{ row.return }}</td>
-          {% if features.lp_analytics %}<td{% if row.vs_hold %} data-label="vs holding"{% endif %} class="{{ row.vs_hold_tone }}">{{ row.vs_hold }}</td>{% endif %}
+          {% if features.lp_analytics %}<td{% if row.vs_hold %} data-label="vs holding"{% endif %} class="{{ row.vs_hold_tone }}">{{ row.vs_hold }}{% if row.fees %}<span class="pnl-cell-note" title="Fees earned since adding liquidity, and the rest: price divergence">fees {{ row.fees }} · divergence {{ row.divergence }}</span>{% endif %}</td>{% endif %}
           <td class="pnl-alert-cell">
             {% if row.alerts %}
               <details class="pnl-alert">

@@ -2115,3 +2115,10 @@ The chart is an inline SVG laid out in `display.chart`, with no JavaScript, so
 the template stays framework-free. Hover titles come from `<title>` on
 invisible points. The chart is all-time whatever period is selected, and in
 the selected currency.
+
+## inhouse/pnl — fees and divergence under "vs holding" (2026-10-14)
+
+Cluster tier. When the engine returns `fees` for an LP row (ALGO constant-product
+pools only, see the engine logbook), the vs-holding cell adds a small line
+"fees +x · divergence −y" (`pnl-cell-note`) rather than two more columns, to
+keep the table's width.
