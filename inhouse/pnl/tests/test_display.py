@@ -132,9 +132,17 @@ class TestPnlDisplayRows:
         assert table_row(_engine_row(illiquid=True), "usd")["illiquid"] is True
         assert (row["fees"], row["divergence"]) == ("", "")
         assert row["farm_income"] == ""
-        assert table_row(_engine_row(farm_income=3_500_000), "usd")["farm_income"] == "$3.50"
-        split = table_row(_engine_row(fees=2_000_000, divergence=-500_000), "algo")
-        assert (split["fees"], split["divergence"]) == ("+2.00 ALGO", "-0.50 ALGO")
+        farm = table_row(
+            _engine_row(farm_income=3_500_000, farm_assets=["5"], farm_unpriced=0), "usd"
+        )
+        assert (farm["farm_income"], farm["farm_assets"]) == ("$3.50", ["5"])
+        tiny = table_row(_engine_row(farm_income=4_000, farm_unpriced=0), "usd")
+        assert tiny["farm_income"] == ""
+        unpriced = table_row(_engine_row(farm_income=0.0, farm_unpriced=2), "usd")
+        assert (unpriced["farm_income"], unpriced["farm_unpriced"]) == ("$0.00", 2)
+        assert table_row(_engine_row(fees=4_000, divergence=-3_000), "usd")["fees"] == ""
+        split = table_row(_engine_row(fees=4_000, divergence=-500_000), "algo")
+        assert (split["fees"], split["divergence"]) == ("0.00 ALGO", "-0.50 ALGO")
 
     def test_pnl_display_table_row_incomplete_and_closed(self):
         row = table_row(_engine_row(quantity=0, missing_quantity=3), "algo")
@@ -182,6 +190,9 @@ class TestPnlDisplayRows:
         assert row["realized_tone"] == "pnl-gain"
         assert row["unpriced"] is False
         assert row["description"] == ""
+        withdrawal = {**event, "kind": "withdrawal", "value": None, "unpriced": False}
+        assert event_row(withdrawal, 2, "usd")["unpriced"] is False
+        assert event_row({**event, "value": None}, 2, "usd")["unpriced"] is True
         assert event_row({**event, "description": "Pact AMM swap"}, 2, "usd")[
             "description"
         ] == "Pact AMM swap"

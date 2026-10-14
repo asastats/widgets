@@ -331,6 +331,11 @@ class PnlStatusView(PnlAccessMixin, View):
         if data["totals"].get("period"):
             context["period_summary"] = period_summary(data["totals"]["period"], currency)
         context["rows"] = [table_row(row, currency) for row in data["assets"]]
+        labels = {row["asset"]: row["label"] for row in context["rows"]}
+        for row in context["rows"]:
+            row["farm_paid_in"] = ", ".join(
+                labels.get(asset, f"#{asset}") for asset in row["farm_assets"]
+            )
         return render(request, "pnl/_table.html", context)
 
 

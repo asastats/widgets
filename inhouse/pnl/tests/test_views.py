@@ -249,6 +249,8 @@ class TestPnlViewsVsHold:
         results["assets"][0]["fees"] = 4_000_000
         results["assets"][0]["divergence"] = -1_000_000
         results["assets"][0]["farm_income"] = 2_500_000
+        results["assets"][0]["farm_assets"] = ["0", "777"]
+        results["assets"][0]["farm_unpriced"] = 1
         events = {BUNDLE: {"-1": {"state": "finished"}}}
         mocker.patch("widgets.inhouse.pnl.views._engine", side_effect=[events, results])
         view = _view(PnlStatusView, permission)
@@ -256,7 +258,8 @@ class TestPnlViewsVsHold:
         assert (b"vs holding" in content) is shown
         assert (b"+$3.00" in content) is shown
         assert (b"fees +$4.00 \xc2\xb7 divergence -$1.00" in content) is shown
-        assert (b"farm yield $2.50" in content) is shown
+        assert (b"farm yield $2.50, 1 without a price" in content) is shown
+        assert (b"in ALGO, #777: open those assets" in content) is shown
 
 
 class TestPnlViewsValuation:

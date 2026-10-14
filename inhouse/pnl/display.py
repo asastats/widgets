@@ -232,15 +232,58 @@ def table_row(row, currency):
         if row.get("vs_hold") is not None
         else "",
         "vs_hold_tone": tone(row.get("vs_hold")),
-        "farm_income": money(row["farm_income"], currency)
-        if row.get("farm_income") is not None
-        else "",
-        "fees": signed_money(row["fees"], currency)
-        if row.get("fees") is not None
-        else "",
-        "divergence": signed_money(row.get("divergence"), currency)
-        if row.get("fees") is not None
-        else "",
+        **_farm_note(row, currency),
+        **_split_note(row, currency),
+    }
+
+
+def _shown(value):
+    """Return whether `value` in micro-units is non-zero once rounded to cents.
+
+    :param value: amount in micro-units
+    :type value: float or None
+    :return: Boolean
+    """
+    return value is not None and abs(value) >= HALF_CENT
+
+
+def _farm_note(row, currency):
+    """Return the farm yield note's parts; empty when it would read $0.00.
+
+    :param row: engine's asset result
+    :type row: dict
+    :param currency: "usd" or "algo"
+    :type currency: str
+    :var unpriced: rewards without a price
+    :type unpriced: int
+    :return: dict
+    """
+    unpriced = row.get("farm_unpriced") or 0
+    if not _shown(row.get("farm_income")) and not unpriced:
+        return {"farm_income": "", "farm_unpriced": 0, "farm_assets": []}
+
+    return {
+        "farm_income": money(row["farm_income"], currency),
+        "farm_unpriced": unpriced,
+        "farm_assets": row.get("farm_assets") or [],
+    }
+
+
+def _split_note(row, currency):
+    """Return fees and divergence; empty when both would read zero.
+
+    :param row: engine's asset result
+    :type row: dict
+    :param currency: "usd" or "algo"
+    :type currency: str
+    :return: dict
+    """
+    if not (_shown(row.get("fees")) or _shown(row.get("divergence"))):
+        return {"fees": "", "divergence": ""}
+
+    return {
+        "fees": signed_money(row["fees"], currency),
+        "divergence": signed_money(row["divergence"], currency),
     }
 
 
@@ -317,7 +360,7 @@ def event_row(event, decimals, currency):
         "cost": money(event["cost"], currency),
         "realized": signed_money(event["realized"], currency),
         "realized_tone": tone(event["realized"]),
-        "unpriced": event["value"] is None
+        "unpriced": event.get("unpriced", event["value"] is None)
         and event["kind"] not in ("position_in", "position_out"),
         "id": event["id"],
         "description": event.get("description") or "",

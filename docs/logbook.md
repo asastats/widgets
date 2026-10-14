@@ -2129,3 +2129,11 @@ Cluster (`lp_analytics`). An asset that was staked in farms or staking dApps
 shows "farm yield $x" under its Income cell: the rewards those dApps paid,
 already counted as income of the tokens paid, so the note attributes them and
 adds nothing to totals.
+
+## inhouse/pnl — quieter notes and the drill-down's "no price" (2026-10-14)
+
+Farm yield and the fees/divergence line are hidden when they would read $0.00.
+Farm yield stays visible if some rewards had no price, and says how many. Its
+tooltip names the tokens it was paid in, from the other rows' labels, so the
+reward events can be found in those assets' drill-downs. The drill-down's
+"no price" badge follows the engine's per-event `unpriced` flag.
