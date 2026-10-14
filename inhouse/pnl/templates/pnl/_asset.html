@@ -1,5 +1,6 @@
 <section class="pnl-asset">
   <h3>{{ asset_label }}</h3>
+  <a class="pnl-link" href="#id-pnl-body">Back to the table</a>
   <table class="pnl-table">
     <thead>
       <tr><th>Date</th><th>Event</th><th>Quantity</th><th>Value</th><th>Cost</th><th>Realized</th><th>Transaction</th></tr>
@@ -7,13 +8,13 @@
     <tbody>
       {% for event in events %}
         <tr>
-          <td>{{ event.date }}</td>
-          <td>{{ event.kind }}{% if event.unpriced %} <span class="pnl-badge">no price</span>{% endif %}</td>
-          <td>{{ event.quantity }}</td>
-          <td>{{ event.value }}</td>
-          <td>{{ event.cost }}</td>
-          <td class="{{ event.realized_tone }}">{{ event.realized }}</td>
-          <td><span class="pnl-txid" title="{{ event.id }}">{{ event.id|truncatechars:12 }}</span></td>
+          <td data-label="Date" class="pnl-text">{{ event.date }}</td>
+          <td data-label="Event" class="pnl-text">{{ event.kind }}{% if event.unpriced %} <span class="pnl-badge">no price</span>{% endif %}</td>
+          <td data-label="Quantity">{{ event.quantity }}</td>
+          <td data-label="Value">{{ event.value }}</td>
+          <td data-label="Cost">{{ event.cost }}</td>
+          <td data-label="Realized" class="{{ event.realized_tone }}">{{ event.realized }}</td>
+          <td data-label="Transaction" class="pnl-text"><span class="pnl-txid" title="{{ event.id }}">{{ event.id|truncatechars:12 }}</span></td>
         </tr>
       {% empty %}
         <tr><td colspan="7">No events.</td></tr>

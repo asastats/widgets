@@ -2071,3 +2071,12 @@ name only `pnl-*` classes, the stylesheet and the manifest's `static` asset
 are gone, and the styling lives in the frontend's `input.css`.
 `tests/test_templates.py` fails on any class that is not a `pnl` hook, and on
 a `static/` directory reappearing.
+
+### From the first real page (2026-10-14)
+
+Clicking an asset swapped its events in below a long table with no visible
+response; the link now swaps with `show:top`, so the section scrolls into view,
+and the section links back to the table. Cells carry `data-label`, which the
+host's narrow-screen styles turn into labelled card lines. Values that round to
+zero print as a plain `$0.00` / `0.0%` with no tone (`display.HALF_CENT`,
+`HALF_PERMILLE`), instead of a red "-$0.00".

@@ -224,6 +224,8 @@ class TestPnlViewsStatus:
         assert b"+$0.25" in response.content
         assert b"2 events without a price" in response.content
         assert b'hx-get="/widgets/pnl/' in response.content
+        assert b'hx-swap="innerHTML show:top"' in response.content
+        assert b'data-label="Avg cost"' in response.content
 
 
 class TestPnlViewsStatusPricing:

@@ -8,6 +8,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 MICRO = 1_000_000
+#: Magnitudes below these display as zero: half a cent, a twentieth of a percent.
+HALF_CENT = MICRO / 200
+HALF_PERMILLE = 0.0005
 
 EVENT_LABELS = {
     "deposit": "Deposit",
@@ -38,7 +41,7 @@ def money(value, currency):
     if value is None:
         return "—"
 
-    amount = value / MICRO
+    amount = round(value / MICRO, 2)
     sign = "-" if amount < 0 else ""
     if currency == "usd":
         return f"{sign}${abs(amount):,.2f}"
@@ -56,7 +59,7 @@ def signed_money(value, currency):
     :return: str
     """
     text = money(value, currency)
-    return f"+{text}" if value is not None and value > 0 else text
+    return f"+{text}" if tone(value, HALF_CENT) == "pnl-gain" else text
 
 
 def quantity(value, decimals):
@@ -108,17 +111,22 @@ def percent(value):
     if value is None:
         return "—"
 
+    if not tone(value, HALF_PERMILLE):
+        return "0.0%"
+
     return f"{value * 100:+.1f}%"
 
 
-def tone(value):
-    """Return the CSS tone for a gain, a loss or nothing.
+def tone(value, threshold=HALF_CENT):
+    """Return the CSS tone for a gain, a loss, or nothing when it rounds to zero.
 
-    :param value: signed amount
+    :param value: signed amount in micro-units, or a ratio with its threshold
     :type value: float or None
+    :param threshold: largest magnitude shown as zero
+    :type threshold: float
     :return: str
     """
-    if not value:
+    if value is None or abs(value) < threshold:
         return ""
 
     return "pnl-gain" if value > 0 else "pnl-loss"
@@ -213,7 +221,7 @@ def table_row(row, currency):
         "realized_tone": tone(row["realized"]),
         "income": money(row["income"], currency) if row["income"] else "",
         "return": percent(row["return"]),
-        "return_tone": tone(row["return"]),
+        "return_tone": tone(row["return"], HALF_PERMILLE),
         "incomplete": not row.get("no_market")
         and (row["missing_quantity"] > 0 or row["unpriced"] > 0),
         "no_market": bool(row.get("no_market")),
@@ -247,6 +255,7 @@ def summary(totals, currency):
         "unvalued_assets": int(totals.get("unvalued_assets") or 0),
         "assets_missing_history": int(totals.get("assets_missing_history") or 0),
         "unpriced_events": int(totals.get("unpriced_events") or 0),
+        "unvalued_cost": money(totals.get("unvalued_cost") or 0, currency),
         "no_market_assets": int(totals.get("no_market_assets") or 0),
     }
 

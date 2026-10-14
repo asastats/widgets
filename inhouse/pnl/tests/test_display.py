@@ -80,12 +80,21 @@ class TestPnlDisplayFormatting:
         assert percent(0.123) == "+12.3%"
         assert percent(-0.5) == "-50.0%"
         assert percent(None) == "—"
-        assert (tone(1), tone(-1), tone(0), tone(None)) == (
+        assert (tone(10_000), tone(-10_000), tone(4_999), tone(None)) == (
             "pnl-gain",
             "pnl-loss",
             "",
             "",
         )
+        assert tone(0.001, 0.0005) == "pnl-gain"
+        assert percent(0.0001) == "0.0%"
+        assert percent(-0.0004) == "0.0%"
+
+    def test_pnl_display_amounts_rounding_to_zero_are_plain(self):
+        assert money(-4_000, "usd") == "$0.00"
+        assert signed_money(4_000, "usd") == "$0.00"
+        assert signed_money(-6_000, "usd") == "-$0.01"
+        assert signed_money(6_000, "algo") == "+0.01 ALGO"
 
 
 class TestPnlDisplayRows:

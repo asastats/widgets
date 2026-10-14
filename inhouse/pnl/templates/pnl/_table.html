@@ -27,7 +27,7 @@
     <p class="pnl-coverage">
       {% if summary.assets_missing_history %}{{ summary.assets_missing_history }} asset{{ summary.assets_missing_history|pluralize }} sold beyond the known history.{% endif %}
       {% if summary.unpriced_events %}{{ summary.unpriced_events }} event{{ summary.unpriced_events|pluralize }} without a price.{% endif %}
-      {% if summary.unvalued_assets %}{{ summary.unvalued_assets }} holding{{ summary.unvalued_assets|pluralize }} without a current price.{% endif %}
+      {% if summary.unvalued_assets %}{{ summary.unvalued_assets }} holding{{ summary.unvalued_assets|pluralize }} without a current price (cost {{ summary.unvalued_cost }}), left out of value and unrealized.{% endif %}
       Rows marked <span class="pnl-badge">incomplete</span> are affected.
     </p>
   {% endif %}
@@ -48,19 +48,19 @@
         <tr{% if not row.held or row.no_market %} class="pnl-closed"{% endif %}>
           <th scope="row" title="{{ row.name }}">
             {% if features.drilldown %}
-              <button type="button" class="pnl-link" hx-get="{% url 'pnl_asset' path row.asset %}?{{ query }}" hx-target="#id-pnl-asset">{{ row.label }}</button>
+              <button type="button" class="pnl-link" hx-get="{% url 'pnl_asset' path row.asset %}?{{ query }}" hx-target="#id-pnl-asset" hx-swap="innerHTML show:top">{{ row.label }}</button>
             {% else %}{{ row.label }}{% endif %}
             {% if row.incomplete %}<span class="pnl-badge">incomplete</span>{% endif %}
             {% if row.no_market %}<span class="pnl-badge pnl-badge-muted">no market</span>{% endif %}
           </th>
-          <td>{{ row.quantity }}</td>
-          <td>{{ row.average_cost }}</td>
-          <td>{{ row.price }}</td>
-          <td>{{ row.value }}</td>
-          <td class="{{ row.unrealized_tone }}">{{ row.unrealized }}</td>
-          <td class="{{ row.realized_tone }}">{{ row.realized }}</td>
-          <td>{{ row.income }}</td>
-          <td class="{{ row.return_tone }}">{{ row.return }}</td>
+          <td data-label="Quantity">{{ row.quantity }}</td>
+          <td data-label="Avg cost">{{ row.average_cost }}</td>
+          <td data-label="Price">{{ row.price }}</td>
+          <td data-label="Value">{{ row.value }}</td>
+          <td data-label="Unrealized" class="{{ row.unrealized_tone }}">{{ row.unrealized }}</td>
+          <td data-label="Realized" class="{{ row.realized_tone }}">{{ row.realized }}</td>
+          <td data-label="Income">{{ row.income }}</td>
+          <td data-label="Return" class="{{ row.return_tone }}">{{ row.return }}</td>
           <td class="pnl-alert-cell">
             {% if row.alerts %}
               <details class="pnl-alert">
