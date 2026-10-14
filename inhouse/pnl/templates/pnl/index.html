@@ -10,14 +10,21 @@
   <div class="pnl-switches">
     <nav class="pnl-currency" aria-label="Currency">
       {% for option in features.currencies %}
-        <a href="?currency={{ option }}&amp;period={{ period }}"{% if option == currency %} aria-current="true"{% endif %}>{{ option|upper }}</a>
+        <a href="?currency={{ option }}&amp;period={{ period }}&amp;valuation={{ valuation }}"{% if option == currency %} aria-current="true"{% endif %}>{{ option|upper }}</a>
       {% endfor %}
     </nav>
     <nav class="pnl-currency" aria-label="Period">
       {% for option in features.periods %}
-        <a href="?currency={{ currency }}&amp;period={{ option }}"{% if option == period %} aria-current="true"{% endif %}>{% for key, label in period_labels.items %}{% if key == option %}{{ label }}{% endif %}{% endfor %}</a>
+        <a href="?currency={{ currency }}&amp;period={{ option }}&amp;valuation={{ valuation }}"{% if option == period %} aria-current="true"{% endif %}>{% for key, label in period_labels.items %}{% if key == option %}{{ label }}{% endif %}{% endfor %}</a>
       {% endfor %}
     </nav>
+    {% if features.valuations|length > 1 %}
+    <nav class="pnl-currency" aria-label="Valuation">
+      {% for option in features.valuations %}
+        <a href="?currency={{ currency }}&amp;period={{ period }}&amp;valuation={{ option }}"{% if option == valuation %} aria-current="true"{% endif %} title="{% if option == 'mve' %}What selling each holding would fetch from its pools now{% else %}Current market price{% endif %}">{{ option|upper }}</a>
+      {% endfor %}
+    </nav>
+    {% endif %}
   </div>
   {% endif %}
   {# id-pnl-body is the target every fragment of this widget swaps into. #}

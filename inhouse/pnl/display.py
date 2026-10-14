@@ -225,6 +225,7 @@ def table_row(row, currency):
         "incomplete": not row.get("no_market")
         and (row["missing_quantity"] > 0 or row["unpriced"] > 0),
         "no_market": bool(row.get("no_market")),
+        "illiquid": bool(row.get("illiquid")),
         "held": row["quantity"] > 0,
         "alerts": alert_presets(row),
         "vs_hold": signed_money(row.get("vs_hold"), currency)
@@ -261,6 +262,8 @@ def summary(totals, currency):
         "unpriced_events": int(totals.get("unpriced_events") or 0),
         "unvalued_cost": money(totals.get("unvalued_cost") or 0, currency),
         "no_market_assets": int(totals.get("no_market_assets") or 0),
+        "illiquid_assets": int(totals.get("illiquid_assets") or 0),
+        "mve": totals.get("valuation") == "mve",
     }
 
 

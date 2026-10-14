@@ -166,6 +166,11 @@ class TestPnlViewsAccess:
         assert _view(PnlView, ASASTATSER, "?currency=algo").currency() == "algo"
         assert _view(PnlView, ASASTATSER, "?currency=eur").currency() == "usd"
 
+    def test_pnl_views_valuation_respects_tier(self):
+        assert _view(PnlView, ASASTATSER, "?valuation=mve").valuation() == "spot"
+        assert _view(PnlView, CLUSTER, "?valuation=mve").valuation() == "mve"
+        assert _view(PnlView, CLUSTER, "?valuation=best").valuation() == "spot"
+
     def test_pnl_views_period_respects_tier(self):
         assert _view(PnlView, 0, "?period=7d").period() == "all"
         assert _view(PnlView, ASASTATSER, "?period=7d").period() == "7d"
@@ -211,7 +216,9 @@ class TestPnlViewsStatus:
         view = _view(PnlStatusView)
         response = view.get(view.request)
         assert b"Process" in response.content
-        assert engine.call_args.kwargs == {"json": {"currency": "usd"}}
+        assert engine.call_args.kwargs == {
+            "json": {"currency": "usd", "valuation": "spot"}
+        }
 
     def test_pnl_views_status_renders_table_when_finished(self, mocker):
         events = {BUNDLE: {"-1": {"state": "finished"}}}
@@ -243,6 +250,33 @@ class TestPnlViewsVsHold:
         content = view.get(view.request).content
         assert (b"vs holding" in content) is shown
         assert (b"+$3.00" in content) is shown
+
+
+class TestPnlViewsValuation:
+    """Testing class for the MVE valuation switch and the illiquid flag."""
+
+    @pytest.mark.parametrize("permission,shown", [(CLUSTER, True), (ASASTATSER, False)])
+    def test_pnl_views_page_valuation_switch(self, permission, shown):
+        view = _view(PnlView, permission, "?valuation=mve")
+        response = view.get(view.request)
+        response.render()
+        assert (b'aria-label="Valuation"' in response.content) is shown
+        assert (b"valuation=mve" in response.content) is shown
+
+    def test_pnl_views_status_mve_and_illiquid(self, mocker):
+        results = _engine_results()
+        results["assets"][0]["illiquid"] = True
+        results["totals"].update({"illiquid_assets": 1, "valuation": "mve"})
+        events = {BUNDLE: {"-1": {"state": "finished"}}}
+        engine = mocker.patch(
+            "widgets.inhouse.pnl.views._engine", side_effect=[events, results]
+        )
+        view = _view(PnlStatusView, CLUSTER, "?valuation=mve")
+        content = view.get(view.request).content
+        assert engine.call_args.kwargs["json"]["valuation"] == "mve"
+        assert b">illiquid</span>" in content
+        assert b"1 holding marked" in content
+        assert b"(MVE)" in content
 
 
 class TestPnlViewsStatusPricing:

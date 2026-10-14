@@ -26,6 +26,7 @@ class TestPnlTiers:
             "currencies": ("usd",),
             "drilldown": False,
             "periods": ("all",),
+            "valuations": ("spot",),
             "lp_analytics": False,
         }
 
@@ -35,8 +36,16 @@ class TestPnlTiers:
             "currencies": ("usd", "algo"),
             "drilldown": True,
             "periods": ("all", "ytd", "30d", "7d"),
+            "valuations": ("spot",),
             "lp_analytics": False,
         }
+
+    @pytest.mark.parametrize("tier", ["Professional", "Cluster"])
+    def test_pnl_tiers_mve_for_professional_and_up(self, tier):
+        assert features_for(SUBSCRIPTION_TIER_PERMISSIONS[tier])["valuations"] == (
+            "spot",
+            "mve",
+        )
 
     def test_pnl_tiers_lp_analytics_for_cluster(self):
         assert (

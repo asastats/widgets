@@ -121,6 +121,8 @@ class TestPnlDisplayRows:
         row = table_row(_engine_row(unpriced=130, no_market=True), "usd")
         assert row["incomplete"] is False
         assert row["no_market"] is True
+        assert row["illiquid"] is False
+        assert table_row(_engine_row(illiquid=True), "usd")["illiquid"] is True
 
     def test_pnl_display_table_row_incomplete_and_closed(self):
         row = table_row(_engine_row(quantity=0, missing_quantity=3), "algo")
@@ -146,6 +148,8 @@ class TestPnlDisplayRows:
         assert returned["unvalued_assets"] == 1
         assert returned["assets_missing_history"] == 0
         assert returned["no_market_assets"] == 0
+        assert (returned["illiquid_assets"], returned["mve"]) == (0, False)
+        assert summary({"total": 0.0, "valuation": "mve"}, "usd")["mve"] is True
         assert summary({"total": 0.0}, "usd")["return"] == "—"
 
     def test_pnl_display_event_row(self):

@@ -2080,3 +2080,12 @@ and the section links back to the table. Cells carry `data-label`, which the
 host's narrow-screen styles turn into labelled card lines. Values that round to
 zero print as a plain `$0.00` / `0.0%` with no tone (`display.HALF_CENT`,
 `HALF_PERMILLE`), instead of a red "-$0.00".
+
+## inhouse/pnl — Spot/MVE valuation switch and the illiquid badge (2026-10-14)
+
+Professional and up get a third switch, `valuation=spot|mve`, carried in every
+switch link and in `query`, and passed to `pnl:evaluate`. A lower tier asking
+for `mve` silently gets spot, like currency and period. Rows the engine flags
+`illiquid` (MVE below 80% of spot) get a muted badge on every tier, because the
+flag is a warning, not an analytics feature. The 80% in the template text must
+follow the engine's `PNL_ILLIQUID_RATIO`.

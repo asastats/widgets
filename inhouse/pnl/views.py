@@ -156,6 +156,16 @@ class PnlAccessMixin(WidgetAccessMixin):
         period = self.request.GET.get("period", "all")
         return period if period in self.features["periods"] else "all"
 
+    def valuation(self):
+        """Return the requested valuation if the tier allows it, else spot.
+
+        :var valuation: requested valuation
+        :type valuation: str
+        :return: str
+        """
+        valuation = self.request.GET.get("valuation", "spot")
+        return valuation if valuation in self.features["valuations"] else "spot"
+
     def test_func(self):
         """Return whether the reader may see P&L for the URL's bundle.
 
@@ -207,8 +217,15 @@ class PnlAccessMixin(WidgetAccessMixin):
         :return: dict
         """
         return {
-            "query": urlencode({"currency": self.currency(), "period": self.period()}),
+            "query": urlencode(
+                {
+                    "currency": self.currency(),
+                    "period": self.period(),
+                    "valuation": self.valuation(),
+                }
+            ),
             "period": self.period(),
+            "valuation": self.valuation(),
             "period_labels": PERIOD_LABELS,
             "path": self.args[0].upper(),
             "bundle": self.bundle,
@@ -274,7 +291,7 @@ class PnlStatusView(PnlAccessMixin, View):
             return self._progress(events)
 
         currency = self.currency()
-        payload = {"currency": currency}
+        payload = {"currency": currency, "valuation": self.valuation()}
         start = period_start(self.period())
         if start is not None:
             payload["period_start"] = start
