@@ -2089,3 +2089,11 @@ for `mve` silently gets spot, like currency and period. Rows the engine flags
 `illiquid` (MVE below 80% of spot) get a muted badge on every tier, because the
 flag is a warning, not an analytics feature. The 80% in the template text must
 follow the engine's `PNL_ILLIQUID_RATIO`.
+
+## inhouse/pnl — correction: illiquid badge only in MVE mode; retry on engine failure (2026-10-14)
+
+The engine flags `illiquid` only when MVE is requested (see the engine logbook,
+same date), so the badge appears for Professional and up in MVE mode, not on
+every tier. An engine error or timeout used to raise `BackendError` out of
+`PnlStatusView`, and the 500 left `#id-pnl-body` on "Loading…". It now renders
+`_unavailable.html` with a Retry button.

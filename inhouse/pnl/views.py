@@ -14,7 +14,7 @@ from django.shortcuts import redirect, render
 from django.utils.safestring import mark_safe
 from django.views.generic import TemplateView, View
 
-from api.client import engine_request
+from api.client import BackendError, engine_request
 from api.widgets import bundle_and_addresses_from_path
 from walletauth.gating import is_linked_to_user
 from widgethost.enforcement import WidgetAccessMixin
@@ -272,6 +272,19 @@ class PnlStatusView(PnlAccessMixin, View):
         return render(self.request, "pnl/_progress.html", context)
 
     def get(self, request, *args, **kwargs):
+        """Render the bundle's state, or a retry offer when the engine fails.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :return: :class:`django.http.HttpResponse`
+        """
+        try:
+            return self._state(request)
+
+        except BackendError:
+            return render(request, "pnl/_unavailable.html", self.base_context())
+
+    def _state(self, request):
         """Render the fragment matching the bundle's processing state.
 
         :param request: Django request object

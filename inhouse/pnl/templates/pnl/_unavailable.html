@@ -1,0 +1,4 @@
+<div class="pnl-process">
+  <p class="pnl-warning">Profit and loss could not be loaded just now.</p>
+  <button type="button" class="pnl-button" hx-get="{% url 'pnl_status' path %}?{{ query }}" hx-target="#id-pnl-body">Retry</button>
+</div>

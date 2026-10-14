@@ -9,6 +9,7 @@ from django.test import RequestFactory
 from django.urls import resolve
 
 from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
+from api.client import BackendError
 from widgets.inhouse.pnl.models import PnlBundle
 from widgets.inhouse.pnl.manifest import MANIFEST
 from widgets.inhouse.alerts.models import AlertRule
@@ -277,6 +278,21 @@ class TestPnlViewsValuation:
         assert b">illiquid</span>" in content
         assert b"1 holding marked" in content
         assert b"(MVE)" in content
+
+
+class TestPnlViewsStatusUnavailable:
+    """Testing class for the status view when the engine fails or times out."""
+
+    def test_pnl_views_status_offers_retry_when_engine_fails(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine",
+            side_effect=BackendError("could not reach the backend: timed out"),
+        )
+        view = _view(PnlStatusView, ASASTATSER)
+        response = view.get(view.request)
+        assert response.status_code == 200
+        assert b"could not be loaded just now" in response.content
+        assert b'hx-target="#id-pnl-body">Retry</button>' in response.content
 
 
 class TestPnlViewsStatusPricing:
