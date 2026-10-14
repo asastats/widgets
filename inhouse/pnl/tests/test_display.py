@@ -101,7 +101,7 @@ class TestPnlDisplayRows:
     """Testing class for the row and summary builders."""
 
     def test_pnl_display_asset_label(self):
-        assert asset_label({"asset": "LP123", "lp": True}) == "LP 123"
+        assert asset_label({"asset": "1041116468", "lp": True}) == "LP 1041116468"
         assert asset_label({"asset": "5", "unit": "", "name": "Five"}) == "Five"
         assert asset_label({"asset": "5", "unit": "", "name": ""}) == "#5"
 

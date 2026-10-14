@@ -140,7 +140,7 @@ def asset_label(row):
     :return: str
     """
     if row.get("lp"):
-        return f"LP {row['asset'][2:]}"
+        return f"LP {row['asset']}"
 
     return row.get("unit") or row.get("name") or f"#{row['asset']}"
 
