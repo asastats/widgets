@@ -226,6 +226,28 @@ class TestPnlViewsStatus:
         assert b'hx-get="/widgets/pnl/' in response.content
 
 
+class TestPnlViewsStatusPricing:
+    """Testing class for the status view while the engine prices rows."""
+
+    def test_pnl_views_status_shows_pricing_and_keeps_polling(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine",
+            side_effect=[{}, {"type": "pricing"}],
+        )
+        view = _view(PnlStatusView)
+        response = view.get(view.request)
+        assert b"Pricing every transaction" in response.content
+        assert b'hx-trigger="load delay:5s"' in response.content
+
+    def test_pnl_views_asset_while_pricing(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine", return_value={"type": "pricing"}
+        )
+        view = _view(PnlAssetView, ASASTATSER)
+        with pytest.raises(Http404):
+            view.get(view.request, BUNDLE, "5")
+
+
 class TestPnlViewsStatusPeriod:
     """Testing class for the status view's period."""
 

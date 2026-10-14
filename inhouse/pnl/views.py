@@ -281,6 +281,9 @@ class PnlStatusView(PnlAccessMixin, View):
 
         data = _engine("pnl:evaluate", "POST", self.bundle, "evaluate/", json=payload)
         context = self.base_context()
+        if data and data.get("type") == "pricing":
+            return render(request, "pnl/_pricing.html", context)
+
         if not data or data.get("type") == "show_update":
             return render(request, "pnl/_process.html", context)
 
@@ -387,7 +390,7 @@ class PnlAssetView(PnlAccessMixin, View):
             "asset/",
             json={"asset": args[1], "currency": currency},
         )
-        if not data or data.get("type") == "show_update":
+        if not data or data.get("type") in ("show_update", "pricing"):
             raise Http404
 
         context = self.base_context()

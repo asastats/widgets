@@ -12,9 +12,7 @@ TEMPLATES = sorted((Path(__file__).parents[1] / "templates" / "pnl").glob("*.htm
 def test_pnl_templates_use_only_pnl_classes(template):
     classes = re.findall(r'class="([^"]*)"', template.read_text())
     names = {
-        name
-        for value in classes
-        for name in re.sub(r"{[{%].*?[}%]}", " ", value).split()
+        name for value in classes for name in re.sub(r"{[{%].*?[}%]}", " ", value).split()
     }
     assert {name for name in names if not name.startswith("pnl")} == set()
 
