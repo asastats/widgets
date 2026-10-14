@@ -2097,3 +2097,9 @@ same date), so the badge appears for Professional and up in MVE mode, not on
 every tier. An engine error or timeout used to raise `BackendError` out of
 `PnlStatusView`, and the 500 left `#id-pnl-body` on "Loading…". It now renders
 `_unavailable.html` with a Retry button.
+
+## inhouse/pnl — "valuing" state (2026-10-14)
+
+The engine computes MVE in a background task and answers `valuing` until it is
+saved; `_valuing.html` polls every 5 s like `_pricing.html`, keeping `query`
+(and so `valuation=mve`).

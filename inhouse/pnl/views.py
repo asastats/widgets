@@ -314,6 +314,9 @@ class PnlStatusView(PnlAccessMixin, View):
         if data and data.get("type") == "pricing":
             return render(request, "pnl/_pricing.html", context)
 
+        if data and data.get("type") == "valuing":
+            return render(request, "pnl/_valuing.html", context)
+
         if not data or data.get("type") == "show_update":
             return render(request, "pnl/_process.html", context)
 

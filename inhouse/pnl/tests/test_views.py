@@ -280,6 +280,21 @@ class TestPnlViewsValuation:
         assert b"(MVE)" in content
 
 
+class TestPnlViewsStatusValuing:
+    """Testing class for the status view while the engine computes MVE."""
+
+    def test_pnl_views_status_shows_valuing_and_keeps_polling(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine",
+            side_effect=[{}, {"type": "valuing"}],
+        )
+        view = _view(PnlStatusView, CLUSTER, "?valuation=mve")
+        response = view.get(view.request)
+        assert b"what selling each holding would fetch" in response.content
+        assert b'hx-trigger="load delay:5s"' in response.content
+        assert b"valuation=mve" in response.content
+
+
 class TestPnlViewsStatusUnavailable:
     """Testing class for the status view when the engine fails or times out."""
 
