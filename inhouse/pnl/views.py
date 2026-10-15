@@ -419,6 +419,25 @@ class PnlRemoveView(LoginRequiredMixin, View):
         return render(request, "pnl/_removed.html", {"bundle": bundle})
 
 
+class PnlResetView(PnlAccessMixin, View):
+    """Delete the bundle's engine data, historic's included, and offer processing."""
+
+    def post(self, request, *args, **kwargs):
+        """Reset the bundle in the engine from scratch and render the process button.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :return: :class:`django.http.HttpResponse`
+        """
+        try:
+            _engine("pnl:reset", "DELETE", self.bundle, "?scratch=1")
+
+        except BackendError:
+            return render(request, "pnl/_unavailable.html", self.base_context())
+
+        return render(request, "pnl/_process.html", self.base_context())
+
+
 class PnlAssetView(PnlAccessMixin, View):
     """Fragment listing one asset's events, for tiers with the drill-down."""
 

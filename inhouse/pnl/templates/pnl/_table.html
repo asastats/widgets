@@ -96,3 +96,5 @@
   </table>
 </div>
 <p class="pnl-muted">Average cost per asset. Transfers between this bundle's addresses are not sales; sending to other addresses removes holdings at cost. Not tax advice.</p>
+<p class="pnl-muted">After a fix that affected your data, start from scratch to process every transaction again.</p>
+<button type="button" class="pnl-button" hx-post="{% url 'pnl_reset' path %}?{{ query }}" hx-target="#id-pnl-body" hx-confirm="Delete this bundle's processed data and start from scratch?">Start from scratch</button>

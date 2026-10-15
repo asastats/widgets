@@ -2237,3 +2237,20 @@ not how the host reads its page. So each suite's `test_helpers.js` defines
 file is tested by the frontend's `javascript_tests/fiat.test.js`. Checked by
 running historic, swapcore, alerts and liverefresh from copies outside the
 frontend tree: all pass at 100%.
+
+## inhouse/pnl/views.py — "Start from scratch" (`PnlResetView`) (2026-10-15)
+
+P&L had no way out of a stuck run. A task that crashes mid-bundle (the LP token
+with no pricer ledger, engine 7e46f7e) leaves `events.json` short of
+`finished`, so `PnlStatusView` renders progress forever and never offers
+Process again. Historic has its Reset for this; P&L now has the same.
+
+The button sits in `_progress.html` (the stuck case) and under the table (to
+rerun after a fix). It posts to `pnl_reset`, which calls the engine's
+`pnl:reset` with `?scratch=1` and renders `_process.html`. Scratch deletes the
+shared historic data as well as the P&L files, so the historic widget for the
+same bundle starts over too. That is intended: both read the same ledger.
+`PnlRemoveView` still calls `pnl:reset` without the flag and keeps historic's
+data. No new engine scope was needed. As with historic's Reset, a task still
+running when the reset lands can write some files again; the button is meant
+for a run that has stopped.

@@ -19,6 +19,7 @@ from widgets.inhouse.pnl.views import (
     PnlChartView,
     PnlProcessView,
     PnlRemoveView,
+    PnlResetView,
     PnlStatusView,
     PnlView,
     _engine,
@@ -505,6 +506,26 @@ class TestPnlViewsProcessAndRemove:
 
 
 @pytest.mark.django_db
+class TestPnlViewsReset:
+    """Testing class for :py:class:`...pnl.views.PnlResetView`."""
+
+    def test_pnl_views_reset_starts_from_scratch_and_offers_processing(self, mocker):
+        engine = mocker.patch("widgets.inhouse.pnl.views._engine")
+        view = _view(PnlResetView, ASASTATSER)
+        response = view.post(view.request, BUNDLE)
+        engine.assert_called_once_with("pnl:reset", "DELETE", BUNDLE, "?scratch=1")
+        assert b"/process?" in response.content
+
+    def test_pnl_views_reset_for_engine_failure(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine", side_effect=BackendError("down")
+        )
+        view = _view(PnlResetView, ASASTATSER)
+        response = view.post(view.request, BUNDLE)
+        assert b"could not be loaded" in response.content
+
+
+@pytest.mark.django_db
 class TestPnlViewsAlert:
     """Testing class for :py:class:`...pnl.views.PnlAlertView`."""
 
@@ -599,6 +620,7 @@ class TestPnlUrls:
             ("/status", PnlStatusView),
             ("/process", PnlProcessView),
             ("/remove", PnlRemoveView),
+            ("/reset", PnlResetView),
             ("/asset/LP123", PnlAssetView),
             ("/alert/31566704", PnlAlertView),
         ],
