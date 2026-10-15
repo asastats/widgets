@@ -542,6 +542,42 @@ function viewChanged(evt) {
  */
 
 /**
+ * The host's `Fiat` (website `static/js/fiat.js`), or USD where a host has none.
+ * @returns {Object}
+ */
+function fiat() {
+  return typeof Fiat !== "undefined"
+    ? Fiat
+    : {
+        code: function () { return "USD"; },
+        rate: function () { return 1; },
+        isFiatSide: function (stored) { return !!stored && stored !== "ALGO"; },
+      };
+}
+
+/**
+ * Return the unit shown for the `hcur` choice: "ALGO" or the reader's fiat.
+ * @param {String} code
+ * @returns {String}
+ */
+function currencyLabel(code) {
+  return fiat().isFiatSide(code) ? fiat().code() : "ALGO";
+}
+
+/**
+ * Return the shown snapshot's fiat: its code and its rate from USD on that date.
+ * The rate is the snapshot's own (`data-snapshot-rate`), not today's; USD without it.
+ * @param {Element} elem the snapshot's `.pricetip`
+ * @returns {{code: String, rate: Number}}
+ */
+function snapshotFiat(elem) {
+  var code = fiat().code();
+  var rate = parseFloat(elem.dataset.snapshotRate);
+  if (code === "USD" || !(rate > 0)) return { code: "USD", rate: 1 };
+  return { code: code, rate: rate };
+}
+
+/**
  * Return the y axis title both charts are built with.
  *
  * **Read from storage rather than defaulted to ALGO**, because the switch is
@@ -559,7 +595,7 @@ function axisTitle() {
   } catch (e) {
     // Private mode or storage blocked. ALGO is what the engine sent.
   }
-  return { display: true, text: code };
+  return { display: true, text: currencyLabel(code) };
 }
 
 /**
@@ -576,7 +612,7 @@ function setAxisTitle(chart, code) {
   if (!chart || !chart.options || !chart.options.scales) return;
   var y = chart.options.scales.y;
   if (!y) return;
-  y.title = { display: true, text: code };
+  y.title = { display: true, text: currencyLabel(code) };
 }
 
 /**
@@ -666,23 +702,24 @@ function setCurrency(code) {
   var price = elem.dataset.price;
   var pricealgo = elem.dataset.pricealgo;
   var total = elem.dataset.total;
-  if (code == "USD") {
+  var shown = snapshotFiat(elem);
+  if (fiat().isFiatSide(code)) {
     $(".pricetip").each(function () {
-      setHistoricTip(this, cur(total * price) + " ALGO (" + dec6(price) + " ALGO/USD)");
-      this.innerHTML = cur(total) + " USD";
+      setHistoricTip(this, cur(total * price) + " ALGO (" + dec6(price / shown.rate) + " ALGO/" + shown.code + ")");
+      this.innerHTML = cur(total * shown.rate) + " " + shown.code;
     });
     $("span.val").each(function () {
-      this.innerHTML = cur(this.dataset.val / price) + " USD";
+      this.innerHTML = cur(this.dataset.val / price * shown.rate) + " " + shown.code;
       setHistoricTip(this, cur(this.dataset.val) + " ALGO");
     });
   } else {
     $(".pricetip").each(function () {
-      setHistoricTip(this, cur(total) + " USD (" + dec6(pricealgo) + " USD/ALGO)");
+      setHistoricTip(this, cur(total * shown.rate) + " " + shown.code + " (" + dec6(pricealgo * shown.rate) + " " + shown.code + "/ALGO)");
       this.innerHTML = cur(total * price) + " ALGO";
     });
     $("span.val").each(function () {
       this.innerHTML = cur(this.dataset.val) + " ALGO";
-      setHistoricTip(this, cur(this.dataset.val / price) + " USD");
+      setHistoricTip(this, cur(this.dataset.val / price * shown.rate) + " " + shown.code);
     });
   }
   // The charts follow the switch too. This used to call `setTotalCharts()`,
@@ -695,15 +732,15 @@ function setCurrency(code) {
 
   $(".switch")
     .find("input[type=checkbox]")
-    .prop("checked", code == "USD");
+    .prop("checked", fiat().isFiatSide(code));
 }
 
 /**
- * Switch amounts from ALGO to USD back and forth
+ * Switch amounts from ALGO to the reader's fiat back and forth
  *
  */
 function toggleCurrency() {
-  var code = $(this).prop("checked") ? "USD" : "ALGO";
+  var code = $(this).prop("checked") ? fiat().code() : "ALGO";
   localStorage.setItem("hcur", code);
   setCurrency(code);
 }
@@ -1100,12 +1137,29 @@ function currentPrice() {
  *
  */
 function chartsInCurrency(source, code, price) {
-  var rate = parseFloat(price);
-  if (code !== "USD" || isNaN(rate) || rate === 0) return source;
+  if (!fiat().isFiatSide(code)) return source;
+
+  var unit = fiat().code();
+  var fallback = parseFloat(price) / fiat().rate();
+  var rates = source.fiat;
+  if (!rates && !(fallback > 0)) return source;
+
+  var bars = (rates && rates.bars) || [];
+  var candles = (rates && rates.candles) || {};
+  // ALGO per unit of fiat for one point; today's price where the engine sent none
+  function algoPer(perAlgo) {
+    var value = perAlgo && perAlgo[unit];
+    return value > 0 ? 1 / value : fallback;
+  }
 
   return {
-    bars: chartInCurrency(source.bars, rate),
-    candles: chartInCurrency(source.candles, rate),
+    bars: chartInCurrency(source.bars, function (point, index) {
+      return algoPer(bars[index]);
+    }),
+    candles: chartInCurrency(source.candles, function (point, index, key) {
+      return algoPer(candles[point[key + "t"]]);
+    }),
+    fiat: rates,
   };
 }
 
@@ -1114,7 +1168,7 @@ function chartsInCurrency(source, code, price) {
  * @function chartInCurrency
  *
  * @param {object} chartData one chart's data and scale boundaries
- * @param {Number} rate ALGO per USD
+ * @param {Number|Function} rate ALGO per unit of fiat, or a function giving it per point
  *
  * @returns {object} a copy, scaled
  *
@@ -1122,10 +1176,13 @@ function chartsInCurrency(source, code, price) {
 function chartInCurrency(chartData, rate) {
   if (!chartData || !chartData.data) return chartData;
 
+  var rateFor = typeof rate === "function" ? rate : function () { return rate; };
   var datasets = (chartData.data.datasets || []).map(function (dataset) {
     var scaled = Object.assign({}, dataset);
-    scaled.data = (dataset.data || []).map(function (point) {
-      return pointInCurrency(point, rate);
+    scaled.data = (dataset.data || []).map(function (point, index) {
+      return pointInCurrency(point, function (key) {
+        return rateFor(point, index, key);
+      });
     });
     return scaled;
   });
@@ -1152,19 +1209,20 @@ var CHART_MONEY_KEYS = ["o", "h", "l", "c", "y"];
  * @function pointInCurrency
  *
  * @param {Number|String|object} point a bar height or a candle
- * @param {Number} rate ALGO per USD
+ * @param {Number|Function} rate ALGO per unit of fiat, or a function giving it per point
  *
  * @returns {Number|String|object} the point, scaled
  *
  */
 function pointInCurrency(point, rate) {
+  var rateFor = typeof rate === "function" ? rate : function () { return rate; };
   if (point === null || typeof point !== "object") {
-    return scaleFigure(point, rate);
+    return scaleFigure(point, rateFor("y"));
   }
 
   var scaled = Object.assign({}, point);
   CHART_MONEY_KEYS.forEach(function (key) {
-    if (key in scaled) scaled[key] = scaleFigure(scaled[key], rate);
+    if (key in scaled) scaled[key] = scaleFigure(scaled[key], rateFor(key));
   });
   return scaled;
 }
@@ -1174,14 +1232,15 @@ function pointInCurrency(point, rate) {
  * @function scaleFigure
  *
  * @param {Number|String} value figure in ALGO
- * @param {Number} rate ALGO per USD
+ * @param {Number} rate ALGO per unit of fiat
  *
- * @returns {Number|String} the figure in USD, or `value` if it is not a number
+ * @returns {Number|String|null} the figure in fiat, `value` if it is not a number, null without a rate
  *
  */
 function scaleFigure(value, rate) {
   var figure = parseFloat(value);
-  return isNaN(figure) ? value : figure / rate;
+  if (isNaN(figure)) return value;
+  return rate > 0 ? figure / rate : null;
 }
 
 /**
@@ -1482,6 +1541,9 @@ if (typeof exports !== "undefined") {
     setHistoricTip,
     setCurrency,
     toggleCurrency,
+    fiat,
+    currencyLabel,
+    snapshotFiat,
     chartInCurrency,
     chartsInCurrency,
     currentCurrency,

@@ -863,6 +863,26 @@ class TestAlertsEvaluateCurrency:
 
         assert in_rule_currency(rule, None, 4.0) is None
 
+    def test_alerts_evaluate_a_eur_rule_converts_through_usd(self, reader, mocker):
+        """400 ALGO where one dollar buys 4 ALGO is $100, so €90 at 0.9."""
+        mocker.patch(
+            "widgets.inhouse.alerts.evaluate.latest_rates", return_value={"EUR": 0.9}
+        )
+        rule = self._rule(reader, threshold_unit="eur")
+
+        assert in_rule_currency(rule, 400.0, 4.0) == 90.0
+
+    def test_alerts_evaluate_a_eur_rule_without_its_rate_reads_nothing(
+        self, reader, mocker, caplog
+    ):
+        mocker.patch("widgets.inhouse.alerts.evaluate.latest_rates", return_value={})
+        rule = self._rule(reader, threshold_unit="eur")
+
+        with caplog.at_level(logging.WARNING):
+            assert in_rule_currency(rule, 400.0, 4.0) is None
+
+        assert "is in EUR and no rate" in caplog.text
+
     def test_alerts_evaluate_a_subject_without_a_currency_ignores_the_unit(self, reader):
         """A percentage is a proportion however the stale control was left."""
         rule = self._rule(

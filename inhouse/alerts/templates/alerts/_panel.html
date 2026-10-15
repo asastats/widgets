@@ -1,3 +1,4 @@
+{% load l10n %}
 {% comment %} The rule list and the form, swapped in place by htmx.
 
    Its own partial rather than part of the modal, because every mutation
@@ -197,7 +198,9 @@
          per subject and keeps it in the chosen unit. {% endcomment %}
       <small class="alerts-now"
              data-current-total="{{ current_total|default_if_none:'' }}"
-             data-algo-per-usd="{{ algo_per_usd|default_if_none:'' }}"></small>
+             data-algo-per-usd="{{ algo_per_usd|default_if_none:'' }}"
+             data-usd-rate="{{ fiat.rate|default:1|unlocalize }}"
+             data-usd-symbol="{{ fiat.symbol|default:'$' }}"></small>
     </label>
 
     {% comment %} A short list rather than a free number: the honest period

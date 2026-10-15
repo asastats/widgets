@@ -2032,3 +2032,46 @@ describe("waiting for the worker before subscribing", () => {
     delete global.Notification;
   });
 });
+
+describe("a reader whose fiat is EUR", () => {
+  // The panel offers ALGO and EUR and carries EUR per USD with its symbol.
+  function eurPanel(subject, symbol = "€") {
+    const root = panel(subject);
+    const button = document.querySelector('[data-unit="usd"]');
+    button.setAttribute("data-unit", "eur");
+    button.textContent = "EUR";
+    const note = document.querySelector(".alerts-now");
+    note.setAttribute("data-usd-rate", "0.5");
+    note.setAttribute("data-usd-symbol", symbol);
+    return root;
+  }
+
+  test("the portfolio total converts through USD at the rate", () => {
+    // 1000 ALGO at $0.25 is $250, so €125.
+    eurPanel("total_value");
+
+    alerts.chooseUnit(document.querySelector('[data-unit="eur"]'));
+
+    expect(document.querySelector(".alerts-now").textContent).toBe("Now €125.00");
+  });
+
+  test("a picked asset's USD price converts at the rate", () => {
+    const root = eurPanel("asa_price");
+    const note = document.querySelector(".alerts-now");
+    note.setAttribute("data-asset-usd", "0.50");
+    note.setAttribute("data-algo-per-usd", "4");
+
+    alerts.chooseUnit(document.querySelector('[data-unit="eur"]'));
+
+    expect(note.textContent).toBe("Now €0.25");
+    expect(root).toBeTruthy();
+  });
+
+  test("a fiat without a symbol is named after the figure", () => {
+    eurPanel("total_value", "");
+
+    alerts.chooseUnit(document.querySelector('[data-unit="eur"]'));
+
+    expect(document.querySelector(".alerts-now").textContent).toBe("Now 125.00 EUR");
+  });
+});

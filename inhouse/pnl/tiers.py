@@ -13,11 +13,13 @@ def is_subscriber(permission):
     return (permission or 0) >= SUBSCRIPTION_TIER_PERMISSIONS["Asastatser"]
 
 
-def features_for(permission):
+def features_for(permission, fiat="usd"):
     """Return the widget features `permission` unlocks.
 
     :param permission: profile's permission value
     :type permission: int
+    :param fiat: the reader's fiat in lower case; their only currency below Asastatser
+    :type fiat: str
     :var subscriber: Asastatser or above
     :type subscriber: Boolean
     :var professional: Professional tier or above
@@ -31,7 +33,7 @@ def features_for(permission):
     cluster = (permission or 0) >= SUBSCRIPTION_TIER_PERMISSIONS["Cluster"]
     return {
         "linked_only": not subscriber,
-        "currencies": ("usd", "algo") if subscriber else ("usd",),
+        "currencies": (fiat, "algo") if subscriber else (fiat,),
         "drilldown": subscriber,
         "periods": ("all", "ytd", "30d", "7d") if subscriber else ("all",),
         "valuations": ("spot", "mve") if professional else ("spot",),

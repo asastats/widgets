@@ -1482,6 +1482,49 @@ class TestInhouseAlertsViewsEdit:
         assert 'data-unit="usd"' in html or 'aria-pressed="true">USD' in html
         assert 'value="USDC"' in html
 
+    def test_inhouse_alerts_views_a_eur_reader_is_offered_algo_and_eur(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.alerts.views.fiat_for_user",
+            return_value={"code": "EUR", "rate": 0.9, "symbol": "€"},
+        )
+        reader = _reader(email="edit-eur@example.com")
+        rule = _rule(
+            reader,
+            subject=Subject.ASA_TOTAL,
+            asset_id=31566704,
+            threshold="500",
+            address=self.PAGE,
+        )
+        view = self._view(reader, rule)
+
+        context = view.alerts_context(view.bundle)
+
+        assert context["units"] == [("algo", "ALGO"), ("eur", "EUR")]
+        assert context["fiat"]["code"] == "EUR"
+
+    def test_inhouse_alerts_views_edit_keeps_a_usd_rule_for_a_eur_reader(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.alerts.views.fiat_for_user",
+            return_value={"code": "EUR", "rate": 0.9, "symbol": "€"},
+        )
+        reader = _reader(email="edit-usd-eur@example.com")
+        rule = _rule(
+            reader,
+            subject=Subject.ASA_TOTAL,
+            asset_id=31566704,
+            threshold="500",
+            address=self.PAGE,
+        )
+        rule.threshold_unit = "usd"
+        rule.save()
+        view = self._view(reader, rule)
+
+        html = view.get(view.request).content.decode()
+
+        assert 'data-unit="usd"' in html
+        assert 'data-unit="eur"' in html
+        assert 'data-usd-rate="0.9"' in html
+
     def test_inhouse_alerts_views_edit_names_an_algo_rule(self, mocker):
         """Asset id 0 is falsy, so the button read "Choose asset" on a rule that
         had one - the template's half of the same defect as the form's."""

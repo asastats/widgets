@@ -31,6 +31,11 @@ class TestPnlTiers:
             "lp_analytics": False,
         }
 
+    def test_pnl_tiers_currencies_follow_the_readers_fiat(self):
+        intro = SUBSCRIPTION_TIER_PERMISSIONS["Intro"]
+        assert features_for(intro, fiat="eur")["currencies"] == ("eur",)
+        assert features_for(ASASTATSER, fiat="eur")["currencies"] == ("eur", "algo")
+
     def test_pnl_tiers_features_for_subscribers(self):
         assert features_for(ASASTATSER) == {
             "linked_only": False,

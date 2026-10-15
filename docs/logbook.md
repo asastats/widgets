@@ -2137,3 +2137,103 @@ Farm yield stays visible if some rewards had no price, and says how many. Its
 tooltip names the tokens it was paid in, from the other rows' labels, so the
 reward events can be found in those assets' drill-downs. The drill-down's
 "no price" badge follows the engine's per-event `unpriced` flag.
+
+## inhouse/liverefresh/views.py — the band in the reader's fiat (2026-10-15)
+
+The fragments re-render the address page's own band partials (`classicband`,
+`classictip`, `bandtotal`, `bandusd`). Since fiat F3 (`p-l/FIAT-PLAN.md`) those
+print the USD figures in the reader's fiat through `{% fiat_figure %}`, so the
+fragment context carries `fiat` from `utils.fiat.fiat_for_user`, the helper the
+address page puts in its cache key. Without it the partials fall back to USD and
+still render. An EUR reader would then see the band switch from EUR to USD at
+the first block.
+
+## inhouse/historic/static/historic/historic.js, consumers.py, templates — fiat per point (2026-10-15)
+
+Fiat F4 (`p-l/FIAT-PLAN.md`). The charts used to divide every point by the
+shown snapshot's ALGO/USD price. The engine now sends `charts_data.fiat`, with
+fiat per ALGO for each bar (by index) and for each candle timestamp (engine
+logbook, `historic/fiat.py`). `chartsInCurrency` converts each point with its
+own entry, and each candle's o/h/l/c with the entry for its `ot`/`ht`/`lt`/`ct`.
+Where an entry is missing it falls back to the old single price at today's rate.
+A payload cached before this deploy has no `fiat` block and draws as before.
+With no rate at all a point becomes null, a gap, rather than an ALGO figure
+under a fiat label.
+
+The snapshot (`assets.html`) converts at **its own date's** rate.
+`_snapshot_fiat` takes the reader's fiat with the rate from the engine's
+`fiat_rates` for that timestamp. It falls back to USD when the date has none.
+The rate rides on the `.pricetip` as `data-snapshot-rate`, not as `data-fiat`,
+so the website's `fiat.js`, which reads the first `[data-fiat]`, keeps the
+page-level span from `index.html`.
+
+`hcur` keeps "ALGO" or a fiat code; anything but "ALGO" is the fiat side.
+`fiat()` falls back to a USD stand-in on a host without the website's `fiat.js`,
+so the widget still works on such a host. The Jest helpers load the real
+`fiat.js` from the website tree.
+
+## inhouse/pnl/tiers.py, views.py, display.py — P&L in the reader's fiat (2026-10-15)
+
+Fiat F5 (`p-l/FIAT-PLAN.md`). `features_for(permission, fiat)` puts the
+reader's fiat where "usd" was. Below Asastatser it is the one currency, as the
+user decided on 2026-10-14, and from Asastatser up it is paired with ALGO.
+`PnlView.fiat()` comes from `utils.fiat.fiat_for_user`, so a reader whose fiat
+has no published rate gets "usd", as everywhere else on the site.
+`currency()` falls back to the first allowed currency, the fiat, so an EUR
+reader asking for `?currency=usd` gets EUR (decision Q2: no USD for them).
+Money is written with the fiat's symbol (`utils.fiat.FIAT_SYMBOLS`) or, for a
+code without one, as a suffix like ALGO's. P&L-derived alerts pass the
+currency as `threshold_unit`, which the alerts form accepts since F8; the two
+ship together.
+
+## inhouse/alerts/forms.py, evaluate.py, views.py, alerts.js — alerts in the reader's fiat (2026-10-15)
+
+Fiat F8. `UNIT_CHOICES` is ALGO plus every `settings.FIAT_CURRENCIES` code in
+lower case. `threshold_unit` (`max_length=4`) already fits "eur", so no
+migration. The panel offers ALGO and the reader's fiat. An edited rule's own
+unit stays on offer, so a USD rule kept by a reader who later chose EUR is not
+silently rewritten.
+
+`in_rule_currency` divides by ALGO per USD as before. For a unit other than USD
+it then multiplies by the latest ECB rate (`utils.fiat.latest_rates`, the
+engine's `fxrt` key read at most every five minutes). Without that rate the
+rule reads nothing and logs it: the same refusal as a USD rule without an ALGO
+rate, rather than comparing a EUR threshold with a USD figure.
+`describe` names the rule's own unit, so notifications say "EUR".
+
+The modal's "Now …" hint takes `data-usd-rate` (fiat per USD) and
+`data-usd-symbol` from the panel. A panel cached before this deploy has neither
+and shows USD, as it did.
+
+## inhouse/liverefresh/static/liverefresh/liverefresh.js — any stored fiat is the fiat side (2026-10-15)
+
+Fiat F6. The address page now stores the reader's fiat code in `cur` ("EUR",
+not only "USD"). `currency()` reads anything but "ALGO" as the fiat side and
+still answers "USD", the value the log's CSS and the `data-basis` rows bind to.
+No dependency on the website's `fiat.js`.
+
+## inhouse/swapcore/static/swap/swap.js — swap value in the reader's fiat (2026-10-15)
+
+Fiat F7. `usdcHelper` shows the router's USD value of each leg in the host
+page's fiat (`Fiat.fromUsd`, symbol or code suffix). On a host without
+`fiat.js` it shows "$" as before. hogswap reuses swapcore's panel and has no
+figure of its own.
+
+## inhouse/historic/tests/javascript, inhouse/swapcore/tests/javascript — a fiat stub, not the host's file (2026-10-15)
+
+Correction to the 2026-10-15 entries on `historic.js` and `swap.js` above, which
+said the Jest helpers load the website's `fiat.js`. They did, through
+`../../../../../static/js/fiat.js`. That path exists only inside the frontend
+checkout. This repository's own CI checks out the widgets alone, so the require
+failed: the swapcore EUR tests errored and `usdcHelper`'s `Fiat` branch
+(swap.js 123–125) went uncovered. The widgets' tests had never run alone.
+
+Downloading `fiat.js` from the frontend repository in the workflow was
+rejected, and so was shipping a copy. Either would make these tests depend on
+another repository's current file, or on a copy that drifts from it. What a
+widget relies on is the API (`code`, `rate`, `fromUsd`, `symbol`, `isFiatSide`),
+not how the host reads its page. So each suite's `test_helpers.js` defines
+`fiatStub(code, rate, symbol)` and the tests set `global.Fiat` from it. The real
+file is tested by the frontend's `javascript_tests/fiat.test.js`. Checked by
+running historic, swapcore, alerts and liverefresh from copies outside the
+frontend tree: all pass at 100%.

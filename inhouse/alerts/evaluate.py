@@ -37,6 +37,8 @@ import time
 from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
+from utils.fiat import latest_rates
+
 from .models import (
     CURRENCY_SUBJECTS,
     PRICED_SUBJECTS,
@@ -128,14 +130,20 @@ def in_rule_currency(rule, algo_figure, algo_per_usd):
     """
     if algo_figure is None:
         return None
-    if rule.subject not in CURRENCY_SUBJECTS or rule.threshold_unit != "usd":
+    if rule.subject not in CURRENCY_SUBJECTS or rule.threshold_unit in ("", "algo"):
         return algo_figure
     if not algo_per_usd:
         logger.warning(
             "alerts: rule %s is in USD and no ALGO/USD rate was published", rule.pk
         )
         return None
-    return float(algo_figure) / float(algo_per_usd)
+    code = rule.threshold_unit.upper()
+    # a fiat other than USD at the engine's latest ECB rate; see docs/logbook.md
+    rate = 1.0 if code == "USD" else latest_rates().get(code)
+    if not rate:
+        logger.warning("alerts: rule %s is in %s and no rate was published", rule.pk, code)
+        return None
+    return float(algo_figure) / float(algo_per_usd) * rate
 
 
 def reading_for(

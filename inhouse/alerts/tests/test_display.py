@@ -308,6 +308,17 @@ class TestAlertsDisplayTheAssetAndItsCurrency:
 
         assert describe(rule).endswith("falls below 0.5 USD")
 
+    def test_alerts_display_names_a_eur_price_in_eur(self, reader):
+        rule = _rule(
+            reader,
+            subject=Subject.ASA_PRICE,
+            asset_id=1,
+            threshold="0.5",
+            threshold_unit="eur",
+        )
+
+        assert describe(rule).endswith("falls below 0.5 EUR")
+
     def test_alerts_display_describes_an_amount_in_the_assets_own_units(self, reader):
         """**No currency at all.** A count of the asset is not money, so the
         figure is followed by the asset rather than by ALGO or USD."""

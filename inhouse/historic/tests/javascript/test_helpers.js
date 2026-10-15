@@ -52,3 +52,18 @@ module.exports = {
 };
 
 
+
+/**
+ * A stand-in for the host's `Fiat` (the website's static/js/fiat.js) with the
+ * calls the widgets make. Not the host's file: this repository is tested alone.
+ */
+global.fiatStub = (code = "USD", rate = 1, symbol = code === "USD" ? "$" : "") => ({
+  code: () => code,
+  rate: () => rate,
+  fromUsd: (usd) => usd * rate,
+  symbol: () => symbol,
+  isFiatSide: (stored) => !!stored && stored !== "ALGO",
+});
+
+// The host page loads its fiat.js before the widget; a reader who chose nothing is USD.
+global.Fiat = global.fiatStub();

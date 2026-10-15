@@ -9,6 +9,7 @@ from django.views.generic.base import RedirectView, TemplateView
 
 from api.client import engine_request
 from api.widgets import bundle_and_addresses_from_path
+from utils.fiat import fiat_for_user
 from widgethost.enforcement import WidgetAccessMixin
 from widgethost.manifest import addresses_limit_for_permission
 
@@ -51,6 +52,7 @@ class HistoricView(WidgetAccessMixin, TemplateView):
         context["bundle"] = self.bundle
         context["addresses"] = self.addresses
         context["website_name"] = settings.WEBSITE_NAME
+        context["fiat"] = fiat_for_user(getattr(self.request, "user", None))
         return context
 
     def handle_no_permission(self):

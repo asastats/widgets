@@ -168,6 +168,27 @@ class TestPnlViewsAccess:
         assert _view(PnlView, ASASTATSER, "?currency=algo").currency() == "algo"
         assert _view(PnlView, ASASTATSER, "?currency=eur").currency() == "usd"
 
+    def test_pnl_views_currency_for_a_eur_reader(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.pnl.views.fiat_for_user",
+            return_value={"code": "EUR", "rate": 0.9, "symbol": "€"},
+        )
+        # below Asastatser their fiat is the one currency, in place of USD
+        assert _view(PnlView, 0).currency() == "eur"
+        assert _view(PnlView, 0, "?currency=usd").currency() == "eur"
+        assert _view(PnlView, ASASTATSER).features["currencies"] == ("eur", "algo")
+        assert _view(PnlView, ASASTATSER, "?currency=algo").currency() == "algo"
+        assert _view(PnlView, ASASTATSER, "?currency=usd").currency() == "eur"
+
+    def test_pnl_views_fiat_is_the_readers(self, mocker):
+        mocked = mocker.patch(
+            "widgets.inhouse.pnl.views.fiat_for_user",
+            return_value={"code": "USD", "rate": 1.0, "symbol": "$"},
+        )
+        view = _view(PnlView, 0)
+        assert view.fiat() == "usd"
+        mocked.assert_called_once_with(view.request.user)
+
     def test_pnl_views_valuation_respects_tier(self):
         assert _view(PnlView, ASASTATSER, "?valuation=mve").valuation() == "spot"
         assert _view(PnlView, CLUSTER, "?valuation=mve").valuation() == "mve"

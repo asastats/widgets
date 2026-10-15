@@ -4296,3 +4296,33 @@ describe("legValueUsdc works for every router and both legs", () => {
     expect(F.legValueUsdc(panel, { mode: "sell" }, "out")).toBeNull();
   });
 });
+
+describe("usdcHelper on a host page with the reader's fiat", () => {
+  afterEach(() => {
+    delete global.Fiat;
+  });
+
+  it("shows the value in EUR at the page's rate", () => {
+    global.Fiat = fiatStub("EUR", 0.5, "€");
+
+    expect(F.usdcHelper(5.4231)).toBe("€2.71");
+  });
+
+  it("names a fiat without a symbol after the figure", () => {
+    global.Fiat = fiatStub("CHF", 0.8);
+
+    expect(F.usdcHelper(10)).toBe("8.00 CHF");
+  });
+
+  it("is dollars for a reader whose fiat is USD", () => {
+    global.Fiat = fiatStub();
+
+    expect(F.usdcHelper(5.4231)).toBe("$5.42");
+  });
+
+  it("is dollars on a host without fiat.js", () => {
+    delete global.Fiat;
+
+    expect(F.usdcHelper(5.4231)).toBe("$5.42");
+  });
+});

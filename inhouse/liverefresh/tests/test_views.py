@@ -311,6 +311,40 @@ class TestLiveRefreshFragments:
         assert "1,881.51 ALGO" in html
         assert "216.30 USD at 0.114962 USD/ALGO" in html
 
+    def test_liverefresh_fragments_show_the_readers_fiat(self):
+        from django.template.loader import render_to_string
+
+        html = render_to_string(
+            "liverefresh/fragments.html",
+            {
+                "payload": dict(self.PAYLOAD, values={}),
+                "layout": "dynamic",
+                "fiat": {"code": "EUR", "rate": 0.5, "symbol": "€"},
+            },
+        )
+
+        assert "108.15 EUR at 0.057481 EUR/ALGO" in html
+        assert "USD" not in html
+
+    def test_liverefresh_fragments_are_given_the_readers_fiat(self, mocker, rf):
+        from django.contrib.auth.models import AnonymousUser
+
+        from widgets.inhouse.liverefresh.views import LiveRefreshView
+
+        fiat = {"code": "EUR", "rate": 0.5, "symbol": "€"}
+        mocked = mocker.patch(
+            "widgets.inhouse.liverefresh.views.fiat_for_user", return_value=fiat
+        )
+        view = LiveRefreshView()
+        view.request = rf.get("/")
+        view.request.user = AnonymousUser()
+        view.addresses, view.bundle, view.args, view.kwargs = "A", "B", (), {}
+
+        context = view.get_context_data(payload={})
+
+        assert context["fiat"] is fiat
+        mocked.assert_called_once_with(view.request.user)
+
     def test_liverefresh_fragments_carry_what_the_currency_switch_reads(self):
         """`address.js` converts every figure on the page from these.
 
@@ -3272,6 +3306,42 @@ class TestLiveLogRowsRender:
         html = self._rendered("dynamic", [dict(self.EVENT, new=1.5, algo=-1.5)])
 
         assert '<span class="livelog-value num neg">-1.50 ALGO</span>' in html
+
+    def test_liverefresh_the_log_shows_usd_figures_in_the_readers_fiat(self):
+        from django.template.loader import render_to_string
+
+        fiat = {"code": "EUR", "rate": 0.5, "symbol": "€"}
+        events = [
+            dict(self.EVENT, usd=3.0),
+            {"kind": "price", "old": 0.2, "new": 0.25, "pct": 25.0, "held": 10, "impact": 0.5},
+            {
+                "kind": "asset_price",
+                "basis": "usd",
+                "name": "Coin",
+                "old": 2.0,
+                "new": 3.0,
+                "pct": 50.0,
+                "impact": 4.0,
+                "amount": 2,
+                "decimals": 0,
+            },
+        ]
+        html = render_to_string(
+            "liverefresh/fragments.html",
+            {
+                "payload": {"seq": 2, "events": events},
+                "layout": "dynamic",
+                "livelog": True,
+                "fiat": fiat,
+            },
+        )
+
+        assert "+1.50 EUR" in html
+        assert "ALGO price 0.1000 to 0.1250 EUR" in html
+        assert "+0.25 EUR on 10.00 ALGO held" in html
+        assert "Coin price 1 to 1.50000000 EUR" in html
+        assert "+2.00 EUR on 2 held" in html
+        assert "USD" not in html
 
     def test_liverefresh_the_classic_layout_gets_the_log_too(self):
         html = self._rendered("classic", [self.EVENT])

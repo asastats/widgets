@@ -1,4 +1,4 @@
-{% load partials %}{% load static %}{% load core_extras %}
+{% load partials %}{% load static %}{% load core_extras %}{% load l10n %}
 
 {% comment %} ASA {% endcomment %}
 {% partialdef asaheader %}
@@ -241,8 +241,8 @@
   {% endcomment %}
   <h2 class="historic-total">
     <span class="sr-only">Total value:</span>
-    <span class="pricetip htip" tabindex="0" aria-describedby="id-total-tip" data-price={{ data.total.priceusdc }} data-pricealgo={{ data.total.pricealgo }} data-total={{ data.total.totalusdc }} data-totalwnft={{ data.total.total }} data-totalnft={{ data.total.nft }} data-tip='{{ data.total.totalusdc|floatformat:"2g" }} USD ({{ data.total.pricealgo|floatformat:"2g" }} USD/ALGO)'>{{ data.total.total|floatformat:"2g" }} ALGO</span>
-    <span id="id-total-tip" class="sr-only">{{ data.total.totalusdc|floatformat:"2g" }} USD ({{ data.total.pricealgo|floatformat:"2g" }} USD/ALGO)</span>
+    <span class="pricetip htip" tabindex="0" aria-describedby="id-total-tip" data-price={{ data.total.priceusdc }} data-pricealgo={{ data.total.pricealgo }} data-total={{ data.total.totalusdc }} data-totalwnft={{ data.total.total }} data-totalnft={{ data.total.nft }} data-snapshot-rate="{{ snapshot_fiat.rate|default:1|unlocalize }}" data-tip='{% fiat_figure data.total.totalusdc snapshot_fiat "2g" %} {{ snapshot_fiat.code|default:"USD" }} ({% fiat_figure data.total.pricealgo snapshot_fiat "2g" %} {{ snapshot_fiat.code|default:"USD" }}/ALGO)'>{{ data.total.total|floatformat:"2g" }} ALGO</span>
+    <span id="id-total-tip" class="sr-only">{% fiat_figure data.total.totalusdc snapshot_fiat "2g" %} {{ snapshot_fiat.code|default:"USD" }} ({% fiat_figure data.total.pricealgo snapshot_fiat "2g" %} {{ snapshot_fiat.code|default:"USD" }}/ALGO)</span>
   </h2>
 
   <div class="consolidated">

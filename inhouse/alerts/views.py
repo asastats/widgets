@@ -27,6 +27,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import TemplateView, View
 
 from api.widgets import bundle_and_addresses_from_path, page_key_from_addresses
+from utils.fiat import fiat_for_user
 from widgethost.enforcement import WidgetAccessMixin
 
 from .display import describe, disclosure, plain_threshold
@@ -98,6 +99,8 @@ class AlertsContextMixin:
         profile = getattr(user, "profile", None)
         permission = getattr(profile, "permission", 0)
         allowed = rules_allowed(permission)
+        fiat = fiat_for_user(user)
+        fiat_code = fiat["code"].lower()
         subjects = subjects_allowed(permission)
         pages = pages_allowed(permission)
         rules = list(
@@ -134,7 +137,10 @@ class AlertsContextMixin:
             ),
             "directions": Direction.choices,
             "windows": WINDOW_CHOICES,
-            "units": UNIT_CHOICES,
+            # ALGO and the reader's fiat; the form accepts every configured code.
+            "units": [unit for unit in UNIT_CHOICES if unit[0] in ("algo", fiat_code)],
+            # The modal shows "now" in the reader's fiat; see `alerts.js`.
+            "fiat": fiat,
             "widget_id": MANIFEST.id,
             # The public key is not secret: the browser binds a subscription
             # to it. The private one never leaves the server.
@@ -360,6 +366,12 @@ class AlertsRuleEditView(WidgetAccessMixin, AlertsContextMixin, View):
             instance=rule,
         )
         context["editing"] = rule
+        # The rule's own unit stays on offer, as a USD rule kept by a EUR reader.
+        context["units"] = [
+            unit
+            for unit in UNIT_CHOICES
+            if unit in context["units"] or unit[0] == rule.threshold_unit
+        ]
         return HttpResponse(
             render_to_string("alerts/_panel.html", context, request=request)
         )

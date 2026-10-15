@@ -396,11 +396,14 @@
     // square of the rate; `address.js` has always divided, and is the
     // reference.
     var rate = parseFloat(note.getAttribute("data-algo-per-usd"));
+    // The reader's fiat per USD, 1 for USD; a unit other than "algo" is a fiat.
+    var usdRate = parseFloat(note.getAttribute("data-usd-rate")) || 1;
+    var fiat = chosen && chosen !== "algo";
 
     if (subject.value === "total_value" && isFinite(total)) {
-      if (chosen === "usd") {
+      if (fiat) {
         return isFinite(rate) && rate > 0
-          ? { value: total / rate, unit: "usd" }
+          ? { value: total / rate * usdRate, unit: chosen }
           : null;
       }
       return { value: total, unit: "algo" };
@@ -413,8 +416,8 @@
       // most dangerous version of this feature.
       var assetUsd = parseFloat(note.getAttribute("data-asset-usd"));
       if (isFinite(assetUsd) && isFinite(rate) && rate > 0) {
-        return chosen === "usd"
-          ? { value: assetUsd, unit: "usd" }
+        return fiat
+          ? { value: assetUsd * usdRate, unit: chosen }
           : { value: assetUsd * rate, unit: "algo" };
       }
     }
@@ -432,10 +435,12 @@
     var figure = currentFigure(root);
     var text = "";
     if (figure) {
-      text =
-        figure.unit === "usd"
-          ? "Now $" + trim(figure.value)
-          : "Now " + trim(figure.value) + " ALGO";
+      var symbol = note.getAttribute("data-usd-symbol");
+      // a panel rendered before the attribute existed is in USD
+      if (symbol === null && figure.unit === "usd") symbol = "$";
+      if (figure.unit === "algo") text = "Now " + trim(figure.value) + " ALGO";
+      else if (symbol) text = "Now " + symbol + trim(figure.value);
+      else text = "Now " + trim(figure.value) + " " + figure.unit.toUpperCase();
     }
     note.textContent = text;
     suggest(root);

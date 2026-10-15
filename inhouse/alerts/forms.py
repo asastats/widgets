@@ -13,6 +13,7 @@ many rules this reader may keep is read from their profile here, never posted.
 from decimal import Decimal
 
 from django import forms
+from django.conf import settings
 
 from .models import (
     ASSET_SUBJECTS,
@@ -53,7 +54,9 @@ WINDOW_CHOICES = (
 #: if ALGO's own price moves the rule no longer means $0.50. Converting at
 #: evaluation would need the unit kept on the row and the ALGO price carried to
 #: the evaluator; it is the better design and it is not this one.
-UNIT_CHOICES = (("algo", "ALGO"), ("usd", "USD"))
+UNIT_CHOICES = (("algo", "ALGO"),) + tuple(
+    (code.lower(), code) for code in settings.FIAT_CURRENCIES
+)
 
 #: The largest percentage move worth offering. Above this a rule is a way of
 #: saying "tell me if it collapses", which `down 90` already says.

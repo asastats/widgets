@@ -1683,3 +1683,173 @@ describe("the total's tooltip and the keyboard", () => {
     expect(() => historic.setCurrency("USD")).not.toThrow();
   });
 });
+
+describe("a reader whose fiat is EUR", () => {
+  // The host's fiat is EUR at today's rate; the snapshot carries its own.
+  afterEach(() => {
+    global.Fiat = fiatStub();
+  });
+
+  function page({ snapshotRate = "0.5" } = {}) {
+    global.Fiat = fiatStub("EUR", 0.9, "€");
+    document.body.innerHTML =
+      '<span class="pricetip" data-price="2" data-pricealgo="0.5" ' +
+      'data-total="100" data-totalwnft="200" data-totalnft="10"' +
+      (snapshotRate === null ? "" : ' data-snapshot-rate="' + snapshotRate + '"') +
+      "></span>" +
+      '<span class="val" data-val="4"></span>' +
+      '<div class="switch"><input type="checkbox"></div>';
+    return document.querySelector(".pricetip");
+  }
+
+  function source(fiatBlock) {
+    const charts = {
+      bars: { data: { datasets: [{ data: [100, 50, 10] }] }, xmin: 0, xmax: 2 },
+      candles: {
+        data: {
+          datasets: [
+            {
+              data: [
+                { x: 1000, o: 100, h: 200, l: 50, c: 150, ot: 1, ht: 2, lt: 3, ct: 4 },
+              ],
+            },
+          ],
+        },
+      },
+    };
+    if (fiatBlock !== undefined) charts.fiat = fiatBlock;
+    return charts;
+  }
+
+  it("shows the snapshot in EUR at the snapshot's own rate", () => {
+    const price = page();
+
+    historic.setCurrency("EUR");
+
+    // 100 USD at 0.5 EUR per USD
+    expect(price.innerHTML).toBe("50.00 EUR");
+    expect(price.dataset.tip).toContain(" ALGO/EUR)");
+    // 4 ALGO at 2 ALGO per USD is 2 USD, so 1 EUR
+    expect(document.querySelector(".val").innerHTML).toBe("1.00 EUR");
+    expect(document.querySelector(".switch input").checked).toBe(true);
+  });
+
+  it("reads a stored USD as the fiat side", () => {
+    page();
+
+    historic.setCurrency("USD");
+
+    expect(document.querySelector(".pricetip").innerHTML).toBe("50.00 EUR");
+  });
+
+  it("puts EUR in the tooltips on the ALGO side", () => {
+    const price = page();
+
+    historic.setCurrency("ALGO");
+
+    expect(price.innerHTML).toBe("200.00 ALGO");
+    expect(price.dataset.tip).toBe("50.00 EUR (0.25 EUR/ALGO)");
+    expect(document.querySelector(".val").dataset.tip).toBe("1.00 EUR");
+  });
+
+  it("falls back to USD for a snapshot without its rate", () => {
+    const price = page({ snapshotRate: null });
+
+    historic.setCurrency("EUR");
+
+    expect(price.innerHTML).toBe("100.00 USD");
+    expect(historic.snapshotFiat(price)).toEqual({ code: "USD", rate: 1 });
+  });
+
+  it("stores the reader's fiat when switched on", () => {
+    page();
+    const checkbox = document.querySelector(".switch input");
+    checkbox.checked = true;
+
+    historic.toggleCurrency.call(checkbox);
+
+    expect(localStorage.setItem).toHaveBeenCalledWith("hcur", "EUR");
+  });
+
+  it("labels the axes with the reader's fiat", () => {
+    page();
+    expect(historic.currencyLabel("USD")).toBe("EUR");
+    expect(historic.currencyLabel("ALGO")).toBe("ALGO");
+  });
+
+  it("converts each bar at its own rate and each candle price at its own time", () => {
+    page();
+    const charts = historic.chartsInCurrency(
+      source({
+        bars: [{ USD: 0.2, EUR: 0.1 }, { USD: 0.4, EUR: 0.3 }, null],
+        candles: { 1: { EUR: 0.1 }, 2: { EUR: 0.2 }, 3: { EUR: 0.5 } },
+      }),
+      "EUR",
+      "2",
+    );
+
+    // fallback for the bar and the candle price without a rate: 2 ALGO per USD
+    // at today's 0.9 EUR per USD
+    expect(charts.bars.data.datasets[0].data).toEqual([
+      expect.closeTo(10),
+      expect.closeTo(15),
+      expect.closeTo(10 * 0.9 / 2),
+    ]);
+    const candle = charts.candles.data.datasets[0].data[0];
+    expect(candle.o).toBeCloseTo(10);
+    expect(candle.h).toBeCloseTo(40);
+    expect(candle.l).toBeCloseTo(25);
+    expect(candle.c).toBeCloseTo(150 * 0.9 / 2);
+    expect(candle.ct).toBe(4);
+    expect(charts.fiat.candles[1]).toEqual({ EUR: 0.1 });
+  });
+
+  it("leaves a point without any rate empty rather than in ALGO", () => {
+    page();
+    const charts = historic.chartsInCurrency(source({ bars: [] }), "EUR", null);
+
+    expect(charts.bars.data.datasets[0].data).toEqual([null, null, null]);
+    expect(charts.candles.data.datasets[0].data[0].o).toBe(null);
+  });
+
+  it("converts an older payload at today's price", () => {
+    page();
+    const charts = historic.chartsInCurrency(source(), "EUR", "2");
+
+    expect(charts.bars.data.datasets[0].data[0]).toBeCloseTo(100 * 0.9 / 2);
+  });
+
+  it("keeps an older payload in ALGO with no price at all", () => {
+    page();
+    const payload = source();
+
+    expect(historic.chartsInCurrency(payload, "EUR", null)).toBe(payload);
+  });
+});
+
+describe("chartInCurrency with one rate", () => {
+  it("divides every point by it", () => {
+    const charts = historic.chartInCurrency({ data: { datasets: [{ data: [100, 50] }] } }, 0.25);
+
+    expect(charts.data.datasets[0].data).toEqual([400, 200]);
+  });
+});
+
+describe("a host without fiat.js", () => {
+  afterEach(() => {
+    global.Fiat = fiatStub();
+  });
+
+  it("reads everything as USD", () => {
+    delete global.Fiat;
+
+    const fallback = historic.fiat();
+
+    expect(fallback.code()).toBe("USD");
+    expect(fallback.rate()).toBe(1);
+    expect(fallback.isFiatSide("USD")).toBe(true);
+    expect(fallback.isFiatSide("ALGO")).toBe(false);
+    expect(fallback.isFiatSide(null)).toBe(false);
+    expect(historic.currencyLabel("USD")).toBe("USD");
+  });
+});

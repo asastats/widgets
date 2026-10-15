@@ -38,6 +38,7 @@ from api.widgets import bundle_and_addresses_from_path
 from utils.clients import redis_instance
 from utils.constants.core import LIVEREFRESH_MAX_FRAGMENTS as MAX_FRAGMENTS
 from utils.constants.core import LIVEREFRESH_RELOAD_COOLDOWN_SECONDS as RELOAD_COOLDOWN
+from utils.fiat import fiat_for_user
 from utils.layouts import layout_for_user
 from walletauth.gating import is_linked_to_user
 from widgethost.enforcement import WidgetAccessMixin
@@ -1334,6 +1335,8 @@ class LiveRefreshView(WidgetAccessMixin, TemplateView):
         # every swap lands nowhere. Derived here rather than taken from a
         # parameter, so the two cannot disagree.
         context["layout"] = layout_for_user(getattr(self.request, "user", None))
+        # The band's partials print figures in it, as the page did.
+        context["fiat"] = fiat_for_user(getattr(self.request, "user", None))
         context["positions"] = _named_positions(context.get("payload"))
         return context
 

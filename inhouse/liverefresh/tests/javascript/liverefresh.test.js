@@ -1461,6 +1461,17 @@ describe("the live log's currency, times and CSV copy", () => {
     expect(log().getAttribute("data-cur")).toBe("USD");
   });
 
+  it("reads a stored EUR as the fiat side, which the CSS knows as USD", () => {
+    watched();
+    load();
+
+    localStorage.setItem("cur", "EUR");
+    document.body.click();
+    jest.advanceTimersByTime(0);
+
+    expect(log().getAttribute("data-cur")).toBe("USD");
+  });
+
   it("follows a currency changed in another tab", () => {
     watched();
     load();

@@ -1,10 +1,12 @@
-{% extends 'base.html' %}{% load static %}{% load core_extras %}
+{% extends 'base.html' %}{% load static %}{% load core_extras %}{% load l10n %}
 {% block title %}Historic data - {{ website_name }}{% endblock %}
 {% block otherheader %}
 <meta name="format-detection" content="telephone=no">
 <link href="{% static 'historic/style.css' %}" type="text/css" rel="stylesheet" media="screen">
 {% endblock %}
 {% block content %}
+{# The reader's fiat for fiat.js; a snapshot's own rate is on its `.pricetip`. #}
+<span hidden data-fiat="{{ fiat.code|default:'USD' }}" data-fiat-rate="{{ fiat.rate|default:1|unlocalize }}"></span>
 <div hx-ws:connect="/widgets/historic/{{ bundle }}/">
   <h1>Historic data</h1>
 
@@ -97,7 +99,7 @@
           <label>
             <span>ALGO</span>
             <input type="checkbox">
-            <span>USD</span>
+            <span>{{ fiat.code|default:"USD" }}</span>
           </label>
         </div>
         <div class="totalnonft">

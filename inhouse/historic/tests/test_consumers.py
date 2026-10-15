@@ -9,6 +9,7 @@ from widgets.inhouse.historic.consumers import (
     HistoricConsumer,
     _preferred_explorer_for_user,
     _restore_event_phase_keys,
+    _snapshot_fiat,
 )
 
 
@@ -184,7 +185,11 @@ class TestHistoricConsumersProcessForTimestamp:
         consumer.view = mocker.MagicMock(bundle="BUNDLE")
         consumer.view.timestamp_for_x.return_value = 100
         engine = mocker.patch("widgets.inhouse.historic.consumers.engine_request")
-        engine.return_value.json.return_value = {"data": {}, "date": "x"}
+        engine.return_value.json.return_value = {
+            "data": {},
+            "date": "x",
+            "fiat_rates": {"EUR": 0.9},
+        }
         assets_data = {"asa": [mocker.MagicMock()], "nft": [], "noteval": []}
         deserialize = mocker.patch(
             "widgets.inhouse.historic.consumers.deserialize_assets_data",
@@ -199,12 +204,21 @@ class TestHistoricConsumersProcessForTimestamp:
             "widgets.inhouse.historic.consumers._preferred_explorer_for_user",
             return_value="",
         )
+        snapshot = mocker.patch(
+            "widgets.inhouse.historic.consumers._snapshot_fiat",
+            return_value={"code": "EUR", "rate": 0.9, "symbol": "€"},
+        )
         render = mocker.patch(
             "widgets.inhouse.historic.consumers.render_to_string",
             return_value="<div></div>",
         )
 
         async_to_sync(consumer._process_for_timestamp)({"x-val": "100", "label": "ALGO"})
+
+        # The snapshot's figures convert at the snapshot's own rate.
+        snapshot.assert_called_once_with(user, {"EUR": 0.9})
+        scaffold = render.call_args_list[0].args[1]
+        assert scaffold["snapshot_fiat"] == {"code": "EUR", "rate": 0.9, "symbol": "€"}
 
         # Engine timestamp result is rebuilt into display structs and charted.
         deserialize.assert_called_once_with({})
@@ -221,6 +235,36 @@ class TestHistoricConsumersProcessForTimestamp:
         assert sent[0] == json.dumps({"type": "assets_begin"})
         assert sent[-1] == json.dumps({"type": "assets_end"})
         assert "<div></div>" in sent
+
+
+class TestHistoricConsumersSnapshotFiat:
+    """Testing class for :py:func:`...consumers._snapshot_fiat`."""
+
+    EUR = {"code": "EUR", "rate": 0.85, "symbol": "€"}
+
+    def test_historic_consumers_snapshot_fiat_at_the_snapshot_rate(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.historic.consumers.fiat_for_user", return_value=self.EUR
+        )
+        assert _snapshot_fiat("user", {"EUR": 0.9}) == {
+            "code": "EUR",
+            "rate": 0.9,
+            "symbol": "€",
+        }
+
+    def test_historic_consumers_snapshot_fiat_without_its_rate_is_usd(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.historic.consumers.fiat_for_user", return_value=self.EUR
+        )
+        assert _snapshot_fiat("user", {})["code"] == "USD"
+        assert _snapshot_fiat("user", None)["rate"] == 1.0
+
+    def test_historic_consumers_snapshot_fiat_for_a_usd_reader(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.historic.consumers.fiat_for_user",
+            return_value={"code": "USD", "rate": 1.0, "symbol": "$"},
+        )
+        assert _snapshot_fiat("user", {"EUR": 0.9})["code"] == "USD"
 
 
 class TestHistoricConsumersBroadcasting:

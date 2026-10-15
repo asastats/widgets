@@ -108,18 +108,21 @@ function setLegValues(panel, payText, getText) {
 /**
  * Return a USDC amount as the helper text under the computed leg, or "".
  *
- * Two decimals and a leading `$`, which is what a reader is already holding in
- * their head when they look at a swap. Empty for null, so the element collapses
- * rather than claiming "$0.00" about a trade nobody could price -- `valueUsdc`
- * is null exactly when the router had no price for the output asset.
+ * Two decimals in the reader's fiat (the host's `Fiat`; "$" where there is
+ * none). Empty for null, so the element collapses rather than claiming
+ * "$0.00" about a trade nobody could price -- `valueUsdc` is null exactly
+ * when the router had no price for the output asset.
  *
  * @param {number|null} value whole USDC
  * @returns {string}
  */
 function usdcHelper(value) {
   if (value == null || !isFinite(value)) return "";
+  if (typeof Fiat === "undefined") return "$" + Number(value).toFixed(2);
 
-  return "$" + Number(value).toFixed(2);
+  var amount = Number(Fiat.fromUsd(value)).toFixed(2);
+  var symbol = Fiat.symbol();
+  return symbol ? symbol + amount : amount + " " + Fiat.code();
 }
 
 function makeQuote(q) {

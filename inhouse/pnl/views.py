@@ -16,6 +16,7 @@ from django.views.generic import TemplateView, View
 
 from api.client import BackendError, engine_request
 from api.widgets import bundle_and_addresses_from_path
+from utils.fiat import fiat_for_user
 from walletauth.gating import is_linked_to_user
 from widgethost.enforcement import WidgetAccessMixin
 from widgethost.manifest import addresses_limit_for_permission
@@ -141,17 +142,25 @@ class PnlAccessMixin(WidgetAccessMixin):
 
         :return: dict
         """
-        return features_for(_permission(self.request.user))
+        return features_for(_permission(self.request.user), fiat=self.fiat())
 
-    def currency(self):
-        """Return the requested denomination if the tier allows it, else USD.
+    def fiat(self):
+        """Return the reader's fiat in lower case, "usd" when it has no rate.
 
-        :var currency: requested denomination
-        :type currency: str
         :return: str
         """
-        currency = self.request.GET.get("currency", "usd")
-        return currency if currency in self.features["currencies"] else "usd"
+        return fiat_for_user(self.request.user)["code"].lower()
+
+    def currency(self):
+        """Return the requested denomination if the tier allows it, else the fiat.
+
+        :var currencies: denominations the reader may choose, their fiat first
+        :type currencies: tuple
+        :return: str
+        """
+        currencies = self.features["currencies"]
+        currency = self.request.GET.get("currency", currencies[0])
+        return currency if currency in currencies else currencies[0]
 
     def period(self):
         """Return the requested period if the tier allows it, else all-time.

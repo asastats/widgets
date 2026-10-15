@@ -322,7 +322,7 @@ def describe(rule):
     :type rule: :class:`widgets.inhouse.alerts.models.AlertRule`
     :return: str
     """
-    currency = "USD" if rule.threshold_unit == "usd" else "ALGO"
+    currency = (rule.threshold_unit or "algo").upper()
     if rule.subject in PERCENT_SUBJECTS:
         amount = format_percent(rule.threshold)
     elif rule.subject in AMOUNT_SUBJECTS:

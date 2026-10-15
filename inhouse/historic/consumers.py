@@ -8,6 +8,7 @@ from django.conf import settings
 from django.template.loader import get_template, render_to_string
 
 from api.client import engine_request
+from utils.fiat import USD_FIAT, fiat_for_user
 
 from .charts import consolidated_view_charts_from_assets_data
 from .helpers import check_chart_period, group_name_from_bundle
@@ -38,6 +39,23 @@ def _preferred_explorer_for_user(user):
     if profile is None:
         return ""
     return profile.preferred_explorer_or_default()
+
+
+def _snapshot_fiat(user, rates):
+    """Return the reader's fiat at a snapshot's own rate, USD where it has none.
+
+    Runs in a sync context (touches the profile row).
+
+    :param user: the consumer scope's user (possibly anonymous/None)
+    :param rates: fiat per USD on the snapshot's date, keyed by code
+    :type rates: dict
+    :return: dict
+    """
+    fiat = fiat_for_user(user)
+    rate = (rates or {}).get(fiat["code"])
+    if fiat["code"] == "USD" or not rate:
+        return dict(USD_FIAT)
+    return {**fiat, "rate": rate}
 
 
 def _restore_event_phase_keys(events):
@@ -317,6 +335,9 @@ class HistoricConsumer(AsyncWebsocketConsumer):
         preferred_explorer = await sync_to_async(_preferred_explorer_for_user)(
             self.scope.get("user")
         )
+        snapshot_fiat = await sync_to_async(_snapshot_fiat)(
+            self.scope.get("user"), data.get("fiat_rates")
+        )
         context = {
             **data,
             "data": assets_data,
@@ -324,6 +345,7 @@ class HistoricConsumer(AsyncWebsocketConsumer):
             "label": message.get("label"),
             "base_cdn_url": settings.BASE_CDN_URL,
             "preferred_explorer": preferred_explorer,
+            "snapshot_fiat": snapshot_fiat,
         }
 
         await self.send(text_data=json.dumps({"type": "assets_begin"}))

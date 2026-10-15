@@ -54,6 +54,8 @@ class TestPnlDisplayFormatting:
             (1_234_560_000, "usd", "$1,234.56"),
             (-2_500_000, "usd", "-$2.50"),
             (1_500_000, "algo", "1.50 ALGO"),
+            (-2_500_000, "eur", "-€2.50"),
+            (1_500_000, "chf", "1.50 CHF"),
         ],
     )
     def test_pnl_display_money(self, value, currency, expected):
@@ -76,6 +78,8 @@ class TestPnlDisplayFormatting:
         assert unit_price(40_000, 0, "algo") == "0.040000 ALGO"
         assert unit_price(1.5, 6, "usd") == "$1.50"
         assert unit_price(None, 6, "usd") == "—"
+        assert unit_price(1.5, 6, "eur") == "€1.50"
+        assert unit_price(1.5, 6, "chf") == "1.50 CHF"
 
     def test_pnl_display_percent_and_tone(self):
         assert percent(0.123) == "+12.3%"

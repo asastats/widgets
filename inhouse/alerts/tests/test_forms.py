@@ -437,6 +437,15 @@ class TestAlertRuleFormUnits:
         assert form.cleaned_data["threshold"] == Decimal("100")
         assert form.cleaned_data["threshold_unit"] == "usd"
 
+    def test_alerts_forms_every_configured_fiat_is_a_unit(self):
+        form = self._form(threshold_unit="eur")
+
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["threshold_unit"] == "eur"
+
+    def test_alerts_forms_an_unconfigured_fiat_is_refused(self):
+        assert not self._form(threshold_unit="gbp").is_valid()
+
     def test_alerts_forms_usd_needs_no_rate_now(self):
         """**The refusal went with the conversion.** A USD threshold used to be
         rejected when no rate had been rendered into the form, because there

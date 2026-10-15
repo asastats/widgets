@@ -1,11 +1,13 @@
 """Turn the engine's P&L figures into what the table shows.
 
-Engine values are micro-USD or microALGO; quantities are base units and prices
+Engine values are micro-units of the fiat or microALGO; quantities are base units and prices
 are per base unit.
 """
 
 from datetime import UTC, datetime
 from decimal import Decimal
+
+from utils.fiat import FIAT_SYMBOLS
 
 MICRO = 1_000_000
 #: Magnitudes below these display as zero: half a cent, a twentieth of a percent.
@@ -32,7 +34,7 @@ def money(value, currency):
 
     :param value: amount in micro-USD or microALGO
     :type value: float or None
-    :param currency: "usd" or "algo"
+    :param currency: "algo", "usd" or another fiat's lower-case code
     :type currency: str
     :var amount: amount in whole units
     :type amount: float
@@ -43,10 +45,11 @@ def money(value, currency):
 
     amount = round(value / MICRO, 2)
     sign = "-" if amount < 0 else ""
-    if currency == "usd":
-        return f"{sign}${abs(amount):,.2f}"
+    symbol = FIAT_SYMBOLS.get(currency.upper())
+    if symbol:
+        return f"{sign}{symbol}{abs(amount):,.2f}"
 
-    return f"{sign}{abs(amount):,.2f} ALGO"
+    return f"{sign}{abs(amount):,.2f} {currency.upper()}"
 
 
 def signed_money(value, currency):
@@ -54,7 +57,7 @@ def signed_money(value, currency):
 
     :param value: amount in micro-USD or microALGO
     :type value: float or None
-    :param currency: "usd" or "algo"
+    :param currency: "algo", "usd" or another fiat's lower-case code
     :type currency: str
     :return: str
     """
@@ -84,7 +87,7 @@ def unit_price(value, decimals, currency):
     :type value: float or None
     :param decimals: asset's decimals
     :type decimals: int
-    :param currency: "usd" or "algo"
+    :param currency: "algo", "usd" or another fiat's lower-case code
     :type currency: str
     :var amount: price of one whole unit in whole currency units
     :type amount: float
@@ -95,10 +98,11 @@ def unit_price(value, decimals, currency):
 
     amount = value * 10 ** (decimals or 0) / MICRO
     places = 2 if amount >= 1 else 6
-    if currency == "usd":
-        return f"${amount:,.{places}f}"
+    symbol = FIAT_SYMBOLS.get(currency.upper())
+    if symbol:
+        return f"{symbol}{amount:,.{places}f}"
 
-    return f"{amount:,.{places}f} ALGO"
+    return f"{amount:,.{places}f} {currency.upper()}"
 
 
 def percent(value):
@@ -200,7 +204,7 @@ def table_row(row, currency):
 
     :param row: engine's asset result
     :type row: dict
-    :param currency: "usd" or "algo"
+    :param currency: "algo", "usd" or another fiat's lower-case code
     :type currency: str
     :var decimals: asset's decimals
     :type decimals: int
@@ -252,7 +256,7 @@ def _farm_note(row, currency):
 
     :param row: engine's asset result
     :type row: dict
-    :param currency: "usd" or "algo"
+    :param currency: "algo", "usd" or another fiat's lower-case code
     :type currency: str
     :var unpriced: rewards without a price
     :type unpriced: int
@@ -274,7 +278,7 @@ def _split_note(row, currency):
 
     :param row: engine's asset result
     :type row: dict
-    :param currency: "usd" or "algo"
+    :param currency: "algo", "usd" or another fiat's lower-case code
     :type currency: str
     :return: dict
     """
@@ -292,7 +296,7 @@ def summary(totals, currency):
 
     :param totals: engine's bundle totals
     :type totals: dict
-    :param currency: "usd" or "algo"
+    :param currency: "algo", "usd" or another fiat's lower-case code
     :type currency: str
     :var invested: cumulative cost of all acquisitions
     :type invested: float
@@ -324,7 +328,7 @@ def period_summary(period, currency):
 
     :param period: engine's period P&L
     :type period: dict
-    :param currency: "usd" or "algo"
+    :param currency: "algo", "usd" or another fiat's lower-case code
     :type currency: str
     :return: dict
     """
@@ -346,7 +350,7 @@ def event_row(event, decimals, currency):
     :type event: dict
     :param decimals: asset's decimals
     :type decimals: int
-    :param currency: "usd" or "algo"
+    :param currency: "algo", "usd" or another fiat's lower-case code
     :type currency: str
     :return: dict
     """
@@ -386,7 +390,7 @@ def chart(points, currency):
 
     :param points: engine's chart points, ascending by date
     :type points: list
-    :param currency: "usd" or "algo"
+    :param currency: "algo", "usd" or another fiat's lower-case code
     :type currency: str
     :var low: lowest P&L, or zero if higher
     :type low: float

@@ -259,7 +259,9 @@
   /** The page's currency, which both layouts keep under `cur`. */
   function currency() {
     try {
-      return localStorage.getItem("cur") === "USD" ? "USD" : "ALGO";
+      // any fiat the reader stored is the fiat side; "USD" names it for the CSS
+      var stored = localStorage.getItem("cur");
+      return stored && stored !== "ALGO" ? "USD" : "ALGO";
     } catch (error) {
       return "ALGO";
     }
