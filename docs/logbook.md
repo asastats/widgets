@@ -2254,3 +2254,27 @@ same bundle starts over too. That is intended: both read the same ledger.
 data. No new engine scope was needed. As with historic's Reset, a task still
 running when the reset lands can write some files again; the button is meant
 for a run that has stopped.
+
+## inhouse/pnl/views.py — "evaluating", and period starts on the hour (2026-10-16)
+
+The engine now computes the P&L table in a background task and answers
+`{"type": "evaluating"}` until the first result is saved (engine
+`docs/logbook.md`, `pnl/evaluation.py`, 2026-10-16). For bundle `CE63DD…`,
+`bundle_pnl` alone took 67.6 s, more than twice `ASASTATS_API_TIMEOUT`, so
+every status poll ended in `_unavailable.html` and Retry could not help.
+`PnlStatusView` renders `_evaluating.html` for that answer, which polls every
+5 s like `_pricing.html`.
+
+`period_start` now rounds "now" down to the hour for the 7- and 30-day periods.
+The engine saves one result per currency, valuation and period bounds, and a
+start that moved every second would never be found again. An hour's shift in
+a 7- or 30-day window is negligible. YTD and all-time were already stable.
+
+## inhouse/pnl/views.py — "processing" from the engine (2026-10-16)
+
+The engine answers `{"type": "processing"}` while a bundle's run has been
+queued but has not finished (engine `docs/logbook.md`, 2026-10-16). Before
+that, a scratch reset followed by Process got stuck on "Pricing every
+transaction". `PnlStatusView` renders `_progress.html` with empty bars and
+keeps polling, the chart keeps its wait fragment, and the drill-down returns
+404 as it does while pricing.

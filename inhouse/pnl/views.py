@@ -102,7 +102,8 @@ def period_start(period, now=None):
         )
 
     days = {"30d": 30, "7d": 7}.get(period)
-    return now - days * 86400 if days else None
+    # whole hours, so the engine's saved evaluation for the period is reused
+    return now - now % 3600 - days * 86400 if days else None
 
 
 def addresses_in_use(user, exclude_bundle=None):
@@ -277,7 +278,7 @@ class PnlStatusView(PnlAccessMixin, View):
     def _progress(self, events):
         """Render processing progress from the engine's event records.
 
-        :param events: bundle's phases and processing statuses
+        :param events: bundle's phases and processing statuses, None before any
         :type events: dict
         :var update: processing status calculator shared with historic
         :type update: :class:`UpdateStatus`
@@ -327,11 +328,17 @@ class PnlStatusView(PnlAccessMixin, View):
 
         data = _engine("pnl:evaluate", "POST", self.bundle, "evaluate/", json=payload)
         context = self.base_context()
+        if data and data.get("type") == "processing":
+            return self._progress(None)
+
         if data and data.get("type") == "pricing":
             return render(request, "pnl/_pricing.html", context)
 
         if data and data.get("type") == "valuing":
             return render(request, "pnl/_valuing.html", context)
+
+        if data and data.get("type") == "evaluating":
+            return render(request, "pnl/_evaluating.html", context)
 
         if not data or data.get("type") == "show_update":
             return render(request, "pnl/_process.html", context)
@@ -463,7 +470,7 @@ class PnlAssetView(PnlAccessMixin, View):
             "asset/",
             json={"asset": args[1], "currency": currency},
         )
-        if not data or data.get("type") in ("show_update", "pricing"):
+        if not data or data.get("type") in ("show_update", "processing", "pricing"):
             raise Http404
 
         context = self.base_context()
@@ -501,7 +508,7 @@ class PnlChartView(PnlAccessMixin, View):
         except BackendError:
             return render(request, "pnl/_chart_wait.html", {**context, "failed": True})
 
-        if data and data.get("type") in ("charting", "pricing"):
+        if data and data.get("type") in ("charting", "processing", "pricing"):
             return render(request, "pnl/_chart_wait.html", context)
 
         context["chart"] = chart((data or {}).get("points"), self.currency())

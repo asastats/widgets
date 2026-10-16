@@ -203,8 +203,9 @@ class TestPnlViewsAccess:
     def test_pnl_views_period_start(self):
         now = 1_700_000_000  # 14 Nov 2023
         assert period_start("all", now) is None
-        assert period_start("7d", now) == now - 7 * 86400
-        assert period_start("30d", now) == now - 30 * 86400
+        hour = now - now % 3600
+        assert period_start("7d", now) == hour - 7 * 86400
+        assert period_start("30d", now) == hour - 30 * 86400
         assert period_start("ytd", now) == 1_672_531_200
         assert period_start("7d") is not None
 
@@ -336,7 +337,7 @@ class TestPnlViewsChart:
         assert b'class="pnl-chart-line"' in response.content
         assert b"+3.00 ALGO" in response.content
 
-    @pytest.mark.parametrize("state", ["charting", "pricing"])
+    @pytest.mark.parametrize("state", ["charting", "processing", "pricing"])
     def test_pnl_views_chart_polls_while_drawn(self, mocker, state):
         mocker.patch("widgets.inhouse.pnl.views._engine", return_value={"type": state})
         view = _view(PnlChartView, CLUSTER)
@@ -405,6 +406,27 @@ class TestPnlViewsStatusUnavailable:
 class TestPnlViewsStatusPricing:
     """Testing class for the status view while the engine prices rows."""
 
+    def test_pnl_views_status_shows_progress_until_processing_starts(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine",
+            side_effect=[{}, {"type": "processing"}],
+        )
+        view = _view(PnlStatusView)
+        response = view.get(view.request)
+        assert b"<progress" in response.content
+        assert b'value="0"' in response.content
+        assert b'hx-trigger="load delay:3s"' in response.content
+
+    def test_pnl_views_status_shows_evaluating_and_keeps_polling(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine",
+            side_effect=[{}, {"type": "evaluating"}],
+        )
+        view = _view(PnlStatusView)
+        response = view.get(view.request)
+        assert b"Working out profit and loss" in response.content
+        assert b'hx-trigger="load delay:5s"' in response.content
+
     def test_pnl_views_status_shows_pricing_and_keeps_polling(self, mocker):
         mocker.patch(
             "widgets.inhouse.pnl.views._engine",
@@ -415,10 +437,9 @@ class TestPnlViewsStatusPricing:
         assert b"Pricing every transaction" in response.content
         assert b'hx-trigger="load delay:5s"' in response.content
 
-    def test_pnl_views_asset_while_pricing(self, mocker):
-        mocker.patch(
-            "widgets.inhouse.pnl.views._engine", return_value={"type": "pricing"}
-        )
+    @pytest.mark.parametrize("state", ["processing", "pricing"])
+    def test_pnl_views_asset_while_pricing(self, mocker, state):
+        mocker.patch("widgets.inhouse.pnl.views._engine", return_value={"type": state})
         view = _view(PnlAssetView, ASASTATSER)
         with pytest.raises(Http404):
             view.get(view.request, BUNDLE, "5")
