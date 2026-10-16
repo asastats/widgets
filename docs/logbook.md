@@ -2278,3 +2278,63 @@ that, a scratch reset followed by Process got stuck on "Pricing every
 transaction". `PnlStatusView` renders `_progress.html` with empty bars and
 keeps polling, the chart keeps its wait fragment, and the drill-down returns
 404 as it does while pricing.
+
+## inhouse/pnl/export.py, inhouse/pnl/views.py — P&L CSV export (`PnlExportView`) (2026-10-16)
+
+Cluster readers get "Download CSV" under the table (`features["export"]`,
+404 below Cluster, as `PLAN.md` §4 lists it). The view asks the engine's
+`pnl:evaluate` with exactly the page's payload (`evaluate_payload`, shared with
+`PnlStatusView`), so it reads the evaluation the engine has already saved for
+that currency, valuation and period. No engine change and no new scope. If the
+engine has no result yet (`evaluating`, `pricing`, …) or fails, the reader goes
+back to the table's tab with a message instead of getting an error page; the
+link only shows once the table has rendered, so this is a race, not the
+normal path.
+
+What the file holds, and why:
+- One row per asset in the table's order, then a "Total" row. The period card
+  is not in it: the per-asset table is all-time whatever the period, and the
+  period figures are one bundle-level line that does not fit the columns. The
+  filename names bundle, currency, valuation and date.
+- Plain numbers in whole units with a decimal point, no symbols or thousands
+  separators. Money keeps six decimals (the engine's micro-units, exactly), so
+  the money columns add up to the Total row; on `4NN3HH…` (267 assets, real
+  data) every money column matched to 0.000006 in USD and ALGO. Prices keep
+  twelve, since many tokens trade far below a cent. Unknown figures are empty
+  cells, as are NaN and infinity, which `Decimal.quantize` would raise on.
+- The Total row's "Cost basis" is the summary card's, which leaves out holdings
+  without a current price (so value - cost = unrealized). It is therefore less
+  than the column's sum by `unvalued_cost` (182 USD on `4NN3HH…`). Kept so the
+  CSV and the page agree.
+- LP columns (vs holding, LP fees, divergence, farm yield) are always present:
+  only Cluster exports, and Cluster has LP analytics.
+- A UTF-8 BOM, so Excel reads asset names in UTF-8, and CRLF line ends.
+- Asset names and units are anyone's to choose, so a text cell starting with
+  `= + - @`, a tab or a CR gets a leading `'` (CSV formula injection). Numeric
+  cells are not touched: negative numbers start with `-` legitimately.
+
+The separator is a reader setting (`PnlSettings.csv_separator`: comma,
+semicolon, tab). The decimal point stays a point whatever the separator; a
+decimal comma with semicolons was not asked for and is easy to add.
+
+## inhouse/pnl/models.py — `PnlSettings` (2026-10-16)
+
+One row per reader (`OneToOneField`), created on the first save; until then the
+views use an unsaved default (`reader_settings`). It is per reader, not per
+bundle: a separator is a property of the reader's spreadsheet. Migration
+`widgets/0007_pnlsettings`. The PDF report's page format (`PLAN.md` §17) is
+meant to become its second field.
+
+## inhouse/pnl/templates/pnl/index.html — the Settings tab (2026-10-16)
+
+The handoff's decision: once a second setting existed, "Start from scratch"
+moves into a P&L Settings tab. The tabs are links (`?tab=settings`) like the
+currency and period switches, so the widget still needs no script of its own;
+the Settings tab renders without `#id-pnl-body`, so nothing polls behind it.
+It holds the CSV separator (Cluster only) and "Start from scratch" (everyone).
+
+The button under the table moved there. The one in `_progress.html` stays: it
+is the way out of a stuck run, and the reader is looking at the progress when
+they need it. A reset from the Settings tab posts with `tab=settings`, and
+`PnlResetView` answers with `HX-Redirect` to the table's tab instead of
+rendering `_process.html`, whose target is not on the Settings page.

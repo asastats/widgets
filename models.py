@@ -17,4 +17,4 @@ is a model the widget cannot be removed without finding.
 """
 
 from widgets.inhouse.alerts.models import AlertRule  # noqa: F401
-from widgets.inhouse.pnl.models import PnlBundle  # noqa: F401
+from widgets.inhouse.pnl.models import PnlBundle, PnlSettings  # noqa: F401

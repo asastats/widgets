@@ -6,9 +6,11 @@ from .views import (
     PnlAlertView,
     PnlAssetView,
     PnlChartView,
+    PnlExportView,
     PnlProcessView,
     PnlRemoveView,
     PnlResetView,
+    PnlSettingsView,
     PnlStatusView,
     PnlView,
 )
@@ -24,4 +26,6 @@ urlpatterns = [
     re_path(rf"^{PATH}/asset/(\w+)$", PnlAssetView.as_view(), name="pnl_asset"),
     re_path(rf"^{PATH}/chart$", PnlChartView.as_view(), name="pnl_chart"),
     re_path(rf"^{PATH}/alert/(\d+)$", PnlAlertView.as_view(), name="pnl_alert"),
+    re_path(rf"^{PATH}/settings$", PnlSettingsView.as_view(), name="pnl_settings"),
+    re_path(rf"^{PATH}/export$", PnlExportView.as_view(), name="pnl_export"),
 ]

@@ -10,16 +10,18 @@ from django.urls import resolve
 
 from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
 from api.client import BackendError
-from widgets.inhouse.pnl.models import PnlBundle
+from widgets.inhouse.pnl.models import PnlBundle, PnlSettings
 from widgets.inhouse.pnl.manifest import MANIFEST
 from widgets.inhouse.alerts.models import AlertRule
 from widgets.inhouse.pnl.views import (
     PnlAlertView,
     PnlAssetView,
     PnlChartView,
+    PnlExportView,
     PnlProcessView,
     PnlRemoveView,
     PnlResetView,
+    PnlSettingsView,
     PnlStatusView,
     PnlView,
     _engine,
@@ -546,6 +548,120 @@ class TestPnlViewsReset:
         assert b"could not be loaded" in response.content
 
 
+    def test_pnl_views_reset_from_settings_reloads_the_table(self, mocker):
+        mocker.patch("widgets.inhouse.pnl.views._engine")
+        view = _view(PnlResetView, ASASTATSER, query="?tab=settings")
+        response = view.post(view.request, BUNDLE)
+        assert response.status_code == 204
+        assert response["HX-Redirect"] == (
+            f"/widgets/pnl/{BUNDLE}?currency=usd&period=all&valuation=spot"
+        )
+
+
+@pytest.mark.django_db
+class TestPnlViewsSettings:
+    """Testing class for the Settings tab and :py:class:`...pnl.views.PnlSettingsView`."""
+
+    def _post(self, permission, user, data):
+        view = _view(PnlSettingsView, permission, user=user)
+        view.request = RequestFactory().post(f"/pnl/{BUNDLE}/settings", data)
+        view.request.user = user
+        return view.post(view.request, BUNDLE)
+
+    def test_pnl_views_settings_tab_context(self, mocker, django_user_model):
+        mocker.patch(
+            "django.views.generic.base.ContextMixin.get_context_data",
+            side_effect=lambda *args, **kwargs: {},
+        )
+        user = _user(CLUSTER, django_user_model.objects.create(username="reader"))
+        context = _view(PnlView, CLUSTER, query="?tab=settings", user=user).get_context_data()
+        assert context["tab"] == "settings"
+        assert context["pnl_settings"].csv_separator == "comma"
+        assert context["pnl_settings"].pk is None
+        assert "tab" not in _view(PnlView, CLUSTER, user=user).get_context_data()
+
+    def test_pnl_views_settings_saves_the_separator(self, django_user_model):
+        user = _user(CLUSTER, django_user_model.objects.create(username="reader"))
+        response = self._post(CLUSTER, user, {"csv_separator": "semicolon"})
+        assert PnlSettings.objects.get(user=user).separator == ";"
+        assert b"Saved." in response.content
+        assert b'value="semicolon" selected' in response.content
+        self._post(CLUSTER, user, {"csv_separator": "tab"})
+        assert PnlSettings.objects.get(user=user).separator == "\t"
+        assert PnlSettings.objects.count() == 1
+
+    @pytest.mark.parametrize(
+        "permission,separator",
+        [(CLUSTER, "pipe"), (CLUSTER, None), (ASASTATSER, "semicolon")],
+    )
+    def test_pnl_views_settings_refuses(self, django_user_model, permission, separator):
+        user = _user(permission, django_user_model.objects.create(username="reader"))
+        data = {"csv_separator": separator} if separator else {}
+        response = self._post(permission, user, data)
+        assert not PnlSettings.objects.exists()
+        assert b"Saved." not in response.content
+
+
+@pytest.mark.django_db
+class TestPnlViewsExport:
+    """Testing class for :py:class:`...pnl.views.PnlExportView`."""
+
+    def test_pnl_views_export_needs_cluster(self, django_user_model):
+        user = _user(ASASTATSER, django_user_model.objects.create(username="reader"))
+        view = _view(PnlExportView, ASASTATSER, user=user)
+        with pytest.raises(Http404):
+            view.get(view.request, BUNDLE)
+
+    def test_pnl_views_export_returns_the_saved_table(self, mocker, django_user_model):
+        user = _user(CLUSTER, django_user_model.objects.create(username="reader"))
+        PnlSettings.objects.create(user=user, csv_separator="semicolon")
+        engine = mocker.patch(
+            "widgets.inhouse.pnl.views._engine", return_value=_engine_results()
+        )
+        view = _view(PnlExportView, CLUSTER, query="?currency=algo&period=7d", user=user)
+        response = view.get(view.request, BUNDLE)
+        assert engine.call_args.args == ("pnl:evaluate", "POST", BUNDLE, "evaluate/")
+        assert engine.call_args.kwargs["json"]["currency"] == "algo"
+        assert "period_start" in engine.call_args.kwargs["json"]
+        assert response["Content-Type"] == "text/csv; charset=utf-8"
+        assert response["Content-Disposition"].startswith(
+            'attachment; filename="pnl-bbbbbbbb-algo-spot-'
+        )
+        lines = response.content.decode("utf-8-sig").splitlines()
+        assert lines[0].startswith("Asset ID;Asset;Name;")
+        assert lines[1].startswith("0;ALGO;ALGO;5.000000;")
+        assert lines[2].startswith(";Total;")
+
+    @pytest.mark.parametrize(
+        "engine",
+        [{"return_value": {"type": "evaluating"}}, {"return_value": None},
+         {"side_effect": BackendError("down")}],
+    )
+    def test_pnl_views_export_back_to_the_page_until_ready(
+        self, mocker, django_user_model, engine
+    ):
+        user = _user(CLUSTER, django_user_model.objects.create(username="reader"))
+        mocker.patch("widgets.inhouse.pnl.views._engine", **engine)
+        info = mocker.patch("widgets.inhouse.pnl.views.messages.info")
+        view = _view(PnlExportView, CLUSTER, user=user)
+        response = view.get(view.request, BUNDLE)
+        assert response.status_code == 302
+        assert response.url == f"/widgets/pnl/{BUNDLE}?currency=usd&period=all&valuation=spot"
+        info.assert_called_once()
+
+    @pytest.mark.parametrize("permission,shown", [(CLUSTER, True), (ASASTATSER, False)])
+    def test_pnl_views_table_offers_the_csv_to_cluster(self, mocker, permission, shown):
+        events = {BUNDLE: {"-1": {"state": "finished"}}}
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine",
+            side_effect=[events, _engine_results()],
+        )
+        view = _view(PnlStatusView, permission)
+        response = view.get(view.request)
+        assert (b"/export?" in response.content) is shown
+        assert b"Start from scratch" not in response.content
+
+
 @pytest.mark.django_db
 class TestPnlViewsAlert:
     """Testing class for :py:class:`...pnl.views.PnlAlertView`."""
@@ -644,6 +760,8 @@ class TestPnlUrls:
             ("/reset", PnlResetView),
             ("/asset/LP123", PnlAssetView),
             ("/alert/31566704", PnlAlertView),
+            ("/settings", PnlSettingsView),
+            ("/export", PnlExportView),
         ],
     )
     def test_pnl_urls_resolve(self, suffix, view_class):

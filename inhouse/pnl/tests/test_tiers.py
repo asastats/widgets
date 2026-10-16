@@ -29,6 +29,7 @@ class TestPnlTiers:
             "valuations": ("spot",),
             "chart": False,
             "lp_analytics": False,
+            "export": False,
         }
 
     def test_pnl_tiers_currencies_follow_the_readers_fiat(self):
@@ -45,6 +46,7 @@ class TestPnlTiers:
             "valuations": ("spot",),
             "chart": False,
             "lp_analytics": False,
+            "export": False,
         }
 
     @pytest.mark.parametrize("tier", ["Professional", "Cluster"])
@@ -62,6 +64,10 @@ class TestPnlTiers:
         assert (
             features_for(SUBSCRIPTION_TIER_PERMISSIONS["Cluster"])["lp_analytics"] is True
         )
+
+    @pytest.mark.parametrize("tier,expected", [("Professional", False), ("Cluster", True)])
+    def test_pnl_tiers_export_for_cluster(self, tier, expected):
+        assert features_for(SUBSCRIPTION_TIER_PERMISSIONS[tier])["export"] is expected
 
     @pytest.mark.parametrize(
         "tier,expected",

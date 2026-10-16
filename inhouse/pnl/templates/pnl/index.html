@@ -6,7 +6,11 @@
   <p class="pnl-addresses">
     {% for addr in addresses|split_by_space %}<span title="{{ addr }}">{{ addr|short_address }}</span>{% endfor %}
   </p>
-  {% if features.currencies|length > 1 or features.periods|length > 1 %}
+  <nav class="pnl-currency pnl-tabs" aria-label="Tabs">
+    <a href="?{{ query }}"{% if tab != "settings" %} aria-current="true"{% endif %}>Profit and loss</a>
+    <a href="?{{ query }}&amp;tab=settings"{% if tab == "settings" %} aria-current="true"{% endif %}>Settings</a>
+  </nav>
+  {% if tab != "settings" %}{% if features.currencies|length > 1 or features.periods|length > 1 %}
   <div class="pnl-switches">
     <nav class="pnl-currency" aria-label="Currency">
       {% for option in features.currencies %}
@@ -26,11 +30,22 @@
     </nav>
     {% endif %}
   </div>
-  {% endif %}
+  {% endif %}{% endif %}
+  {% if tab == "settings" %}
+  <div class="pnl-settings">
+    {% if features.export %}{% include "pnl/_settings_form.html" %}{% endif %}
+    <section>
+      <h2>Start from scratch</h2>
+      <p class="pnl-muted">After a fix that affected your data, start from scratch to process every transaction again.</p>
+      <button type="button" class="pnl-button" hx-post="{% url 'pnl_reset' path %}?{{ query }}&amp;tab=settings" hx-confirm="Delete this bundle's processed data and start from scratch?">Start from scratch</button>
+    </section>
+  </div>
+  {% else %}
   {# id-pnl-body is the target every fragment of this widget swaps into. #}
   <div id="id-pnl-body" hx-get="{% url 'pnl_status' path %}?{{ query }}" hx-trigger="load">
     <p class="pnl-muted">Loading…</p>
   </div>
   <div id="id-pnl-asset"></div>
+  {% endif %}
 </div>
 {% endblock %}

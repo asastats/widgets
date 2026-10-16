@@ -1,0 +1,12 @@
+<section id="id-pnl-settings-form">
+  <h2>CSV export</h2>
+  <form hx-post="{% url 'pnl_settings' path %}?{{ query }}" hx-target="#id-pnl-settings-form" hx-swap="outerHTML">
+    <label>Separator
+      <select name="csv_separator">
+        {% for key, label in pnl_settings.SEPARATOR_CHOICES %}<option value="{{ key }}"{% if key == pnl_settings.csv_separator %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit" class="pnl-button">Save</button>
+    {% if saved %}<span class="pnl-muted" role="status">Saved.</span>{% endif %}
+  </form>
+</section>

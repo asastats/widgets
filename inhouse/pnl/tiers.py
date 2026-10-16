@@ -39,4 +39,5 @@ def features_for(permission, fiat="usd"):
         "valuations": ("spot", "mve") if professional else ("spot",),
         "chart": professional,
         "lp_analytics": cluster,
+        "export": cluster,
     }

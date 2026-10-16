@@ -9,8 +9,9 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db.models import Sum
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils.safestring import mark_safe
 from django.views.generic import TemplateView, View
 
@@ -33,8 +34,9 @@ from .display import (
     summary,
     table_row,
 )
+from .export import table_csv
 from .manifest import MANIFEST
-from .models import PnlBundle
+from .models import PnlBundle, PnlSettings
 from .tiers import features_for
 
 ADDRESSES_LIMIT_ERROR = (
@@ -50,6 +52,9 @@ PERIOD_LABELS = {
 LINKED_ONLY_ERROR = (
     "Without a subscription, profit and loss is available for one address you "
     "have linked to your account."
+)
+EXPORT_WAIT_MESSAGE = (
+    "Profit and loss is still being worked out; download the CSV once the table shows."
 )
 
 
@@ -228,6 +233,36 @@ class PnlAccessMixin(WidgetAccessMixin):
 
             return redirect("subscriptions")
 
+    def evaluate_payload(self):
+        """Return the engine's evaluate request for the reader's switches.
+
+        :var start: first second of the period, None for all-time
+        :type start: int or None
+        :return: dict
+        """
+        payload = {"currency": self.currency(), "valuation": self.valuation()}
+        start = period_start(self.period())
+        if start is not None:
+            payload["period_start"] = start
+
+        return payload
+
+    def reader_settings(self):
+        """Return the reader's saved P&L settings, unsaved defaults without any.
+
+        :return: :class:`PnlSettings`
+        """
+        return PnlSettings.objects.filter(user=self.request.user).first() or PnlSettings(
+            user=self.request.user
+        )
+
+    def table_url(self):
+        """Return the page's address on the table's tab, with the reader's switches.
+
+        :return: str
+        """
+        return f"{reverse('pnl', args=[self.args[0]])}?{self.base_context()['query']}"
+
     def base_context(self):
         """Return the context every fragment of this widget needs.
 
@@ -269,6 +304,9 @@ class PnlView(PnlAccessMixin, TemplateView):
         context = super().get_context_data(*args, **kwargs)
         context.update(self.base_context())
         context["website_name"] = settings.WEBSITE_NAME
+        if self.request.GET.get("tab") == "settings":
+            context["tab"] = "settings"
+            context["pnl_settings"] = self.reader_settings()
         return context
 
 
@@ -321,12 +359,9 @@ class PnlStatusView(PnlAccessMixin, View):
             return self._progress(events)
 
         currency = self.currency()
-        payload = {"currency": currency, "valuation": self.valuation()}
-        start = period_start(self.period())
-        if start is not None:
-            payload["period_start"] = start
-
-        data = _engine("pnl:evaluate", "POST", self.bundle, "evaluate/", json=payload)
+        data = _engine(
+            "pnl:evaluate", "POST", self.bundle, "evaluate/", json=self.evaluate_payload()
+        )
         context = self.base_context()
         if data and data.get("type") == "processing":
             return self._progress(None)
@@ -442,7 +477,87 @@ class PnlResetView(PnlAccessMixin, View):
         except BackendError:
             return render(request, "pnl/_unavailable.html", self.base_context())
 
+        if request.GET.get("tab") == "settings":
+            # the Settings tab has no #id-pnl-body: reload on the table's tab
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = self.table_url()
+            return response
+
         return render(request, "pnl/_process.html", self.base_context())
+
+
+class PnlSettingsView(PnlAccessMixin, View):
+    """Save the reader's P&L settings from the Settings tab."""
+
+    def post(self, request, *args, **kwargs):
+        """Store a valid CSV separator and render the settings form again.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :var reader_settings: the reader's P&L settings
+        :type reader_settings: :class:`PnlSettings`
+        :var separator: requested separator key
+        :type separator: str
+        :return: :class:`django.http.HttpResponse`
+        """
+        reader_settings = self.reader_settings()
+        separator = request.POST.get("csv_separator")
+        context = self.base_context()
+        if self.features["export"] and separator in PnlSettings.SEPARATORS:
+            reader_settings.csv_separator = separator
+            reader_settings.save()
+            context["saved"] = True
+
+        context["pnl_settings"] = reader_settings
+        return render(request, "pnl/_settings_form.html", context)
+
+
+class PnlExportView(PnlAccessMixin, View):
+    """The P&L table as a CSV download, for tiers with the export."""
+
+    def get(self, request, *args, **kwargs):
+        """Return the saved evaluation as CSV, or back to the page while there is none.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :var data: engine's P&L results or a state marker
+        :type data: dict
+        :var response: CSV attachment
+        :type response: :class:`django.http.HttpResponse`
+        :var filename: attachment's name: bundle, currency, valuation and date
+        :type filename: str
+        :return: :class:`django.http.HttpResponse`
+        """
+        if not self.features["export"]:
+            raise Http404
+
+        try:
+            data = _engine(
+                "pnl:evaluate",
+                "POST",
+                self.bundle,
+                "evaluate/",
+                json=self.evaluate_payload(),
+            )
+        except BackendError:
+            data = None
+
+        if not data or "assets" not in data:
+            messages.info(request, EXPORT_WAIT_MESSAGE)
+            return redirect(self.table_url())
+
+        response = HttpResponse(
+            table_csv(data, self.reader_settings().separator),
+            content_type="text/csv; charset=utf-8",
+        )
+        filename = "pnl-{}-{}-{}-{}.csv".format(
+            self.bundle[:8].lower(),
+            self.currency(),
+            self.valuation(),
+            datetime.now(UTC).strftime("%Y%m%d"),
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
 
 
 class PnlAssetView(PnlAccessMixin, View):
