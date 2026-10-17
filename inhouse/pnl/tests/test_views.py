@@ -234,6 +234,7 @@ class TestPnlViewsStatus:
         response = _view(PnlStatusView).get(None)
         assert b"<progress" in response.content
         assert b'hx-trigger="load delay:3s"' in response.content
+        assert b"Start from scratch" not in response.content
 
     def test_pnl_views_status_offers_processing(self, mocker):
         engine = mocker.patch(

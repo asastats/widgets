@@ -11,6 +11,4 @@
       {% endfor %}
     </div>
   {% endfor %}
-  <p class="pnl-muted">Stuck, or waiting for a fix that affected your data? Start from scratch.</p>
-  <button type="button" class="pnl-button" hx-post="{% url 'pnl_reset' path %}?{{ query }}" hx-target="#id-pnl-body" hx-confirm="Delete this bundle's processed data and start from scratch?">Start from scratch</button>
 </div>

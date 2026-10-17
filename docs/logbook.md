@@ -2338,3 +2338,11 @@ is the way out of a stuck run, and the reader is looking at the progress when
 they need it. A reset from the Settings tab posts with `tab=settings`, and
 `PnlResetView` answers with `HX-Redirect` to the table's tab instead of
 rendering `_process.html`, whose target is not on the Settings page.
+
+## inhouse/pnl/templates/pnl/_progress.html — Start from scratch only in Settings (2026-10-17)
+
+Correction to the 2026-10-16 Settings tab entry, which kept a second "Start
+from scratch" in `_progress.html` as the way out of a stuck run. The user wants
+it in the Settings tab only; the tabs sit above the progress fragment, so a
+stuck run is reset from there. `PnlResetView` still renders `_process.html`
+when posted without `tab=settings`; nothing in the templates does that now.
