@@ -2392,3 +2392,33 @@ Changed:
   data for the bundle, as historic's own Reset does.
 - Widget URLs with an invalid address or unknown bundle now go to the index with
   the error instead of a 500 (frontend `widgethost/enforcement.py`).
+
+## inhouse/pnl/tiers.py, inhouse/pnl/widget.toml — tier changes (2026-10-17)
+
+The user agreed to three changes from the tier review (`p-l/PLAN.md` §4):
+- **Intro and above may use any address**, not only a linked one:
+  `linked_only` is now "below Intro". The linked-address rule exists so free
+  accounts cannot each have a whale wallet processed; it does not apply to a
+  paying reader. Intro's address count is still 1 (the manifest's bands are
+  unchanged).
+- **LP analytics** (vs holding, fees vs divergence, farm yield) move from
+  Cluster to **Professional**: Algorand DeFi is the widget's edge, and at the
+  Cluster price almost no LP user would see it. Cluster keeps 20 addresses, the
+  CSV export, the PDF (planned) and FIFO.
+- The `illiquid` badge on every tier waits for the heavy-bundle timings: either
+  MVE is valued for every bundle after pricing, or the badge stays MVE-only.
+
+## inhouse/pnl/models.py, views.py, templates — FIFO cost basis setting (2026-10-17)
+
+`PnlSettings.cost_method` ("average" default, "fifo"; migration
+`widgets/0008_pnlsettings_cost_method`) is chosen in the Settings tab, Cluster
+only (`features["cost_methods"]`). It is a saved setting rather than a switch
+beside currency and period, because it is an accounting policy the reader sets
+once. `cost_method()` reads it through `request.user.pnl_settings` (None for a
+reader without saved settings) and falls back to average when the tier does not
+allow the saved one, so a reader who drops below Cluster sees average cost
+without editing anything. The method goes to the engine with every evaluate and
+asset request and into the CSV file name; the table's footnote says which
+method is in use. The settings form now has two sections, each shown only when
+the tier has it, and the view saves whichever valid field arrives. Engine side:
+engine logbook, `pnl/lots.py` (2026-10-17).

@@ -233,6 +233,20 @@ class PnlAccessMixin(WidgetAccessMixin):
 
             return redirect("subscriptions")
 
+    def cost_method(self):
+        """Return the reader's saved cost basis method if the tier allows it.
+
+        :var methods: cost basis methods the tier allows, the default first
+        :type methods: tuple
+        :var saved: the reader's saved settings, None without any
+        :type saved: :class:`PnlSettings`
+        :return: str
+        """
+        methods = self.features["cost_methods"]
+        saved = getattr(self.request.user, "pnl_settings", None)
+        method = saved.cost_method if saved else methods[0]
+        return method if method in methods else methods[0]
+
     def evaluate_payload(self):
         """Return the engine's evaluate request for the reader's switches.
 
@@ -240,7 +254,11 @@ class PnlAccessMixin(WidgetAccessMixin):
         :type start: int or None
         :return: dict
         """
-        payload = {"currency": self.currency(), "valuation": self.valuation()}
+        payload = {
+            "currency": self.currency(),
+            "valuation": self.valuation(),
+            "method": self.cost_method(),
+        }
         start = period_start(self.period())
         if start is not None:
             payload["period_start"] = start
@@ -284,6 +302,7 @@ class PnlAccessMixin(WidgetAccessMixin):
             "addresses": self.addresses,
             "features": self.features,
             "currency": self.currency(),
+            "cost_method": self.cost_method(),
         }
 
 
@@ -491,7 +510,7 @@ class PnlSettingsView(PnlAccessMixin, View):
     """Save the reader's P&L settings from the Settings tab."""
 
     def post(self, request, *args, **kwargs):
-        """Store a valid CSV separator and render the settings form again.
+        """Store a valid CSV separator and cost method and render the form again.
 
         :param request: Django request object
         :type request: :class:`django.http.HttpRequest`
@@ -499,16 +518,28 @@ class PnlSettingsView(PnlAccessMixin, View):
         :type reader_settings: :class:`PnlSettings`
         :var separator: requested separator key
         :type separator: str
+        :var method: requested cost basis method
+        :type method: str
+        :var changed: whether a valid value was saved
+        :type changed: Boolean
         :return: :class:`django.http.HttpResponse`
         """
         reader_settings = self.reader_settings()
         separator = request.POST.get("csv_separator")
-        context = self.base_context()
+        method = request.POST.get("cost_method")
+        changed = False
         if self.features["export"] and separator in PnlSettings.SEPARATORS:
             reader_settings.csv_separator = separator
-            reader_settings.save()
-            context["saved"] = True
+            changed = True
+        if method in self.features["cost_methods"]:
+            reader_settings.cost_method = method
+            changed = True
 
+        if changed:
+            reader_settings.save()
+
+        context = self.base_context()
+        context["saved"] = changed
         context["pnl_settings"] = reader_settings
         return render(request, "pnl/_settings_form.html", context)
 
@@ -551,10 +582,11 @@ class PnlExportView(PnlAccessMixin, View):
             table_csv(data, self.reader_settings().separator),
             content_type="text/csv; charset=utf-8",
         )
-        filename = "pnl-{}-{}-{}-{}.csv".format(
+        filename = "pnl-{}-{}-{}-{}-{}.csv".format(
             self.bundle[:8].lower(),
             self.currency(),
             self.valuation(),
+            self.cost_method(),
             datetime.now(UTC).strftime("%Y%m%d"),
         )
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
@@ -584,7 +616,7 @@ class PnlAssetView(PnlAccessMixin, View):
             "POST",
             self.bundle,
             "asset/",
-            json={"asset": args[1], "currency": currency},
+            json={"asset": args[1], "currency": currency, "method": self.cost_method()},
         )
         if not data or data.get("type") in ("show_update", "processing", "pricing"):
             raise Http404

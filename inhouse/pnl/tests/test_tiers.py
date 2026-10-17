@@ -22,7 +22,7 @@ class TestPnlTiers:
 
     def test_pnl_tiers_features_below_asastatser(self):
         assert features_for(SUBSCRIPTION_TIER_PERMISSIONS["Intro"]) == {
-            "linked_only": True,
+            "linked_only": False,
             "currencies": ("usd",),
             "drilldown": False,
             "periods": ("all",),
@@ -30,7 +30,15 @@ class TestPnlTiers:
             "chart": False,
             "lp_analytics": False,
             "export": False,
+            "cost_methods": ("average",),
         }
+
+    @pytest.mark.parametrize(
+        "permission,expected",
+        [(None, True), (0, True), (SUBSCRIPTION_TIER_PERMISSIONS["Intro"], False)],
+    )
+    def test_pnl_tiers_linked_only_without_a_subscription(self, permission, expected):
+        assert features_for(permission)["linked_only"] is expected
 
     def test_pnl_tiers_currencies_follow_the_readers_fiat(self):
         intro = SUBSCRIPTION_TIER_PERMISSIONS["Intro"]
@@ -47,6 +55,7 @@ class TestPnlTiers:
             "chart": False,
             "lp_analytics": False,
             "export": False,
+            "cost_methods": ("average",),
         }
 
     @pytest.mark.parametrize("tier", ["Professional", "Cluster"])
@@ -60,10 +69,19 @@ class TestPnlTiers:
     def test_pnl_tiers_chart_for_professional_and_up(self, tier, expected):
         assert features_for(SUBSCRIPTION_TIER_PERMISSIONS[tier])["chart"] is expected
 
-    def test_pnl_tiers_lp_analytics_for_cluster(self):
-        assert (
-            features_for(SUBSCRIPTION_TIER_PERMISSIONS["Cluster"])["lp_analytics"] is True
-        )
+    @pytest.mark.parametrize(
+        "tier,expected",
+        [("Asastatser", False), ("Professional", True), ("Cluster", True)],
+    )
+    def test_pnl_tiers_lp_analytics_for_professional_and_up(self, tier, expected):
+        assert features_for(SUBSCRIPTION_TIER_PERMISSIONS[tier])["lp_analytics"] is expected
+
+    @pytest.mark.parametrize(
+        "tier,expected",
+        [("Professional", ("average",)), ("Cluster", ("average", "fifo"))],
+    )
+    def test_pnl_tiers_cost_methods_for_cluster(self, tier, expected):
+        assert features_for(SUBSCRIPTION_TIER_PERMISSIONS[tier])["cost_methods"] == expected
 
     @pytest.mark.parametrize("tier,expected", [("Professional", False), ("Cluster", True)])
     def test_pnl_tiers_export_for_cluster(self, tier, expected):

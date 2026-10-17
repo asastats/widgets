@@ -33,7 +33,7 @@
   {% endif %}{% endif %}
   {% if tab == "settings" %}
   <div class="pnl-settings">
-    {% if features.export %}{% include "pnl/_settings_form.html" %}{% endif %}
+    {% if features.export or features.cost_methods|length > 1 %}{% include "pnl/_settings_form.html" %}{% endif %}
     <section>
       <h2>Start from scratch</h2>
       <p class="pnl-muted">After a fix that affected your data, start from scratch to process every transaction again.</p>

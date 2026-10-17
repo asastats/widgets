@@ -43,10 +43,14 @@ class PnlSettings(models.Model):
     :type PnlSettings.SEPARATORS: dict
     :var PnlSettings.SEPARATOR_CHOICES: CSV separator keys and their labels
     :type PnlSettings.SEPARATOR_CHOICES: list
+    :var PnlSettings.COST_METHOD_CHOICES: cost basis methods and their labels
+    :type PnlSettings.COST_METHOD_CHOICES: list
     :var PnlSettings.user: reader the preferences belong to
     :type PnlSettings.user: :class:`django.contrib.auth.models.User`
     :var PnlSettings.csv_separator: key of the CSV export's separator character
     :type PnlSettings.csv_separator: str
+    :var PnlSettings.cost_method: cost basis method, as the engine names it
+    :type PnlSettings.cost_method: str
     """
 
     SEPARATORS = {"comma": ",", "semicolon": ";", "tab": "\t"}
@@ -54,6 +58,10 @@ class PnlSettings(models.Model):
         ("comma", "Comma (,)"),
         ("semicolon", "Semicolon (;)"),
         ("tab", "Tab"),
+    ]
+    COST_METHOD_CHOICES = [
+        ("average", "Average cost"),
+        ("fifo", "FIFO (first in, first out)"),
     ]
 
     user = models.OneToOneField(
@@ -63,6 +71,11 @@ class PnlSettings(models.Model):
         max_length=9,
         choices=SEPARATOR_CHOICES,
         default="comma",
+    )
+    cost_method = models.CharField(
+        max_length=7,
+        choices=COST_METHOD_CHOICES,
+        default="average",
     )
 
     def __str__(self):

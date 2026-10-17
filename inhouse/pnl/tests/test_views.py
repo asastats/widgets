@@ -31,6 +31,7 @@ from widgets.inhouse.pnl.views import (
 
 ASASTATSER = SUBSCRIPTION_TIER_PERMISSIONS["Asastatser"]
 CLUSTER = SUBSCRIPTION_TIER_PERMISSIONS["Cluster"]
+PROFESSIONAL = SUBSCRIPTION_TIER_PERMISSIONS["Professional"]
 BUNDLE = "B" * 40
 ADDRESSES = "ADDRA ADDRB"
 
@@ -135,6 +136,17 @@ class TestPnlViewsAccess:
         mocker.patch.object(PnlView, "manifest_test_func", return_value=True)
         mocker.patch("widgets.inhouse.pnl.views.is_linked_to_user", side_effect=linked)
         assert view.test_func() is expected
+
+    def test_pnl_views_test_func_any_address_for_intro(self, mocker):
+        view = _view(PnlView, SUBSCRIPTION_TIER_PERMISSIONS["Intro"])
+        mocker.patch(
+            "widgets.inhouse.pnl.views.bundle_and_addresses_from_path",
+            return_value=(BUNDLE, "ADDRA"),
+        )
+        mocker.patch.object(PnlView, "manifest_test_func", return_value=True)
+        linked = mocker.patch("widgets.inhouse.pnl.views.is_linked_to_user")
+        assert view.test_func() is True
+        linked.assert_not_called()
 
     def test_pnl_views_test_func_fails_on_manifest_gate(self, mocker):
         view = _view(PnlView, CLUSTER)
@@ -245,7 +257,7 @@ class TestPnlViewsStatus:
         response = view.get(view.request)
         assert b"Process" in response.content
         assert engine.call_args.kwargs == {
-            "json": {"currency": "usd", "valuation": "spot"}
+            "json": {"currency": "usd", "valuation": "spot", "method": "average"}
         }
 
     def test_pnl_views_status_renders_table_when_finished(self, mocker):
@@ -266,8 +278,10 @@ class TestPnlViewsStatus:
 class TestPnlViewsVsHold:
     """Testing class for the LP vs holding column."""
 
-    @pytest.mark.parametrize("permission,shown", [(CLUSTER, True), (ASASTATSER, False)])
-    def test_pnl_views_status_vs_holding_column_for_cluster(
+    @pytest.mark.parametrize(
+        "permission,shown", [(CLUSTER, True), (PROFESSIONAL, True), (ASASTATSER, False)]
+    )
+    def test_pnl_views_status_vs_holding_column_for_professional_and_up(
         self, mocker, permission, shown
     ):
         results = _engine_results()
@@ -617,6 +631,65 @@ class TestPnlViewsSettings:
         assert not PnlSettings.objects.exists()
         assert b"Saved." not in response.content
 
+    def test_pnl_views_settings_saves_the_cost_method(self, django_user_model):
+        user = _user(CLUSTER, django_user_model.objects.create(username="reader"))
+        response = self._post(CLUSTER, user, {"cost_method": "fifo"})
+        assert PnlSettings.objects.get(user=user).cost_method == "fifo"
+        assert PnlSettings.objects.get(user=user).csv_separator == "comma"
+        assert b"Saved." in response.content
+        assert b"Cost basis" in response.content
+        assert b'value="fifo" selected' in response.content
+
+    def test_pnl_views_settings_refuses_fifo_below_cluster(self, django_user_model):
+        user = _user(PROFESSIONAL, django_user_model.objects.create(username="reader"))
+        response = self._post(PROFESSIONAL, user, {"cost_method": "fifo"})
+        assert not PnlSettings.objects.exists()
+        assert b"Saved." not in response.content
+
+
+@pytest.mark.django_db
+class TestPnlViewsCostMethod:
+    """Testing class for the reader's saved cost basis method in engine requests."""
+
+    def _reader(self, django_user_model, permission, method="fifo"):
+        user = _user(permission, django_user_model.objects.create(username="reader"))
+        PnlSettings.objects.create(user=user, cost_method=method)
+        return user
+
+    @pytest.mark.parametrize(
+        "permission,expected", [(CLUSTER, "fifo"), (PROFESSIONAL, "average")]
+    )
+    def test_pnl_views_status_sends_the_saved_method(
+        self, mocker, django_user_model, permission, expected
+    ):
+        user = self._reader(django_user_model, permission)
+        events = {BUNDLE: {"-1": {"state": "finished"}}}
+        engine = mocker.patch(
+            "widgets.inhouse.pnl.views._engine", side_effect=[events, _engine_results()]
+        )
+        view = _view(PnlStatusView, permission, user=user)
+        content = view.get(view.request).content
+        assert engine.call_args.kwargs["json"]["method"] == expected
+        assert (b"First in, first out" in content) is (expected == "fifo")
+        assert (b"Average cost per asset." in content) is (expected == "average")
+
+    def test_pnl_views_asset_sends_the_saved_method(self, mocker, django_user_model):
+        user = self._reader(django_user_model, CLUSTER)
+        engine = mocker.patch(
+            "widgets.inhouse.pnl.views._engine",
+            return_value={"asset": "5", "name": "Five", "decimals": 0, "events": []},
+        )
+        view = _view(PnlAssetView, CLUSTER, user=user)
+        view.get(view.request, BUNDLE, "5")
+        assert engine.call_args.kwargs["json"]["method"] == "fifo"
+
+    def test_pnl_views_export_names_the_method(self, mocker, django_user_model):
+        user = self._reader(django_user_model, CLUSTER)
+        mocker.patch("widgets.inhouse.pnl.views._engine", return_value=_engine_results())
+        view = _view(PnlExportView, CLUSTER, user=user)
+        response = view.get(view.request, BUNDLE)
+        assert 'filename="pnl-bbbbbbbb-usd-spot-fifo-' in response["Content-Disposition"]
+
 
 @pytest.mark.django_db
 class TestPnlViewsExport:
@@ -760,7 +833,9 @@ class TestPnlViewsAsset:
         assert b"Income" in response.content
         assert b'class="pnl-event-note">CyberSkulls staking reward' in response.content
         assert b"2.00 ALGO" in response.content
-        assert engine.call_args.kwargs == {"json": {"asset": "5", "currency": "algo"}}
+        assert engine.call_args.kwargs == {
+            "json": {"asset": "5", "currency": "algo", "method": "average"}
+        }
 
 
 class TestPnlUrls:

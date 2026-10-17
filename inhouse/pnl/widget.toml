@@ -19,7 +19,7 @@ hosts = []
 templates = "templates/"
 
 # Bands are addresses per bundle; the total across a reader's bundles is capped
-# by the same numbers in `views.py`. Below Asastatser the one address must be
+# by the same numbers in `views.py`. Below Intro the one address must be
 # linked to the reader. See docs/logbook.md, inhouse/pnl/widget.toml.
 [[required_permission]]
 max_addresses = 1
