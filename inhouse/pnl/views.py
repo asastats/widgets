@@ -367,6 +367,7 @@ class PnlStatusView(PnlAccessMixin, View):
             return self._progress(None)
 
         if data and data.get("type") == "pricing":
+            context["pricing"] = {key: data.get(key) for key in ("done", "total")}
             return render(request, "pnl/_pricing.html", context)
 
         if data and data.get("type") == "valuing":

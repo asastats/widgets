@@ -438,7 +438,22 @@ class TestPnlViewsStatusPricing:
         view = _view(PnlStatusView)
         response = view.get(view.request)
         assert b"Pricing every transaction" in response.content
-        assert b'hx-trigger="load delay:5s"' in response.content
+        assert b'hx-trigger="load delay:3s"' in response.content
+        assert b"<progress" not in response.content
+
+    @pytest.mark.parametrize(
+        "done,text",
+        [(3, b"3 of 8 assets priced"), (8, b"All 8 assets priced, finishing")],
+    )
+    def test_pnl_views_status_shows_pricing_progress(self, mocker, done, text):
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine",
+            side_effect=[{}, {"type": "pricing", "done": done, "total": 8}],
+        )
+        view = _view(PnlStatusView)
+        response = view.get(view.request)
+        assert text in response.content
+        assert f'<progress max="8" value="{done}">'.encode() in response.content
 
     @pytest.mark.parametrize("state", ["processing", "pricing"])
     def test_pnl_views_asset_while_pricing(self, mocker, state):

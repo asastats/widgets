@@ -2346,3 +2346,49 @@ from scratch" in `_progress.html` as the way out of a stuck run. The user wants
 it in the Settings tab only; the tabs sit above the progress fragment, so a
 stuck run is reset from there. `PnlResetView` still renders `_process.html`
 when posted without `tab=settings`; nothing in the templates does that now.
+
+## inhouse/pnl/templates/pnl/_pricing.html — a progress bar while pricing (2026-10-17)
+
+The engine's "pricing" answer now carries `done` and `total` (assets priced so
+far; engine `docs/logbook.md`, 2026-10-17). `PnlStatusView` passes them as
+`pricing`, and `_pricing.html` draws "N of M assets priced" with a `<progress>`
+bar, then "All M assets priced, finishing" while the fiat conversion that follows
+the asset loop runs. Without them (the task has not reached the loop yet) the
+fragment shows the old message alone. It polls every 3 s now, like
+`_progress.html`, so the bar moves.
+
+## inhouse/historic — what the 2026-10-16/17 engine work changes for this widget (2026-10-17)
+
+Reviewed at the user's request after the P&L speed work. Unchanged for historic:
+the ledger rows (`append_csv_row` writes the same bytes, checked with `cmp`), the
+classifier's results (asc/box pre-check, airdrop index, lazy staked dApps: outputs
+compared equal), the Folks escrow rows (searches cached, same events), and asset
+values for assets whose pools give no data (now stamped, same files read).
+
+Changed:
+- Progress (engine `storage/utils.py`, 2026-10-17): intermediate FETCH, CHECK and
+  PROCESS states reach `HistoricConsumer.historic_update` at most once a second
+  per phase and address; INIT and the FETCHED/CHECKED/PROCESSED messages always
+  do. `UpdateStatus.evaluate` keeps the highest value per phase and sets finished
+  phases to 100, so bars only move less often; `events.json` (read by
+  `_load_statuses` on a reload) lags by at most a second the same way. The unlock
+  comes with `process_altogether`, which is never throttled. Pre-existing and
+  unchanged: an address whose transaction count is an exact multiple of 1,000
+  gets no PROCESSED message, so its Process bar ends below 100 until the charts
+  replace the progress.
+- STAMM LP positions (engine `pricer`, 2026-10-16/17): without pool data
+  `_splitted_liquidity_tokens_data` skips an LP token's rows, so historic showed
+  no value at all for STAMM liquidity. Once the STAMM pricer files are rebuilt
+  per fee tier with the current code and the bundle is processed again, those
+  positions are split into their two underlying assets: totals and charts rise
+  from the deposit onwards, and the underlying assets appear in the breakdown.
+- Fiat-paired asset prices (engine `pricer/process.py`, stale fiats, 2026-10-17):
+  prices refreshed from now on use the fiat's current ALGO rate; stored prices
+  are reused, so an asset priced across the old and new rate can show a small
+  step at the boundary until the planned regeneration (`PLAN.md` §15).
+- Speed: `ledger_data` 1,227 s -> 577.7 s measured on `CE63DD…` (then the third
+  pass), fewer repeated pool refreshes in `pools_and_prices`.
+- P&L's "Start from scratch" (now in its Settings tab) still resets historic's
+  data for the bundle, as historic's own Reset does.
+- Widget URLs with an invalid address or unknown bundle now go to the index with
+  the error instead of a 500 (frontend `widgethost/enforcement.py`).

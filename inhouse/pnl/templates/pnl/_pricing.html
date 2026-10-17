@@ -1,3 +1,8 @@
-<div class="pnl-progress" hx-get="{% url 'pnl_status' path %}?{{ query }}" hx-trigger="load delay:5s" hx-target="#id-pnl-body">
+<div class="pnl-progress pnl-pricing" hx-get="{% url 'pnl_status' path %}?{{ query }}" hx-trigger="load delay:3s" hx-target="#id-pnl-body">
   <p>Pricing every transaction at the time it happened. This runs in the background and can take a few minutes the first time.</p>
+  {% if pricing.total %}
+    <label>{% if pricing.done >= pricing.total %}All {{ pricing.total }} assets priced, finishing{% else %}{{ pricing.done }} of {{ pricing.total }} assets priced{% endif %}
+      <progress max="{{ pricing.total }}" value="{{ pricing.done }}"></progress>
+    </label>
+  {% endif %}
 </div>
