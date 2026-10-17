@@ -4,15 +4,20 @@ Engine values are micro-units of the fiat or microALGO; quantities are base unit
 are per base unit.
 """
 
+import math
 from datetime import UTC, datetime
 from decimal import Decimal
 
 from utils.fiat import FIAT_SYMBOLS
 
 MICRO = 1_000_000
+#: Most decimals a unit price shows; smaller prices read as zero.
+PRICE_MAX_PLACES = 12
 #: Magnitudes below these display as zero: half a cent, a twentieth of a percent.
 HALF_CENT = MICRO / 200
 HALF_PERMILLE = 0.0005
+#: Assets listed per kind of issue; the rest are counted.
+ISSUES_SHOWN = 50
 
 EVENT_LABELS = {
     "deposit": "Deposit",
@@ -91,18 +96,26 @@ def unit_price(value, decimals, currency):
     :type currency: str
     :var amount: price of one whole unit in whole currency units
     :type amount: float
+    :var places: decimals shown, enough for three significant digits below 0.000001
+    :type places: int
     :return: str
     """
     if value is None:
         return "—"
 
     amount = value * 10 ** (decimals or 0) / MICRO
-    places = 2 if amount >= 1 else 6
+    if abs(amount) >= 1:
+        places = 2
+    elif amount and abs(amount) < 0.000001:
+        places = min(2 - math.floor(math.log10(abs(amount))), PRICE_MAX_PLACES)
+    else:
+        places = 6
+    sign = "-" if round(amount, places) < 0 else ""
     symbol = FIAT_SYMBOLS.get(currency.upper())
     if symbol:
-        return f"{symbol}{amount:,.{places}f}"
+        return f"{sign}{symbol}{abs(amount):,.{places}f}"
 
-    return f"{amount:,.{places}f} {currency.upper()}"
+    return f"{sign}{abs(amount):,.{places}f} {currency.upper()}"
 
 
 def percent(value):
@@ -239,6 +252,113 @@ def table_row(row, currency):
         **_farm_note(row, currency),
         **_split_note(row, currency),
     }
+
+
+def _issue_item(row, detail, effect):
+    """Return one affected asset for the issues list.
+
+    :param row: engine's asset result
+    :type row: dict
+    :param detail: what is wrong with it
+    :type detail: str
+    :param effect: formatted amount the issue moves, or empty
+    :type effect: str
+    :return: dict
+    """
+    return {
+        "asset": row["asset"],
+        "label": asset_label(row),
+        "name": f"LP token {row['asset']}" if row.get("lp") else row.get("name") or "",
+        "detail": detail,
+        "effect": effect,
+    }
+
+
+def _issue_group(title, note, items):
+    """Return a kind of issue with its first `ISSUES_SHOWN` assets.
+
+    :param title: kind of issue
+    :type title: str
+    :param note: how it affects the figures
+    :type note: str
+    :param items: affected assets, largest effect first
+    :type items: list
+    :return: dict
+    """
+    return {
+        "title": title,
+        "note": note,
+        "total": len(items),
+        "items": items[:ISSUES_SHOWN],
+        "more": max(len(items) - ISSUES_SHOWN, 0),
+    }
+
+
+def issues(assets, currency):
+    """Return the assets behind the coverage notes, grouped by kind of issue.
+
+    Assets that never had a market are left out: they count for nothing anyway.
+
+    :param assets: engine's asset results
+    :type assets: list
+    :param currency: "algo", "usd" or another fiat's lower-case code
+    :type currency: str
+    :var rows: asset results that had a market
+    :type rows: list
+    :return: list
+    """
+    rows = [row for row in assets if not row.get("no_market")]
+    unvalued = sorted(
+        (row for row in rows if row["quantity"] > 0 and row["value"] is None),
+        key=lambda row: row["cost"] or 0,
+        reverse=True,
+    )
+    missing = sorted(
+        (row for row in rows if row["missing_quantity"] > 0),
+        key=lambda row: row.get("missing_proceeds") or 0,
+        reverse=True,
+    )
+    unpriced = sorted(
+        (row for row in rows if row["unpriced"] > 0),
+        key=lambda row: row["unpriced"],
+        reverse=True,
+    )
+    groups = [
+        _issue_group(
+            "Holdings without a current price",
+            "Left out of value and unrealized; the amount is their cost.",
+            [
+                _issue_item(
+                    row,
+                    "LP token without a pool price" if row.get("lp") else "No current price",
+                    money(row["cost"], currency),
+                )
+                for row in unvalued
+            ],
+        ),
+        _issue_group(
+            "Sold beyond the known history",
+            "Their cost is unknown, so these sales are left out of realized; "
+            "the amount is what they fetched.",
+            [
+                _issue_item(
+                    row,
+                    f"{quantity(row['missing_quantity'], row.get('decimals'))} units",
+                    money(row.get("missing_proceeds"), currency),
+                )
+                for row in missing
+            ],
+        ),
+        _issue_group(
+            "Events without a price",
+            "Each counts as zero; open the asset to see which.",
+            [
+                _issue_item(row, f"{row['unpriced']} event{'s' * (row['unpriced'] > 1)}", "")
+                for row in unpriced
+            ],
+        ),
+    ]
+    return [group for group in groups if group["total"]]
 
 
 def _shown(value):

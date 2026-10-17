@@ -34,6 +34,27 @@
       {% if summary.unvalued_assets %}{{ summary.unvalued_assets }} holding{{ summary.unvalued_assets|pluralize }} without a current price (cost {{ summary.unvalued_cost }}), left out of value and unrealized.{% endif %}
       Rows marked <span class="pnl-badge">incomplete</span> are affected.
     </p>
+    {% if issues %}
+    <details class="pnl-issues">
+      <summary>Show the affected assets</summary>
+      {% for group in issues %}
+        <h3><strong>{{ group.title }} ({{ group.total }})</strong></h3>
+        <p class="pnl-muted">{{ group.note }}</p>
+        <table class="pnl-table">
+          <tbody>
+            {% for item in group.items %}
+              <tr>
+                <th scope="row" title="{{ item.name }}">{% if features.drilldown %}<button type="button" class="pnl-link" hx-get="{% url 'pnl_asset' path item.asset %}?{{ query }}" hx-target="#id-pnl-asset" hx-swap="innerHTML show:top">{{ item.label }}</button>{% else %}{{ item.label }}{% endif %}</th>
+                <td data-label="Issue">{{ item.detail }}</td>
+                <td data-label="Amount">{{ item.effect }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% if group.more %}<p class="pnl-muted">And {{ group.more }} more, smaller.</p>{% endif %}
+      {% endfor %}
+    </details>
+    {% endif %}
   {% endif %}
   {% if summary.mve %}
     <p class="pnl-muted">Holdings valued at what selling each would fetch from its pools now (MVE); ALGO and LP tokens at spot.</p>

@@ -7,6 +7,7 @@ from widgets.inhouse.pnl.display import (
     asset_label,
     chart,
     event_row,
+    issues,
     money,
     percent,
     period_summary,
@@ -42,6 +43,47 @@ def _engine_row(**kwargs):
     }
     row.update(kwargs)
     return row
+
+
+class TestPnlDisplayIssues:
+    """Testing class for the assets behind the coverage notes."""
+
+    def test_pnl_display_issues_grouped_largest_first(self):
+        assets = [
+            _engine_row(asset="1", name="Small", value=None, cost=1_000_000),
+            _engine_row(asset="2", name="Big", value=None, cost=9_000_000, unpriced=1),
+            _engine_row(asset="3", name="Pool", lp=True, value=None, cost=5_000_000),
+            _engine_row(
+                asset="4", name="Sold", missing_quantity=1_500_000, missing_proceeds=3e6
+            ),
+            _engine_row(asset="5", name="Two", unpriced=2),
+            _engine_row(asset="6", name="Spam", value=None, unpriced=4, no_market=True),
+            _engine_row(asset="7", name="Gone", quantity=0, value=None),
+        ]
+        unvalued, missing, unpriced = issues(assets, "usd")
+        assert (unvalued["title"], unvalued["total"], unvalued["more"]) == (
+            "Holdings without a current price",
+            3,
+            0,
+        )
+        assert [(item["name"], item["detail"], item["effect"]) for item in unvalued["items"]] == [
+            ("Big", "No current price", "$9.00"),
+            ("LP token 3", "LP token without a pool price", "$5.00"),
+            ("Small", "No current price", "$1.00"),
+        ]
+        assert [(item["label"], item["detail"], item["effect"]) for item in missing["items"]] == [
+            ("USDC", "1.500000 units", "$3.00")
+        ]
+        assert [item["detail"] for item in unpriced["items"]] == ["2 events", "1 event"]
+
+    def test_pnl_display_issues_shows_the_first_ones(self, mocker):
+        mocker.patch("widgets.inhouse.pnl.display.ISSUES_SHOWN", 2)
+        assets = [_engine_row(asset=str(i), unpriced=i) for i in range(1, 6)]
+        (group,) = issues(assets, "usd")
+        assert (len(group["items"]), group["total"], group["more"]) == (2, 5, 3)
+
+    def test_pnl_display_issues_without_any(self):
+        assert issues([_engine_row()], "usd") == []
 
 
 class TestPnlDisplayFormatting:
@@ -80,6 +122,17 @@ class TestPnlDisplayFormatting:
         assert unit_price(None, 6, "usd") == "—"
         assert unit_price(1.5, 6, "eur") == "€1.50"
         assert unit_price(1.5, 6, "chf") == "1.50 CHF"
+
+    def test_pnl_display_unit_price_below_a_millionth(self):
+        assert unit_price(0.0287, 0, "usd") == "$0.0000000287"
+        assert unit_price(0.00000099, 6, "algo") == "0.000000990 ALGO"
+        assert unit_price(1e-15, 0, "usd") == "$0.000000000000"
+        assert unit_price(0, 6, "usd") == "$0.000000"
+
+    def test_pnl_display_unit_price_sign_before_the_symbol(self):
+        assert unit_price(-0.0287, 0, "usd") == "-$0.0000000287"
+        assert unit_price(-1.5, 6, "eur") == "-€1.50"
+        assert unit_price(-1e-15, 0, "usd") == "$0.000000000000"
 
     def test_pnl_display_percent_and_tone(self):
         assert percent(0.123) == "+12.3%"

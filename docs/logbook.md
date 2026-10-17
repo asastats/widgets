@@ -2422,3 +2422,30 @@ asset request and into the CSV file name; the table's footnote says which
 method is in use. The settings form now has two sections, each shown only when
 the tier has it, and the view saves whichever valid field arrives. Engine side:
 engine logbook, `pnl/lots.py` (2026-10-17).
+
+## inhouse/pnl/display.py — prices below a millionth (2026-10-17)
+
+On the user's saved page (`CE63DD…`), 185 prices and 131 average costs read
+`$0.000000` (PHEZZIES at about $0.0000000287 a unit, RECKT, CORVID…), and the
+negative prices read `$-0.000000`. `unit_price` now shows enough decimals for
+three significant digits below 0.000001 (at most 12, `PRICE_MAX_PLACES`), and
+puts a minus before the symbol as `money` does. The engine no longer sends
+negative prices (engine logbook, `pnl/process.py`, same date). The CSV export
+already wrote 12 decimals.
+
+## inhouse/pnl/display.py, templates/pnl/_table.html — issues view (R2) (2026-10-17)
+
+R2 from `p-l/PLAN.md` §18, every tier (§20). Below the coverage sentence, a
+closed `<details>` lists the assets behind it, in three groups: holdings
+without a current price (amount: their cost, left out of value and
+unrealized; LP tokens say "without a pool price"), sales beyond the known
+history (amount: what they fetched, left out of realized; engine
+`missing_proceeds`), and events without a price (count only). Largest first,
+50 per group (`ISSUES_SHOWN`), then "And N more". Assets that never had a
+market are left out, as they count for nothing. Built from the evaluate
+response the table already has: no new request or engine endpoint. Names open
+the drill-down where the tier has it. Group titles are `<strong>` inside the
+`<h3>` because Tailwind's preflight strips heading styles; no CSS was added.
+On the saved `CE63DD…` page this would list 2,343 unvalued holdings ($74.5k of
+cost, largely NFTs until R1 and LP tokens of small non-ALGO pools), 8 assets
+sold beyond history and the assets behind 1,494 unpriced events.

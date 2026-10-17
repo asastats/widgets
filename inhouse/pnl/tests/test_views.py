@@ -262,9 +262,11 @@ class TestPnlViewsStatus:
 
     def test_pnl_views_status_renders_table_when_finished(self, mocker):
         events = {BUNDLE: {"-1": {"state": "finished"}}}
+        results = _engine_results()
+        results["assets"][0]["unpriced"] = 2
         mocker.patch(
             "widgets.inhouse.pnl.views._engine",
-            side_effect=[events, _engine_results()],
+            side_effect=[events, results],
         )
         view = _view(PnlStatusView, ASASTATSER)
         response = view.get(view.request)
@@ -273,6 +275,9 @@ class TestPnlViewsStatus:
         assert b'hx-get="/widgets/pnl/' in response.content
         assert b'hx-swap="innerHTML show:top"' in response.content
         assert b'data-label="Avg cost"' in response.content
+        assert b"Show the affected assets" in response.content
+        assert b"Events without a price (1)" in response.content
+        assert b'data-label="Issue">2 events<' in response.content
 
 
 class TestPnlViewsVsHold:

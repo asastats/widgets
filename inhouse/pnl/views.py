@@ -30,6 +30,7 @@ from .display import (
     asset_label,
     chart,
     event_row,
+    issues,
     period_summary,
     summary,
     table_row,
@@ -402,6 +403,7 @@ class PnlStatusView(PnlAccessMixin, View):
         if data["totals"].get("period"):
             context["period_summary"] = period_summary(data["totals"]["period"], currency)
         context["rows"] = [table_row(row, currency) for row in data["assets"]]
+        context["issues"] = issues(data["assets"], currency)
         labels = {row["asset"]: row["label"] for row in context["rows"]}
         for row in context["rows"]:
             row["farm_paid_in"] = ", ".join(
