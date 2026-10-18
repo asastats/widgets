@@ -107,6 +107,8 @@ def _notes(row):
         notes.append("incomplete")
     if row.get("illiquid"):
         notes.append("illiquid")
+    if row.get("nft"):
+        notes.append("appraised")
     return "; ".join(notes)
 
 

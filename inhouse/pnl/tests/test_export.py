@@ -171,6 +171,7 @@ class TestPnlExportTableCsv:
             ({"missing_quantity": 1}, "incomplete"),
             ({"unpriced": 1, "illiquid": True}, "incomplete; illiquid"),
             ({"illiquid": True}, "illiquid"),
+            ({"nft": True}, "appraised"),
         ],
     )
     def test_pnl_export_table_csv_notes(self, kwargs, expected):

@@ -259,6 +259,16 @@ class PnlAccessMixin(WidgetAccessMixin):
         method = saved.cost_method if saved else methods[0]
         return method if method in methods else methods[0]
 
+    def count_nfts(self):
+        """Return whether held NFTs are valued; only higher tiers may leave them out.
+
+        :var saved: the reader's saved settings, None without any
+        :type saved: :class:`PnlSettings`
+        :return: Boolean
+        """
+        saved = getattr(self.request.user, "pnl_settings", None)
+        return not (self.features["nft_choice"] and saved and not saved.count_nfts)
+
     def evaluate_payload(self):
         """Return the engine's evaluate request for the reader's switches.
 
@@ -274,6 +284,8 @@ class PnlAccessMixin(WidgetAccessMixin):
         start = period_start(self.period())
         if start is not None:
             payload["period_start"] = start
+        if not self.count_nfts():
+            payload["nfts"] = False
 
         return payload
 
@@ -751,6 +763,10 @@ class PnlSettingsView(PnlAccessMixin, View):
             PnlSettings.PAGE_FORMAT_CHOICES
         ):
             reader_settings.page_format = page_format
+            changed = True
+        if self.features["nft_choice"] and "count_nfts" in request.POST:
+            # the form's hidden "0" comes first; a ticked box posts "1" after it
+            reader_settings.count_nfts = request.POST.get("count_nfts") == "1"
             changed = True
 
         if changed:

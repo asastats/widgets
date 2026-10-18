@@ -243,6 +243,7 @@ def table_row(row, currency):
         and (row["missing_quantity"] > 0 or row["unpriced"] > 0),
         "no_market": bool(row.get("no_market")),
         "illiquid": bool(row.get("illiquid")),
+        "nft": bool(row.get("nft")),
         "held": row["quantity"] > 0,
         "valued": row["value"] is not None,
         "alerts": alert_presets(row),
@@ -447,7 +448,11 @@ def summary(totals, currency):
         "unvalued_cost": money(totals.get("unvalued_cost") or 0, currency),
         "no_market_assets": int(totals.get("no_market_assets") or 0),
         "illiquid_assets": int(totals.get("illiquid_assets") or 0),
+        "nft_value": money(totals["nft_value"], currency)
+        if totals.get("nft_value")
+        else "",
         "mve": totals.get("valuation") == "mve",
+        "nfts_out": totals.get("nfts") is False,
     }
 
 

@@ -2559,3 +2559,25 @@ the signed amount shows. Income is not money brought in: it is earned.
 The form was one wrapping row of headings and selects. Each setting is now a
 `.pnl-setting` block (heading, then its labelled select), stacked, with Save
 in its own row (`.pnl-setting-save`). CSS in the frontend's `input.css`.
+
+## inhouse/pnl/display.py, templates/pnl/_row.html, _table.html, export.py — appraised NFTs (2026-10-18)
+
+The engine now values held NFTs at the portfolio's appraisal (engine logbook,
+`pnl/nfts.py`). A row valued that way carries `nft` and shows an "appraised"
+badge; the CSV's notes column says "appraised". Under the coverage notes, one
+line gives the NFTs' share of the value and says the chart leaves them out,
+because the chart has no NFT values over time and ends at the total without
+them. No tier gate: one NFT value is for every tier (`PLAN.md` §20).
+
+## inhouse/pnl/models.py:PnlSettings.count_nfts, views.py, tiers.py — NFTs in or out of the totals (2026-10-18)
+
+Professional and up (`nft_choice`). Settings has an "NFTs" checkbox, on by
+default (`count_nfts`, migration 0013). Off, `evaluate_payload` adds
+`"nfts": false`, so the evaluate, status and report requests all ask the
+engine for an evaluation without NFT values (engine logbook, same date). A
+default request is unchanged. A lower tier's saved "off" is ignored.
+
+The checkbox is preceded by a hidden `count_nfts=0`, and the choice is saved
+only when the field is posted. An unticked checkbox posts nothing, so
+without the hidden field any save from Settings (a separator, say) would have
+read as "off". The tests post partial forms, which caught it.

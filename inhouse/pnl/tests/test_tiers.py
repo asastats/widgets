@@ -29,6 +29,7 @@ class TestPnlTiers:
             "valuations": ("spot",),
             "chart": False,
             "lp_analytics": False,
+            "nft_choice": False,
             "export": False,
             "report": False,
             "cost_methods": ("average",),
@@ -55,6 +56,7 @@ class TestPnlTiers:
             "valuations": ("spot",),
             "chart": False,
             "lp_analytics": False,
+            "nft_choice": False,
             "export": False,
             "report": False,
             "cost_methods": ("average",),
@@ -77,6 +79,13 @@ class TestPnlTiers:
     )
     def test_pnl_tiers_lp_analytics_for_professional_and_up(self, tier, expected):
         assert features_for(SUBSCRIPTION_TIER_PERMISSIONS[tier])["lp_analytics"] is expected
+
+    @pytest.mark.parametrize(
+        "tier,expected",
+        [("Asastatser", False), ("Professional", True), ("Cluster", True)],
+    )
+    def test_pnl_tiers_nft_choice_for_professional_and_up(self, tier, expected):
+        assert features_for(SUBSCRIPTION_TIER_PERMISSIONS[tier])["nft_choice"] is expected
 
     @pytest.mark.parametrize(
         "tier,expected",

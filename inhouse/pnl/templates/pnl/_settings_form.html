@@ -10,6 +10,13 @@
       </label>
     </div>
     {% endif %}
+    {% if features.nft_choice %}
+    <div class="pnl-setting">
+      <h2>NFTs</h2>
+      <input type="hidden" name="count_nfts" value="0">
+      <label><input type="checkbox" name="count_nfts" value="1"{% if pnl_settings.count_nfts %} checked{% endif %}> Value held NFTs at their ASA Stats appraisal</label>
+    </div>
+    {% endif %}
     {% if features.report %}
     <div class="pnl-setting">
       <h2>PDF report</h2>

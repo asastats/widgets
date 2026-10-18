@@ -55,6 +55,8 @@ class PnlSettings(models.Model):
     :type PnlSettings.cost_method: str
     :var PnlSettings.page_format: PDF report's page size, as the engine names it
     :type PnlSettings.page_format: str
+    :var PnlSettings.count_nfts: whether held NFTs are valued at their appraisal
+    :type PnlSettings.count_nfts: Boolean
     """
 
     SEPARATORS = {"comma": ",", "semicolon": ";", "tab": "\t"}
@@ -89,6 +91,7 @@ class PnlSettings(models.Model):
         choices=PAGE_FORMAT_CHOICES,
         default="a4",
     )
+    count_nfts = models.BooleanField(default=True)
 
     def __str__(self):
         """Return the reader and the separator."""

@@ -339,6 +339,26 @@ class TestPnlViewsValuation:
         assert b"1 holding marked" in content
         assert b"(MVE)" in content
 
+    def test_pnl_views_status_appraised_nfts(self, mocker):
+        results = _engine_results()
+        results["assets"][0]["nft"] = True
+        results["totals"]["nft_value"] = 4_000_000
+        events = {BUNDLE: {"-1": {"state": "finished"}}}
+        mocker.patch("widgets.inhouse.pnl.views._engine", side_effect=[events, results])
+        view = _view(PnlStatusView, CLUSTER)
+        content = view.get(view.request).content
+        assert b">appraised</span>" in content
+        assert b"$4.00 of the value is NFTs marked" in content
+
+    def test_pnl_views_status_nfts_left_out(self, mocker):
+        results = _engine_results()
+        results["totals"]["nfts"] = False
+        events = {BUNDLE: {"-1": {"state": "finished"}}}
+        mocker.patch("widgets.inhouse.pnl.views._engine", side_effect=[events, results])
+        view = _view(PnlStatusView, CLUSTER)
+        content = view.get(view.request).content
+        assert b"NFTs are not valued, as chosen in Settings" in content
+
 
 class TestPnlViewsChart:
     """Testing class for the cumulative P&L chart fragment."""
@@ -664,6 +684,41 @@ class TestPnlViewsSettings:
         reader_settings = PnlSettings.objects.filter(user=user).first()
         assert (reader_settings.page_format if reader_settings else "a4") == saved
         assert (b"PDF report" in response.content) is (permission == CLUSTER)
+
+    @pytest.mark.parametrize(
+        "permission,posted,saved",
+        [
+            (PROFESSIONAL, ["0"], False),
+            (PROFESSIONAL, ["0", "1"], True),
+            (ASASTATSER, ["0"], True),
+        ],
+    )
+    def test_pnl_views_settings_saves_the_nft_choice(
+        self, django_user_model, permission, posted, saved
+    ):
+        user = django_user_model.objects.create(username="reader")
+        response = self._post(permission, user, {"count_nfts": posted})
+        reader_settings = PnlSettings.objects.filter(user=user).first()
+        assert (reader_settings.count_nfts if reader_settings else True) is saved
+        assert (b'name="count_nfts"' in response.content) is (permission != ASASTATSER)
+
+    def test_pnl_views_settings_other_fields_keep_the_nft_choice(self, django_user_model):
+        user = django_user_model.objects.create(username="reader")
+        PnlSettings.objects.create(user=user, count_nfts=False)
+        self._post(CLUSTER, user, {"csv_separator": "tab"})
+        assert PnlSettings.objects.get(user=user).count_nfts is False
+
+    @pytest.mark.parametrize(
+        "permission,count_nfts,sent",
+        [(PROFESSIONAL, False, False), (PROFESSIONAL, True, None), (ASASTATSER, False, None)],
+    )
+    def test_pnl_views_evaluate_payload_nfts(
+        self, django_user_model, permission, count_nfts, sent
+    ):
+        user = _user(permission, django_user_model.objects.create(username="reader"))
+        PnlSettings.objects.create(user=user, count_nfts=count_nfts)
+        payload = _view(PnlStatusView, permission, user=user).evaluate_payload()
+        assert payload.get("nfts") is sent
 
     def test_pnl_views_settings_saves_the_cost_method(self, django_user_model):
         user = _user(CLUSTER, django_user_model.objects.create(username="reader"))

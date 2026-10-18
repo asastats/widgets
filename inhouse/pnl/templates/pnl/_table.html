@@ -68,6 +68,12 @@
   {% if summary.illiquid_assets %}
     <p class="pnl-muted">{{ summary.illiquid_assets }} holding{{ summary.illiquid_assets|pluralize }} marked <span class="pnl-badge pnl-badge-illiquid">illiquid</span> would fetch less than 80% of {{ summary.illiquid_assets|pluralize:"its,their" }} spot value if sold.</p>
   {% endif %}
+  {% if summary.nfts_out %}
+    <p class="pnl-muted">NFTs are not valued, as chosen in Settings: they count as held without a current price.</p>
+  {% endif %}
+  {% if summary.nft_value %}
+    <p class="pnl-muted">{{ summary.nft_value }} of the value is NFTs marked <span class="pnl-badge pnl-badge-muted">appraised</span>, at their ASA Stats appraisal capped by your lowest active listing. The chart has no NFT values over time and leaves them out.</p>
+  {% endif %}
   {% if summary.no_market_assets %}
     <p class="pnl-muted">{{ summary.no_market_assets }} asset{{ summary.no_market_assets|pluralize }} never had a market price, usually unsolicited tokens; they are listed last and count for nothing.</p>
   {% endif %}

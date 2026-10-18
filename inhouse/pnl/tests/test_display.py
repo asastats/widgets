@@ -188,6 +188,8 @@ class TestPnlDisplayRows:
         assert row["no_market"] is True
         assert row["illiquid"] is False
         assert table_row(_engine_row(illiquid=True), "usd")["illiquid"] is True
+        assert row["nft"] is False
+        assert table_row(_engine_row(nft=True), "usd")["nft"] is True
         assert (row["fees"], row["divergence"]) == ("", "")
         assert row["farm_income"] == ""
         farm = table_row(
@@ -227,6 +229,10 @@ class TestPnlDisplayRows:
         assert returned["assets_missing_history"] == 0
         assert returned["no_market_assets"] == 0
         assert (returned["illiquid_assets"], returned["mve"]) == (0, False)
+        assert returned["nft_value"] == ""
+        assert summary({"total": 0.0, "nft_value": 2_500_000}, "usd")["nft_value"] == (
+            "$2.50"
+        )
         assert summary({"total": 0.0, "valuation": "mve"}, "usd")["mve"] is True
         assert summary({"total": 0.0}, "usd")["return"] == "—"
 
