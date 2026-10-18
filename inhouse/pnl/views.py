@@ -32,6 +32,7 @@ from .display import (
     event_row,
     issues,
     period_summary,
+    processed_time,
     summary,
     table_row,
 )
@@ -55,9 +56,15 @@ LINKED_ONLY_ERROR = (
     "have linked to your account."
 )
 MORE_ROWS = {
-    "collapsed": "more: sold out or without a market",
+    "unvalued": "held without a current price",
+    "collapsed": "sold out or without a market",
     "hidden": "hidden by you",
 }
+#: Seconds a requested update may stay queued before the banner gives up waiting.
+UPDATE_QUEUED_LIMIT = 1800
+REPORT_EXPIRED_MESSAGE = (
+    "That PDF report is no longer available; prepare it again below the table."
+)
 EXPORT_WAIT_MESSAGE = (
     "Profit and loss is still being worked out; download the CSV once the table shows."
 )
@@ -315,7 +322,7 @@ class PnlAccessMixin(WidgetAccessMixin):
         )
         rows = [table_row(row, self.currency()) for row in data["assets"]]
         labels = {row["asset"]: row["label"] for row in rows}
-        groups = {"open": [], "collapsed": [], "hidden": []}
+        groups = {"open": [], **{group: [] for group in MORE_ROWS}}
         for row in rows:
             row["farm_paid_in"] = ", ".join(
                 labels.get(asset, f"#{asset}") for asset in row["farm_assets"]
@@ -323,10 +330,12 @@ class PnlAccessMixin(WidgetAccessMixin):
             row["hidden"] = row["asset"] in hidden
             if row["hidden"]:
                 groups["hidden"].append(row)
-            elif row["held"] and not row["no_market"]:
-                groups["open"].append(row)
-            else:
+            elif not row["held"] or row["no_market"]:
                 groups["collapsed"].append(row)
+            elif not row["valued"]:
+                groups["unvalued"].append(row)
+            else:
+                groups["open"].append(row)
 
         return groups
 
@@ -433,12 +442,16 @@ class PnlStatusView(PnlAccessMixin, View):
         events = _restore_event_phase_keys(
             _engine("pnl:events", "GET", self.bundle, "events/") or {}
         )
-        if events and events.get(self.bundle, {}).get(-1, {}).get("state") != "finished":
-            return self._progress(events)
-
+        running = (
+            events and events.get(self.bundle, {}).get(-1, {}).get("state") != "finished"
+        )
         currency = self.currency()
         data = self.evaluation()
         context = self.row_context()
+        if running and not (data and "assets" in data):
+            # without a table to keep showing, the run's own progress
+            return self._progress(events)
+
         if data and data.get("type") == "processing":
             return self._progress(None)
 
@@ -465,7 +478,61 @@ class PnlStatusView(PnlAccessMixin, View):
         ]
         context["hidden_count"] = len(groups["hidden"])
         context["issues"] = issues(data["assets"], currency)
+        context["processed_at"] = processed_time(data.get("processed_at"))
+        context["updating"] = data.get("updating")
+        context["pricing"] = data.get("pricing") or {}
         return render(request, "pnl/_table.html", context)
+
+
+class PnlUpdatingView(PnlAccessMixin, View):
+    """Banner above the last table while the bundle is updated, polling itself."""
+
+    def get(self, request, *args, **kwargs):
+        """Render what is being updated, or the offer to show the new figures.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :var since: seconds since epoch the reader asked for the update, 0 if not
+        :type since: int
+        :var data: engine's update state
+        :type data: dict
+        :var updating: what is being updated, None once done
+        :type updating: str or None
+        :return: :class:`django.http.HttpResponse`
+        """
+        try:
+            since = int(request.GET.get("since", 0))
+        except ValueError:
+            since = 0
+
+        context = self.base_context()
+        context["since"] = since
+        try:
+            data = (
+                _engine(
+                    "pnl:events",
+                    "POST",
+                    self.bundle,
+                    "updating/",
+                    json=self.evaluate_payload(),
+                )
+                or {}
+            )
+        except BackendError:
+            # keep polling: the engine may only be restarting
+            context["updating"] = "unknown"
+            return render(request, "pnl/_updating.html", context)
+
+        updating = data.get("updating")
+        if not updating and since and data.get("rows_at", 0) < since:
+            # the queued run has not written its rows yet
+            updating = (
+                "queued" if time.time() - since < UPDATE_QUEUED_LIMIT else "stalled"
+            )
+
+        context["updating"] = updating
+        context["pricing"] = data.get("pricing") or {}
+        return render(request, "pnl/_updating.html", context)
 
 
 class PnlRowsView(PnlAccessMixin, View):
@@ -585,6 +652,13 @@ class PnlProcessView(PnlAccessMixin, View):
         PnlBundle.objects.update_or_create(
             user=request.user, bundle=self.bundle, defaults={"address_count": count}
         )
+        if request.GET.get("update"):
+            # the table stays; its banner follows the run
+            context = self.base_context()
+            context["updating"] = "queued"
+            context["since"] = int(time.time())
+            return render(request, "pnl/_updating.html", context)
+
         return self._started()
 
     def _started(self):
@@ -656,6 +730,8 @@ class PnlSettingsView(PnlAccessMixin, View):
         :type separator: str
         :var method: requested cost basis method
         :type method: str
+        :var page_format: requested PDF report page size
+        :type page_format: str
         :var changed: whether a valid value was saved
         :type changed: Boolean
         :return: :class:`django.http.HttpResponse`
@@ -663,12 +739,18 @@ class PnlSettingsView(PnlAccessMixin, View):
         reader_settings = self.reader_settings()
         separator = request.POST.get("csv_separator")
         method = request.POST.get("cost_method")
+        page_format = request.POST.get("page_format")
         changed = False
         if self.features["export"] and separator in PnlSettings.SEPARATORS:
             reader_settings.csv_separator = separator
             changed = True
         if method in self.features["cost_methods"]:
             reader_settings.cost_method = method
+            changed = True
+        if self.features["report"] and page_format in dict(
+            PnlSettings.PAGE_FORMAT_CHOICES
+        ):
+            reader_settings.page_format = page_format
             changed = True
 
         if changed:
@@ -801,15 +883,20 @@ class PnlAlertView(PnlAccessMixin, View):
 
         :param request: Django request object
         :type request: :class:`django.http.HttpRequest`
+        :var direction: "up" or "down", from the clicked preset
+        :type direction: str
+        :var threshold: price per whole unit, from the clicked preset
+        :type threshold: str
         :var form: the alerts widget's rule form, which enforces the tier
         :type form: :class:`AlertRuleForm`
         :return: :class:`django.http.HttpResponse`
         """
+        direction, _, threshold = request.POST.get("preset", "").partition(" ")
         form = AlertRuleForm(
             data={
                 "subject": Subject.ASA_PRICE,
-                "direction": request.POST.get("direction"),
-                "threshold": request.POST.get("threshold"),
+                "direction": direction,
+                "threshold": threshold,
                 "asset_id": args[1],
                 "threshold_unit": self.currency(),
                 "asset_unit": request.POST.get("unit", "")[:32],
@@ -826,3 +913,97 @@ class PnlAlertView(PnlAccessMixin, View):
             ]
 
         return render(request, "pnl/_alert.html", context)
+
+
+class PnlReportView(PnlAccessMixin, View):
+    """Ask the engine for the PDF report and show whether it is ready, polling."""
+
+    def get(self, request, *args, **kwargs):
+        """Render the report's state for the reader's switches and options.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :var full: whether collapsed assets get full sections
+        :type full: Boolean
+        :var hidden: asset ids the reader hid from the table
+        :type hidden: list
+        :var data: engine's report state
+        :type data: dict
+        :return: :class:`django.http.HttpResponse`
+        """
+        if not self.features["report"]:
+            raise Http404
+
+        full = bool(request.GET.get("full") or request.POST.get("full"))
+        hidden = sorted(
+            request.user.pnl_hidden_assets.filter(bundle=self.bundle).values_list(
+                "asset", flat=True
+            )
+        )
+        context = self.base_context()
+        context["full"] = full
+        try:
+            data = (
+                _engine(
+                    "pnl:evaluate",
+                    "POST",
+                    self.bundle,
+                    "report/",
+                    json={
+                        **self.evaluate_payload(),
+                        "page": self.reader_settings().page_format,
+                        "full": full,
+                        "hidden": hidden,
+                    },
+                )
+                or {}
+            )
+        except BackendError:
+            data = {"type": "failed"}
+
+        context["report"] = data.get("type")
+        context["key"] = data.get("key", "")
+        return render(request, "pnl/_report.html", context)
+
+    post = get
+
+
+class PnlReportDownloadView(PnlAccessMixin, View):
+    """The prepared PDF report as a download, for tiers with the report."""
+
+    def get(self, request, *args, **kwargs):
+        """Return the engine's saved report, or back to the table once it expired.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :var engine_response: the engine's answer carrying the PDF
+        :type engine_response: :class:`requests.Response`
+        :var response: PDF attachment
+        :type response: :class:`django.http.HttpResponse`
+        :return: :class:`django.http.HttpResponse`
+        """
+        if not self.features["report"]:
+            raise Http404
+
+        try:
+            engine_response = engine_request(
+                "pnl:evaluate",
+                "GET",
+                f"/api/v2/pnl/{self.bundle}/report/",
+                MANIFEST.engine_endpoints,
+                params={"key": request.GET.get("key", "")},
+            )
+        except BackendError:
+            messages.info(request, REPORT_EXPIRED_MESSAGE)
+            return redirect(self.table_url())
+
+        response = HttpResponse(engine_response.content, content_type="application/pdf")
+        filename = "pnl-{}-{}-{}-{}-{}.pdf".format(
+            self.bundle[:8].lower(),
+            self.currency(),
+            self.valuation(),
+            self.cost_method(),
+            datetime.now(UTC).strftime("%Y%m%d"),
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response

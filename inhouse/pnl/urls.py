@@ -10,10 +10,13 @@ from .views import (
     PnlHideView,
     PnlProcessView,
     PnlRemoveView,
+    PnlReportDownloadView,
+    PnlReportView,
     PnlResetView,
     PnlRowsView,
     PnlSettingsView,
     PnlStatusView,
+    PnlUpdatingView,
     PnlView,
 )
 
@@ -26,10 +29,17 @@ urlpatterns = [
     re_path(rf"^{PATH}/remove$", PnlRemoveView.as_view(), name="pnl_remove"),
     re_path(rf"^{PATH}/reset$", PnlResetView.as_view(), name="pnl_reset"),
     re_path(rf"^{PATH}/asset/(\w+)$", PnlAssetView.as_view(), name="pnl_asset"),
+    re_path(rf"^{PATH}/updating$", PnlUpdatingView.as_view(), name="pnl_updating"),
     re_path(rf"^{PATH}/rows$", PnlRowsView.as_view(), name="pnl_rows"),
     re_path(rf"^{PATH}/hide/(\w+)$", PnlHideView.as_view(), name="pnl_hide"),
     re_path(rf"^{PATH}/chart$", PnlChartView.as_view(), name="pnl_chart"),
     re_path(rf"^{PATH}/alert/(\d+)$", PnlAlertView.as_view(), name="pnl_alert"),
     re_path(rf"^{PATH}/settings$", PnlSettingsView.as_view(), name="pnl_settings"),
+    re_path(rf"^{PATH}/report$", PnlReportView.as_view(), name="pnl_report"),
+    re_path(
+        rf"^{PATH}/report/download$",
+        PnlReportDownloadView.as_view(),
+        name="pnl_report_download",
+    ),
     re_path(rf"^{PATH}/export$", PnlExportView.as_view(), name="pnl_export"),
 ]

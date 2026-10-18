@@ -1,0 +1,10 @@
+{# id-pnl-updating: the banner replaces itself (outerHTML) on every poll. #}
+<div id="id-pnl-updating" class="pnl-updating" role="status"{% if updating and updating != "stalled" %} hx-get="{% url 'pnl_updating' path %}?{{ query }}&amp;since={{ since|default:0 }}" hx-trigger="load delay:5s" hx-swap="outerHTML"{% endif %}>
+  {% if updating == "queued" %}Update requested: waiting for its turn to process new transactions. The figures below stay until it is done.
+  {% elif updating == "processing" %}Updating: processing new transactions. The figures below stay until it is done.
+  {% elif updating == "pricing" %}Updating: pricing new transactions{% if pricing.total %} ({{ pricing.done }} of {{ pricing.total }} assets){% endif %}. The figures below stay until it is done.
+  {% elif updating == "evaluating" %}Updating: working out the new figures.
+  {% elif updating == "unknown" %}Updating; its progress cannot be read right now.
+  {% elif updating == "stalled" %}The update has not started yet. Reload the page later to check again.
+  {% else %}New figures are ready. <button type="button" class="pnl-link" hx-get="{% url 'pnl_status' path %}?{{ query }}" hx-target="#id-pnl-body">Show them</button>{% endif %}
+</div>

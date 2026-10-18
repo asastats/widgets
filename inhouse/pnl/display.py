@@ -244,6 +244,7 @@ def table_row(row, currency):
         "no_market": bool(row.get("no_market")),
         "illiquid": bool(row.get("illiquid")),
         "held": row["quantity"] > 0,
+        "valued": row["value"] is not None,
         "alerts": alert_presets(row),
         "vs_hold": signed_money(row.get("vs_hold"), currency)
         if row.get("vs_hold") is not None
@@ -493,6 +494,19 @@ def event_row(event, decimals, currency):
 
 #: The chart's SVG viewBox: width, height and inner padding.
 CHART_WIDTH, CHART_HEIGHT, CHART_PAD = 600, 180, 6
+
+
+def processed_time(timestamp):
+    """Return when the bundle's rows were processed, empty when unknown.
+
+    :param timestamp: seconds since epoch, or None from an older evaluation
+    :type timestamp: int
+    :return: str
+    """
+    if not timestamp:
+        return ""
+
+    return datetime.fromtimestamp(int(timestamp), UTC).strftime("%-d %b %Y, %H:%M UTC")
 
 
 def _chart_date(timestamp):

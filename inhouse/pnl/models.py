@@ -45,12 +45,16 @@ class PnlSettings(models.Model):
     :type PnlSettings.SEPARATOR_CHOICES: list
     :var PnlSettings.COST_METHOD_CHOICES: cost basis methods and their labels
     :type PnlSettings.COST_METHOD_CHOICES: list
+    :var PnlSettings.PAGE_FORMAT_CHOICES: PDF report page sizes and their labels
+    :type PnlSettings.PAGE_FORMAT_CHOICES: list
     :var PnlSettings.user: reader the preferences belong to
     :type PnlSettings.user: :class:`django.contrib.auth.models.User`
     :var PnlSettings.csv_separator: key of the CSV export's separator character
     :type PnlSettings.csv_separator: str
     :var PnlSettings.cost_method: cost basis method, as the engine names it
     :type PnlSettings.cost_method: str
+    :var PnlSettings.page_format: PDF report's page size, as the engine names it
+    :type PnlSettings.page_format: str
     """
 
     SEPARATORS = {"comma": ",", "semicolon": ";", "tab": "\t"}
@@ -62,7 +66,9 @@ class PnlSettings(models.Model):
     COST_METHOD_CHOICES = [
         ("average", "Average cost"),
         ("fifo", "FIFO (first in, first out)"),
+        ("lifo", "LIFO (last in, first out)"),
     ]
+    PAGE_FORMAT_CHOICES = [("a4", "A4"), ("letter", "US Letter")]
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="pnl_settings"
@@ -76,6 +82,11 @@ class PnlSettings(models.Model):
         max_length=7,
         choices=COST_METHOD_CHOICES,
         default="average",
+    )
+    page_format = models.CharField(
+        max_length=6,
+        choices=PAGE_FORMAT_CHOICES,
+        default="a4",
     )
 
     def __str__(self):

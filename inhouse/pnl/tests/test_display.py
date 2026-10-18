@@ -11,6 +11,7 @@ from widgets.inhouse.pnl.display import (
     money,
     percent,
     period_summary,
+    processed_time,
     quantity,
     signed_money,
     summary,
@@ -369,3 +370,14 @@ class TestPnlDisplayChart:
         assert (returned["high"], returned["low"]) == ("0.00 ALGO", "0.00 ALGO")
         assert returned["unvalued"] == 0
 
+
+
+class TestPnlDisplayProcessedTime:
+    """Testing class for :py:func:`...pnl.display.processed_time`."""
+
+    @pytest.mark.parametrize(
+        "timestamp,expected",
+        [(None, ""), (0, ""), (1_760_000_000, "9 Oct 2025, 08:53 UTC")],
+    )
+    def test_pnl_display_processed_time(self, timestamp, expected):
+        assert processed_time(timestamp) == expected

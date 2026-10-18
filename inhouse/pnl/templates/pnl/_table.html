@@ -1,3 +1,8 @@
+{% if updating %}{% include "pnl/_updating.html" %}{% endif %}
+<div class="pnl-muted pnl-processed">
+  {% if processed_at %}{% if updating %}The figures below are from transactions processed {{ processed_at }}.{% else %}Transactions processed {{ processed_at }}.{% endif %}{% endif %}
+  {% if not updating %}<button type="button" id="id-pnl-updating" class="pnl-link" hx-post="{% url 'pnl_process' path %}?{{ query }}&amp;update=1" hx-target="#id-pnl-updating" hx-swap="outerHTML" title="Process new transactions; these figures stay until the new ones are ready">Update</button>{% endif %}
+</div>
 <section class="pnl-summary">
   {% if period_summary %}
   <div class="pnl-period">
@@ -88,5 +93,6 @@
   </table>
 </div>
 {% if hidden_count %}<p class="pnl-muted">Assets you hide still count in the totals.</p>{% endif %}
-<p class="pnl-muted">{% if cost_method == "fifo" %}First in, first out: a sale uses the cost of the oldest units still held; Avg cost is that of the units held now.{% else %}Average cost per asset.{% endif %} Transfers between this bundle's addresses are not sales; sending to other addresses removes holdings at cost. Not tax advice.</p>
+<p class="pnl-muted">{% if cost_method == "fifo" %}First in, first out: a sale uses the cost of the oldest units still held; Avg cost is that of the units held now.{% elif cost_method == "lifo" %}Last in, first out: a sale uses the cost of the newest units still held; Avg cost is that of the units held now.{% else %}Average cost per asset.{% endif %} Transfers between this bundle's addresses are not sales; sending to other addresses removes holdings at cost. Not tax advice.</p>
 {% if features.export %}<a class="pnl-button" href="{% url 'pnl_export' path %}?{{ query }}">Download CSV</a>{% endif %}
+{% if features.report %}{% include "pnl/_report.html" %}{% endif %}

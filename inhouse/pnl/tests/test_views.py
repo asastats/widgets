@@ -21,10 +21,13 @@ from widgets.inhouse.pnl.views import (
     PnlHideView,
     PnlProcessView,
     PnlRemoveView,
+    PnlReportDownloadView,
+    PnlReportView,
     PnlResetView,
     PnlRowsView,
     PnlSettingsView,
     PnlStatusView,
+    PnlUpdatingView,
     PnlView,
     _engine,
     addresses_in_use,
@@ -547,6 +550,17 @@ class TestPnlViewsProcessAndRemove:
         assert PnlBundle.objects.get(user=user, bundle=BUNDLE).address_count == 2
         assert b"<progress" in response.content
 
+    def test_pnl_views_process_update_keeps_the_table(self, django_user_model, mocker):
+        user = django_user_model.objects.create(username="reader")
+        mocker.patch("widgets.inhouse.pnl.views._engine")
+        mocker.patch("widgets.inhouse.pnl.views.time.time", return_value=5_000.9)
+        view = _view(PnlProcessView, CLUSTER, query="?update=1", user=user)
+        response = view.post(view.request)
+        assert b"<progress" not in response.content
+        assert b'id="id-pnl-updating"' in response.content
+        assert b"waiting for its turn" in response.content
+        assert b"since=5000" in response.content
+
     def test_pnl_views_remove_resets_engine_only_when_nobody_keeps_it(
         self, django_user_model, mocker
     ):
@@ -639,6 +653,18 @@ class TestPnlViewsSettings:
         assert not PnlSettings.objects.exists()
         assert b"Saved." not in response.content
 
+    @pytest.mark.parametrize(
+        "permission,saved", [(CLUSTER, "letter"), (PROFESSIONAL, "a4")]
+    )
+    def test_pnl_views_settings_saves_the_page_format(
+        self, django_user_model, permission, saved
+    ):
+        user = django_user_model.objects.create(username="reader")
+        response = self._post(permission, user, {"page_format": "letter"})
+        reader_settings = PnlSettings.objects.filter(user=user).first()
+        assert (reader_settings.page_format if reader_settings else "a4") == saved
+        assert (b"PDF report" in response.content) is (permission == CLUSTER)
+
     def test_pnl_views_settings_saves_the_cost_method(self, django_user_model):
         user = _user(CLUSTER, django_user_model.objects.create(username="reader"))
         response = self._post(CLUSTER, user, {"cost_method": "fifo"})
@@ -680,6 +706,17 @@ class TestPnlViewsCostMethod:
         assert engine.call_args.kwargs["json"]["method"] == expected
         assert (b"First in, first out" in content) is (expected == "fifo")
         assert (b"Average cost per asset." in content) is (expected == "average")
+
+    def test_pnl_views_status_explains_lifo(self, mocker, django_user_model):
+        user = self._reader(django_user_model, CLUSTER, method="lifo")
+        events = {BUNDLE: {"-1": {"state": "finished"}}}
+        engine = mocker.patch(
+            "widgets.inhouse.pnl.views._engine", side_effect=[events, _engine_results()]
+        )
+        view = _view(PnlStatusView, CLUSTER, user=user)
+        content = view.get(view.request).content
+        assert engine.call_args.kwargs["json"]["method"] == "lifo"
+        assert b"Last in, first out" in content
 
     def test_pnl_views_asset_sends_the_saved_method(self, mocker, django_user_model):
         user = self._reader(django_user_model, CLUSTER)
@@ -776,7 +813,7 @@ class TestPnlViewsAlert:
         response = self._post(
             user,
             ASASTATSER,
-            {"direction": "up", "threshold": "1.25", "unit": "USDC"},
+            {"preset": "up 1.25", "unit": "USDC"},
             "?currency=algo",
         )
         rule = AlertRule.objects.get(user=user)
@@ -793,8 +830,8 @@ class TestPnlViewsAlert:
     def test_pnl_views_alert_reports_the_alert_widgets_refusal(self, django_user_model):
         user = django_user_model.objects.create(username="reader")
         for _ in range(2):
-            self._post(user, 0, {"direction": "up", "threshold": "1"})
-        response = self._post(user, 0, {"direction": "up", "threshold": "1"})
+            self._post(user, 0, {"preset": "up 1"})
+        response = self._post(user, 0, {"preset": "up 1"})
         assert AlertRule.objects.filter(user=user).count() == 2
         assert b"pnl-warning" in response.content
         assert b"Alert set" not in response.content
@@ -853,6 +890,7 @@ def _grouped_results():
         {**held, "asset": "5", "name": "Sold", "unit": "SOLD", "quantity": 0},
         {**held, "asset": "6", "name": "Spam", "unit": "SPAM", "no_market": True},
         {**held, "asset": "7", "name": "Muted", "unit": "MUTE"},
+        {**held, "asset": "8", "name": "Unpriced", "unit": "NOPR", "value": None},
     ]
     return results
 
@@ -876,7 +914,10 @@ class TestPnlViewsRowGroups:
         assert b"SOLD" not in response.content
         assert b"SPAM" not in response.content
         assert b"MUTE" not in response.content
-        assert b"Show 2 more: sold out or without a market" in response.content
+        assert b"NOPR" not in response.content.split(b"pnl-table-wrap")[1]
+        assert b"Show 2 sold out or without a market" in response.content
+        assert b"Show 1 held without a current price" in response.content
+        assert b"group=unvalued" in response.content
         assert b"Show 1 hidden by you" in response.content
         assert b"group=collapsed" in response.content
         assert b"group=hidden" in response.content
@@ -926,6 +967,15 @@ class TestPnlViewsRowGroups:
         assert b">ALGO<" not in response.content
         assert response.content.count(b'class="pnl-closed"') == 2
         assert b">Hide</button>" in response.content
+
+    def test_pnl_views_rows_renders_the_unvalued_group(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine", return_value=_grouped_results()
+        )
+        view = _view(PnlRowsView, query="?group=unvalued")
+        response = view.get(view.request)
+        assert b"NOPR" in response.content
+        assert b"SOLD" not in response.content
 
     def test_pnl_views_rows_renders_the_hidden_group(self, mocker, django_user_model):
         user = django_user_model.objects.create(username="reader")
@@ -996,6 +1046,96 @@ class TestPnlViewsHide:
         assert not PnlHiddenAsset.objects.filter(user=user).exists()
 
 
+class TestPnlViewsUpdating:
+    """Testing class for the table kept during an update and its banner."""
+
+    def _status(self, mocker, results, finished=True):
+        events = {BUNDLE: {"-1": {"state": "finished" if finished else 5}}}
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine", side_effect=[events, results]
+        )
+        view = _view(PnlStatusView, ASASTATSER)
+        return view.get(view.request)
+
+    def test_pnl_views_status_offers_the_update(self, mocker):
+        results = {**_engine_results(), "processed_at": 1_760_000_000}
+        response = self._status(mocker, results)
+        assert b"Transactions processed 9 Oct 2025, 08:53 UTC." in response.content
+        assert b">Update</button>" in response.content
+        assert b"update=1" in response.content
+        assert b'class="pnl-updating"' not in response.content
+
+    def test_pnl_views_status_keeps_the_table_while_processing(self, mocker):
+        results = {
+            **_engine_results(),
+            "processed_at": 1_760_000_000,
+            "updating": "processing",
+        }
+        response = self._status(mocker, results, finished=False)
+        assert b"<progress" not in response.content
+        assert b'data-label="Avg cost"' in response.content
+        assert b"Updating: processing new transactions." in response.content
+        assert b"The figures below are from transactions processed" in response.content
+        assert b">Update</button>" not in response.content
+        assert b'hx-trigger="load delay:5s"' in response.content
+
+    def test_pnl_views_status_banner_shows_pricing_progress(self, mocker):
+        results = {
+            **_engine_results(),
+            "updating": "pricing",
+            "pricing": {"done": 3, "total": 8},
+        }
+        response = self._status(mocker, results)
+        assert b"pricing new transactions (3 of 8 assets)" in response.content
+
+    def _banner(self, mocker, query="", **engine):
+        mocker.patch("widgets.inhouse.pnl.views.time.time", return_value=10_000)
+        call = mocker.patch("widgets.inhouse.pnl.views._engine", **engine)
+        view = _view(PnlUpdatingView, ASASTATSER, query=query)
+        return view.get(view.request), call
+
+    def test_pnl_views_updating_asks_the_engine(self, mocker):
+        response, call = self._banner(
+            mocker, return_value={"updating": "evaluating", "rows_at": 1}
+        )
+        assert call.call_args.args == ("pnl:events", "POST", BUNDLE, "updating/")
+        assert call.call_args.kwargs == {
+            "json": {"currency": "usd", "valuation": "spot", "method": "average"}
+        }
+        assert b"working out the new figures" in response.content
+        assert b"since=0" in response.content
+
+    def test_pnl_views_updating_when_the_engine_fails(self, mocker):
+        response, _ = self._banner(mocker, side_effect=BackendError("down"))
+        assert b"cannot be read right now" in response.content
+        assert b'hx-trigger="load delay:5s"' in response.content
+
+    @pytest.mark.parametrize(
+        "query,engine,expected",
+        [
+            ("?since=9000", {"updating": None, "rows_at": 8_000}, b"waiting for its turn"),
+            ("?since=5000", {"updating": None, "rows_at": 4_000}, b"has not started yet"),
+            ("?since=9000", {"updating": None, "rows_at": 9_500}, b"New figures are ready"),
+            ("?since=soon", {"updating": None, "rows_at": 1}, b"New figures are ready"),
+            ("", None, b"New figures are ready"),
+        ],
+    )
+    def test_pnl_views_updating_states(self, mocker, query, engine, expected):
+        response, _ = self._banner(mocker, query, return_value=engine)
+        assert expected in response.content
+
+    def test_pnl_views_updating_offers_the_new_figures_without_polling(self, mocker):
+        response, _ = self._banner(mocker, return_value={"updating": None})
+        assert b'hx-target="#id-pnl-body"' in response.content
+        assert b"load delay" not in response.content
+
+    def test_pnl_views_updating_stops_polling_once_stalled(self, mocker):
+        response, _ = self._banner(
+            mocker, "?since=5000", return_value={"updating": None, "rows_at": 1}
+        )
+        assert b"hx-get" not in response.content
+
+
 class TestPnlUrls:
     """Testing class for the widget's URL configuration."""
 
@@ -1009,6 +1149,9 @@ class TestPnlUrls:
             ("/reset", PnlResetView),
             ("/asset/LP123", PnlAssetView),
             ("/rows", PnlRowsView),
+            ("/updating", PnlUpdatingView),
+            ("/report", PnlReportView),
+            ("/report/download", PnlReportDownloadView),
             ("/hide/31566704", PnlHideView),
             ("/alert/31566704", PnlAlertView),
             ("/settings", PnlSettingsView),
@@ -1017,3 +1160,109 @@ class TestPnlUrls:
     )
     def test_pnl_urls_resolve(self, suffix, view_class):
         assert resolve(f"/widgets/pnl/{BUNDLE}{suffix}").func.view_class is view_class
+
+
+@pytest.mark.django_db
+class TestPnlViewsReport:
+    """Testing class for the PDF report's preparation and download."""
+
+    def _report(self, mocker, django_user_model, permission=CLUSTER, **engine):
+        user = _user(permission, django_user_model.objects.create(username="reader"))
+        PnlHiddenAsset.objects.create(user=user, bundle=BUNDLE, asset="7")
+        PnlSettings.objects.create(user=user, page_format="letter")
+        call = mocker.patch("widgets.inhouse.pnl.views._engine", **engine)
+        view = _view(PnlReportView, permission, user=user)
+        view.request = RequestFactory().post(f"/pnl/{BUNDLE}/report", {"full": "1"})
+        view.request.user = user
+        return view, call
+
+    def test_pnl_views_report_needs_cluster(self, mocker, django_user_model):
+        view, _ = self._report(mocker, django_user_model, PROFESSIONAL)
+        with pytest.raises(Http404):
+            view.post(view.request)
+
+    def test_pnl_views_report_asks_the_engine(self, mocker, django_user_model):
+        view, call = self._report(
+            mocker, django_user_model, return_value={"type": "preparing", "key": "k"}
+        )
+        response = view.post(view.request)
+        assert call.call_args.args == ("pnl:evaluate", "POST", BUNDLE, "report/")
+        assert call.call_args.kwargs["json"] == {
+            "currency": "usd",
+            "valuation": "spot",
+            "method": "average",
+            "page": "letter",
+            "full": True,
+            "hidden": ["7"],
+        }
+        assert b"Preparing the PDF report with every asset in full" in response.content
+        assert b'hx-trigger="load delay:4s"' in response.content
+        assert b"full=1" in response.content
+
+    def test_pnl_views_report_ready(self, mocker, django_user_model):
+        view, _ = self._report(
+            mocker, django_user_model, return_value={"type": "ready", "key": "k_a4"}
+        )
+        response = view.get(view.request)
+        assert b"Download PDF report" in response.content
+        assert b"key=k_a4" in response.content
+        assert b"load delay" not in response.content
+
+    @pytest.mark.parametrize(
+        "engine,expected",
+        [
+            ({"side_effect": BackendError("down")}, b"could not be prepared"),
+            ({"return_value": {"type": "pricing"}}, b"being updated"),
+            ({"return_value": None}, b"Prepare PDF report"),
+        ],
+    )
+    def test_pnl_views_report_states(self, mocker, django_user_model, engine, expected):
+        view, _ = self._report(mocker, django_user_model, **engine)
+        response = view.post(view.request)
+        assert expected in response.content
+
+    def test_pnl_views_table_offers_the_report(self, mocker):
+        events = {BUNDLE: {"-1": {"state": "finished"}}}
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine", side_effect=[events, _engine_results()]
+        )
+        view = _view(PnlStatusView, CLUSTER)
+        content = view.get(view.request).content
+        assert b'id="id-pnl-report"' in content
+        assert b"Prepare PDF report" in content
+
+    def _download(self, mocker, permission=CLUSTER, **engine):
+        call = mocker.patch("widgets.inhouse.pnl.views.engine_request", **engine)
+        view = _view(PnlReportDownloadView, permission, query="?key=k_a4")
+        view.request._messages = mocker.MagicMock()
+        return view, call
+
+    def test_pnl_views_report_download_needs_cluster(self, mocker):
+        view, _ = self._download(mocker, PROFESSIONAL)
+        with pytest.raises(Http404):
+            view.get(view.request)
+
+    def test_pnl_views_report_download(self, mocker):
+        view, call = self._download(
+            mocker, return_value=types.SimpleNamespace(content=b"%PDF-1.7")
+        )
+        clock = mocker.patch("widgets.inhouse.pnl.views.datetime")
+        clock.now.return_value.strftime.return_value = "20261018"
+        response = view.get(view.request)
+        assert response.content == b"%PDF-1.7"
+        assert response["Content-Type"] == "application/pdf"
+        assert response["Content-Disposition"] == (
+            'attachment; filename="pnl-bbbbbbbb-usd-spot-average-20261018.pdf"'
+        )
+        assert call.call_args.args[:3] == (
+            "pnl:evaluate",
+            "GET",
+            f"/api/v2/pnl/{BUNDLE}/report/",
+        )
+        assert call.call_args.kwargs == {"params": {"key": "k_a4"}}
+
+    def test_pnl_views_report_download_after_it_expired(self, mocker):
+        view, _ = self._download(mocker, side_effect=BackendError("404: gone"))
+        response = view.get(view.request)
+        assert response.status_code == 302
+        assert response.url.startswith(f"/widgets/pnl/{BUNDLE}?")

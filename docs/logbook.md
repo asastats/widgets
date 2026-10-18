@@ -2474,3 +2474,64 @@ through `request.user.pnl_hidden_assets`, the related manager. The view tests'
 fake user carries an empty queryset under that name. Clicking "Show more" on
 a very large bundle still renders every collapsed row at once; paging it is
 the next step if that turns out slow.
+
+## inhouse/pnl/views.py, templates/pnl/_updating.html, _table.html — updating with the table in view (2026-10-18)
+
+The table had no way to fetch new transactions, and every engine update showed
+the progress screen for the whole run (8 minutes of processing plus, until
+engine `772863d`, 13.6 of pricing on `CE63DD…`). Now:
+
+- Above the summary: "Transactions processed <time> UTC" (the evaluation's
+  `processed_at`) and an Update button. It posts to `pnl_process` with
+  `update=1`, which processes as Process does but answers with the banner
+  instead of the progress bars.
+- `PnlStatusView` shows the table whenever the engine returns one, even while
+  events say a run is going. The progress screen is only for a bundle with no
+  saved table.
+- `_updating.html` (`#id-pnl-updating`) polls `PnlUpdatingView` every 5 s
+  and replaces itself. It reads queued, processing, pricing (assets done),
+  evaluating, unknown (engine unreachable: keep polling), stalled (queued for
+  `UPDATE_QUEUED_LIMIT`, 30 minutes: stop), and finally "New figures are
+  ready. Show them". That swaps `#id-pnl-body`. It does not reload by itself,
+  so a reader is not moved off the rows they opened. "Queued" is when the
+  engine reports nothing running but its `rows_at` is older than the click
+  (`since`).
+
+## inhouse/pnl/templates/pnl/_row.html, views.py — lighter rows; unpriced holdings collapsed (2026-10-18)
+
+The saved page after R4 was still 8.9 MB for 2,770 rows, about 3.2 KB each:
+four alert forms and a hide form per row, each repeating its URL, plus
+indentation (14% of the page). The four presets are now buttons of one form,
+`name="preset" value="<direction> <threshold>"`. htmx 4 posts the clicked
+submitter's name and value (`#C` in `htmx.min.js`). `PnlAlertView` splits the
+preset. The alert response now replaces its `<details>` (it replaced the whole
+cell, hide button included). The row template is written without
+indentation.
+
+Held assets without a current price (`table_row`'s `valued`) are a third
+collapsed group, "Show N held without a current price", first of the three
+(`MORE_ROWS`). On the saved page that is 2,353 of the 2,770 rows, mostly NFTs
+until NFT valuation (`p-l/PLAN.md` Phase 3). They are still listed in the issues
+view.
+
+## inhouse/pnl/models.py, tiers.py — LIFO (2026-10-18)
+
+`PnlSettings.cost_method` gains "lifo" (migration `widgets/0010`, choices only).
+It is Cluster, like FIFO (`features["cost_methods"]`), with its own sentence
+under the table. Engine side: engine logbook, `pnl/lots.py` (same date). The
+subscriptions page says "FIFO and LIFO".
+
+## inhouse/pnl/views.py, templates/pnl/_report.html — the PDF report (2026-10-18)
+
+Cluster (`features["report"]`). Below "Download CSV", "Prepare PDF report",
+with a checkbox for every asset in full (sold out, without a market, without a
+price), posts to `PnlReportView`. That asks the engine's `report/` with the
+evaluate switches, the reader's page size, `full` and their hidden assets.
+`#id-pnl-report` then polls every 4 s while the engine prepares the report,
+and ends on "Download PDF report". `PnlReportDownloadView` fetches the PDF from
+the engine with `engine_request` (not `_engine`, which reads JSON). It serves
+the PDF as `pnl-<bundle>-<currency>-<valuation>-<method>-<date>.pdf`, or
+returns to the table with a message once the engine no longer has it (an hour,
+or newer priced rows). The page size is `PnlSettings.page_format` (A4 or US
+Letter, migration `widgets/0011`), in the Settings tab. Layout and rendering:
+engine logbook, `pnl/report.py` (same date).

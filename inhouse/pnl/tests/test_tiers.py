@@ -30,6 +30,7 @@ class TestPnlTiers:
             "chart": False,
             "lp_analytics": False,
             "export": False,
+            "report": False,
             "cost_methods": ("average",),
         }
 
@@ -55,6 +56,7 @@ class TestPnlTiers:
             "chart": False,
             "lp_analytics": False,
             "export": False,
+            "report": False,
             "cost_methods": ("average",),
         }
 
@@ -78,7 +80,7 @@ class TestPnlTiers:
 
     @pytest.mark.parametrize(
         "tier,expected",
-        [("Professional", ("average",)), ("Cluster", ("average", "fifo"))],
+        [("Professional", ("average",)), ("Cluster", ("average", "fifo", "lifo"))],
     )
     def test_pnl_tiers_cost_methods_for_cluster(self, tier, expected):
         assert features_for(SUBSCRIPTION_TIER_PERMISSIONS[tier])["cost_methods"] == expected
@@ -86,6 +88,10 @@ class TestPnlTiers:
     @pytest.mark.parametrize("tier,expected", [("Professional", False), ("Cluster", True)])
     def test_pnl_tiers_export_for_cluster(self, tier, expected):
         assert features_for(SUBSCRIPTION_TIER_PERMISSIONS[tier])["export"] is expected
+
+    @pytest.mark.parametrize("tier,expected", [("Professional", False), ("Cluster", True)])
+    def test_pnl_tiers_report_for_cluster(self, tier, expected):
+        assert features_for(SUBSCRIPTION_TIER_PERMISSIONS[tier])["report"] is expected
 
     @pytest.mark.parametrize(
         "tier,expected",

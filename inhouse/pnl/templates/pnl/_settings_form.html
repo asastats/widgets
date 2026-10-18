@@ -8,6 +8,14 @@
       </select>
     </label>
     {% endif %}
+    {% if features.report %}
+    <h2>PDF report</h2>
+    <label>Page size
+      <select name="page_format">
+        {% for key, label in pnl_settings.PAGE_FORMAT_CHOICES %}<option value="{{ key }}"{% if key == pnl_settings.page_format %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    {% endif %}
     {% if features.export %}
     <h2>CSV export</h2>
     <label>Separator
