@@ -17,6 +17,7 @@ from widgets.inhouse.pnl.views import (
     PnlAlertView,
     PnlAssetView,
     PnlChartView,
+    PnlEventsExportView,
     PnlExportView,
     PnlHideView,
     PnlProcessView,
@@ -350,6 +351,52 @@ class TestPnlViewsValuation:
         assert b">appraised</span>" in content
         assert b"$4.00 of the value is NFTs marked" in content
 
+    def test_pnl_views_status_shows_what_a_reprocess_changed(self, mocker):
+        results = _engine_results()
+        results["changes"] = {
+            "since": 1_760_000_000,
+            "assets_changed": 1,
+            "cost": -2_000_000,
+            "realized": 0.0,
+            "income": 0.0,
+            "expenses": 0.0,
+            "assets": [
+                {
+                    "asset": "0",
+                    "quantity": 0.0,
+                    "cost": -2_000_000,
+                    "realized": 0.0,
+                    "income": 0.0,
+                    "expenses": 0.0,
+                }
+            ],
+        }
+        events = {BUNDLE: {"-1": {"state": "finished"}}}
+        mocker.patch("widgets.inhouse.pnl.views._engine", side_effect=[events, results])
+        view = _view(PnlStatusView, ASASTATSER)
+        content = view.get(view.request).content
+        assert b"What changed when the history was processed again: 1 asset" in content
+        assert b"Transactions from before 9 Oct 2025, 08:53 UTC" in content
+
+    @pytest.mark.parametrize(
+        "permission,winners,concentration",
+        [(0, False, False), (ASASTATSER, True, False), (PROFESSIONAL, True, True)],
+    )
+    def test_pnl_views_status_insights_by_tier(
+        self, mocker, permission, winners, concentration
+    ):
+        results = _engine_results()
+        results["totals"]["value"] = 1_250_000
+        events = {BUNDLE: {"-1": {"state": "finished"}}}
+        mocker.patch("widgets.inhouse.pnl.views._engine", side_effect=[events, results])
+        view = _view(PnlStatusView, permission)
+        content = view.get(view.request).content
+        assert (b"Winners and losers" in content) is winners
+        assert (b"Concentration" in content) is concentration
+        if concentration:
+            assert b"make up 100.0% of the current value" not in content
+            assert b"makes up 100.0% of the current value" in content
+
     def test_pnl_views_status_nfts_left_out(self, mocker):
         results = _engine_results()
         results["totals"]["nfts"] = False
@@ -358,6 +405,7 @@ class TestPnlViewsValuation:
         view = _view(PnlStatusView, CLUSTER)
         content = view.get(view.request).content
         assert b"NFTs are not valued, as chosen in Settings" in content
+        assert b'href="/methodology/">How these figures are made' in content
 
 
 class TestPnlViewsChart:
@@ -652,6 +700,18 @@ class TestPnlViewsSettings:
         assert context["pnl_settings"].pk is None
         assert "tab" not in _view(PnlView, CLUSTER, user=user).get_context_data()
 
+    @pytest.mark.parametrize(
+        "permission,shown", [(PROFESSIONAL, True), (ASASTATSER, False)]
+    )
+    def test_pnl_views_settings_tab_offers_the_nft_choice(
+        self, django_user_model, permission, shown
+    ):
+        user = _user(permission, django_user_model.objects.create(username="reader"))
+        view = _view(PnlView, permission, query="?tab=settings", user=user)
+        response = view.get(view.request)
+        response.render()
+        assert (b'name="count_nfts"' in response.content) is shown
+
     def test_pnl_views_settings_saves_the_separator(self, django_user_model):
         user = _user(CLUSTER, django_user_model.objects.create(username="reader"))
         response = self._post(CLUSTER, user, {"csv_separator": "semicolon"})
@@ -710,7 +770,11 @@ class TestPnlViewsSettings:
 
     @pytest.mark.parametrize(
         "permission,count_nfts,sent",
-        [(PROFESSIONAL, False, False), (PROFESSIONAL, True, None), (ASASTATSER, False, None)],
+        [
+            (PROFESSIONAL, False, False),
+            (PROFESSIONAL, True, None),
+            (ASASTATSER, False, None),
+        ],
     )
     def test_pnl_views_evaluate_payload_nfts(
         self, django_user_model, permission, count_nfts, sent
@@ -849,6 +913,63 @@ class TestPnlViewsExport:
         assert response.url == f"/widgets/pnl/{BUNDLE}?currency=usd&period=all&valuation=spot"
         info.assert_called_once()
 
+    def test_pnl_views_events_export_needs_cluster(self, django_user_model):
+        user = _user(ASASTATSER, django_user_model.objects.create(username="reader"))
+        view = _view(PnlEventsExportView, ASASTATSER, user=user)
+        with pytest.raises(Http404):
+            view.get(view.request, BUNDLE)
+
+    def test_pnl_views_events_export_returns_every_event(self, mocker, django_user_model):
+        user = _user(CLUSTER, django_user_model.objects.create(username="reader"))
+        PnlSettings.objects.create(user=user, csv_separator="tab", cost_method="fifo")
+        history = {
+            "currency": "eur",
+            "assets": {"5": {"asset": "5", "unit": "FIV", "decimals": 0}},
+            "events": [
+                {
+                    "date": 1_700_000_000,
+                    "id": "G",
+                    "asset": "5",
+                    "kind": "swap",
+                    "quantity": 2,
+                    "value": 3_000_000,
+                    "cost": 1_000_000,
+                    "realized": 2_000_000,
+                    "rate": 0.9,
+                }
+            ],
+        }
+        engine = mocker.patch("widgets.inhouse.pnl.views._engine", return_value=history)
+        view = _view(PnlEventsExportView, CLUSTER, user=user)
+        response = view.get(view.request, BUNDLE)
+        assert engine.call_args.args == ("pnl:asset", "POST", BUNDLE, "history/")
+        assert engine.call_args.kwargs["json"]["method"] == "fifo"
+        assert response["Content-Disposition"].startswith(
+            'attachment; filename="pnl-events-bbbbbbbb-usd-fifo-'
+        )
+        lines = response.content.decode("utf-8-sig").splitlines()
+        assert lines[0].startswith("Date (UTC)\tTransaction ID\t")
+        assert lines[1].split("\t")[:4] == ["2023-11-14 22:13:20", "G", "5", "FIV"]
+
+    @pytest.mark.parametrize(
+        "engine",
+        [
+            {"return_value": {"type": "evaluating"}},
+            {"return_value": None},
+            {"side_effect": BackendError("down")},
+        ],
+    )
+    def test_pnl_views_events_export_back_to_the_page_until_ready(
+        self, mocker, django_user_model, engine
+    ):
+        user = _user(CLUSTER, django_user_model.objects.create(username="reader"))
+        mocker.patch("widgets.inhouse.pnl.views._engine", **engine)
+        info = mocker.patch("widgets.inhouse.pnl.views.messages.info")
+        view = _view(PnlEventsExportView, CLUSTER, user=user)
+        response = view.get(view.request, BUNDLE)
+        assert response.status_code == 302
+        info.assert_called_once()
+
     @pytest.mark.parametrize("permission,shown", [(CLUSTER, True), (ASASTATSER, False)])
     def test_pnl_views_table_offers_the_csv_to_cluster(self, mocker, permission, shown):
         events = {BUNDLE: {"-1": {"state": "finished"}}}
@@ -859,6 +980,7 @@ class TestPnlViewsExport:
         view = _view(PnlStatusView, permission)
         response = view.get(view.request)
         assert (b"/export?" in response.content) is shown
+        assert (b"/events.csv?" in response.content) is shown
         assert b"Start from scratch" not in response.content
 
 
@@ -947,6 +1069,32 @@ class TestPnlViewsAsset:
         assert engine.call_args.kwargs == {
             "json": {"asset": "5", "currency": "algo", "method": "average"}
         }
+        assert b'href="https://allo.info/tx/group/TX"' in response.content
+
+    def test_pnl_views_asset_links_to_the_readers_explorer(
+        self, mocker, django_user_model
+    ):
+        user = _user(ASASTATSER, django_user_model.objects.create(username="reader"))
+        user.profile.preferred_explorer = "pera"
+        user.profile.save()
+        event = {
+            "date": 1,
+            "id": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "asset": "5",
+            "kind": "swap",
+            "quantity": 1,
+            "value": 1,
+            "cost": 1,
+            "realized": None,
+        }
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine",
+            return_value={"asset": "5", "decimals": 0, "events": [event]},
+        )
+        view = _view(PnlAssetView, ASASTATSER, user=user)
+        response = view.get(view.request, BUNDLE, "5")
+        link = b'href="https://explorer.perawallet.app/tx/%s"' % (b"A" * 52)
+        assert link in response.content
 
 
 def _grouped_results():
@@ -977,7 +1125,8 @@ class TestPnlViewsRowGroups:
         view = _view(PnlStatusView, ASASTATSER, user=user)
         response = view.get(view.request)
         assert b">ALGO</button>" in response.content
-        assert b"SOLD" not in response.content
+        # a sold-out asset may be among the winners, never in the table's rows
+        assert b"SOLD" not in response.content.split(b"pnl-table-wrap")[1]
         assert b"SPAM" not in response.content
         assert b"MUTE" not in response.content
         assert b"NOPR" not in response.content.split(b"pnl-table-wrap")[1]

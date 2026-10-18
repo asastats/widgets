@@ -62,6 +62,28 @@
     </details>
     {% endif %}
   {% endif %}
+  {% if changes %}
+    <details class="pnl-issues">
+      <summary>What changed when the history was processed again: {{ changes.count }} asset{{ changes.count|pluralize }}, realized {{ changes.realized }}, cost basis {{ changes.cost }}</summary>
+      <p class="pnl-muted">Transactions from before {{ changes.since }}, classified or priced differently this time. Market moves and new transactions are not counted here.</p>
+      <table class="pnl-table">
+        <thead><tr><th>Asset</th><th>Quantity</th><th>Cost basis</th><th>Realized</th><th>Income</th><th>Costs and fees</th></tr></thead>
+        <tbody>
+          {% for row in changes.rows %}
+            <tr>
+              <th scope="row">{{ row.label }}</th>
+              <td data-label="Quantity">{{ row.quantity }}</td>
+              <td data-label="Cost basis">{{ row.cost }}</td>
+              <td data-label="Realized">{{ row.realized }}</td>
+              <td data-label="Income">{{ row.income }}</td>
+              <td data-label="Costs and fees">{{ row.expenses }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if changes.more %}<p class="pnl-muted">And {{ changes.more }} more, smaller.</p>{% endif %}
+    </details>
+  {% endif %}
   {% if summary.mve %}
     <p class="pnl-muted">Holdings valued at what selling each would fetch from its pools now (MVE); ALGO and LP tokens at spot.</p>
   {% endif %}
@@ -77,7 +99,38 @@
   {% if summary.no_market_assets %}
     <p class="pnl-muted">{{ summary.no_market_assets }} asset{{ summary.no_market_assets|pluralize }} never had a market price, usually unsolicited tokens; they are listed last and count for nothing.</p>
   {% endif %}
+  <p class="pnl-muted"><a href="{% url 'methodology' %}">How these figures are made</a></p>
 </section>
+{% if winners or concentration %}
+<section class="pnl-insights">
+  {% if winners %}
+    <h3><strong>Winners and losers</strong></h3>
+    <table class="pnl-table">
+      <thead><tr><th>Gained most</th><th>Total</th><th>Return</th><th>Lost most</th><th>Total</th><th>Return</th></tr></thead>
+      <tbody>
+        {% for pair in winners.pairs %}
+          <tr>
+            {% if pair.0 %}<th scope="row">{{ pair.0.label }}</th><td data-label="Total" class="{{ pair.0.tone }}">{{ pair.0.total }}</td><td data-label="Return">{{ pair.0.return }}</td>{% else %}<td></td><td></td><td></td>{% endif %}
+            {% if pair.1 %}<th scope="row">{{ pair.1.label }}</th><td data-label="Total" class="{{ pair.1.tone }}">{{ pair.1.total }}</td><td data-label="Return">{{ pair.1.return }}</td>{% else %}<td></td><td></td><td></td>{% endif %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+  {% if concentration %}
+    <h3><strong>Concentration</strong></h3>
+    <p class="pnl-muted">The {{ concentration.count }} largest holding{{ concentration.count|pluralize }} make{{ concentration.count|pluralize:"s," }} up {{ concentration.share }} of the current value.</p>
+    <table class="pnl-table">
+      <thead><tr><th>Holding</th><th>Value</th><th>Share</th></tr></thead>
+      <tbody>
+        {% for row in concentration.rows %}
+          <tr><th scope="row">{{ row.label }}</th><td data-label="Value">{{ row.value }}</td><td data-label="Share">{{ row.share }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</section>
+{% endif %}
 <div class="pnl-table-wrap">
   <table class="pnl-table">
     <thead>
@@ -101,5 +154,5 @@
 </div>
 {% if hidden_count %}<p class="pnl-muted">Assets you hide still count in the totals.</p>{% endif %}
 <p class="pnl-muted">{% if cost_method == "fifo" %}First in, first out: a sale uses the cost of the oldest units still held; Avg cost is that of the units held now.{% elif cost_method == "lifo" %}Last in, first out: a sale uses the cost of the newest units still held; Avg cost is that of the units held now.{% elif cost_method == "hifo" %}Highest cost out first: a sale uses the units held that cost the most per unit; Avg cost is that of the units held now.{% else %}Average cost per asset.{% endif %} Transfers between this bundle's addresses are not sales; sending to other addresses removes holdings at cost. Not tax advice.</p>
-{% if features.export %}<a class="pnl-button" href="{% url 'pnl_export' path %}?{{ query }}">Download CSV</a>{% endif %}
+{% if features.export %}<a class="pnl-button" href="{% url 'pnl_export' path %}?{{ query }}">Download CSV</a> <a class="pnl-button" href="{% url 'pnl_events_export' path %}?{{ query }}">Download events CSV</a>{% endif %}
 {% if features.report %}{% include "pnl/_report.html" %}{% endif %}

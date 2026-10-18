@@ -5,9 +5,12 @@ are per base unit.
 """
 
 import math
+import re
+from itertools import zip_longest
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from utils.explorers import marker_link
 from utils.fiat import FIAT_SYMBOLS
 
 MICRO = 1_000_000
@@ -18,6 +21,10 @@ HALF_CENT = MICRO / 200
 HALF_PERMILLE = 0.0005
 #: Assets listed per kind of issue; the rest are counted.
 ISSUES_SHOWN = 50
+#: Assets in each of the winners and losers lists, and holdings in the concentration list.
+EXTREMES_SHOWN = 5
+#: An Algorand transaction id; an event's id is otherwise its group's.
+TRANSACTION_ID = re.compile(r"[A-Z2-7]{52}")
 
 EVENT_LABELS = {
     "deposit": "Deposit",
@@ -476,7 +483,18 @@ def period_summary(period, currency):
     }
 
 
-def event_row(event, decimals, currency):
+def transaction_marker(event_id):
+    """Return the explorer marker of an event's id: a transaction id or a group id.
+
+    :param event_id: engine event's id
+    :type event_id: str
+    :return: str
+    """
+    entity = "transaction" if TRANSACTION_ID.fullmatch(event_id) else "group"
+    return f"{entity}={event_id}"
+
+
+def event_row(event, decimals, currency, explorer=None):
     """Return an engine event formatted for the drill-down.
 
     :param event: engine's applied event
@@ -485,6 +503,8 @@ def event_row(event, decimals, currency):
     :type decimals: int
     :param currency: "algo", "usd" or another fiat's lower-case code
     :type currency: str
+    :param explorer: the reader's explorer key; without it the id is not linked
+    :type explorer: str
     :return: dict
     """
     return {
@@ -500,12 +520,196 @@ def event_row(event, decimals, currency):
         "unpriced": event.get("unpriced", event["value"] is None)
         and event["kind"] not in ("position_in", "position_out"),
         "id": event["id"],
+        "link": marker_link(explorer, transaction_marker(event["id"]))
+        if explorer and event.get("id")
+        else "",
         "description": event.get("description") or "",
     }
 
 
 #: The chart's SVG viewBox: width, height and inner padding.
 CHART_WIDTH, CHART_HEIGHT, CHART_PAD = 600, 180, 6
+
+
+def _extreme(row, currency):
+    """Return one asset of the winners or losers list, formatted.
+
+    :param row: engine's asset result
+    :type row: dict
+    :param currency: "algo", "usd" or another fiat's lower-case code
+    :type currency: str
+    :return: dict
+    """
+    return {
+        "asset": row["asset"],
+        "label": asset_label(row),
+        "total": signed_money(row["total"], currency),
+        "tone": tone(row["total"]),
+        "return": percent(row.get("return")),
+    }
+
+
+def winners_and_losers(assets, currency, hidden=()):
+    """Return the assets that gained and lost the most in total, or None.
+
+    :param assets: engine's asset results
+    :type assets: list
+    :param currency: "algo", "usd" or another fiat's lower-case code
+    :type currency: str
+    :param hidden: asset ids the reader hid from the table
+    :type hidden: iterable
+    :var ranked: assets whose total does not round to zero, largest first
+    :type ranked: list
+    :return: dict or None
+    """
+    hidden = set(hidden)
+    ranked = sorted(
+        (
+            row
+            for row in assets
+            if row["asset"] not in hidden
+            and not row.get("no_market")
+            and tone(row["total"])
+        ),
+        key=lambda row: row["total"],
+        reverse=True,
+    )
+    winners = [row for row in ranked if row["total"] > 0][:EXTREMES_SHOWN]
+    losers = [row for row in reversed(ranked) if row["total"] < 0][:EXTREMES_SHOWN]
+    if not winners and not losers:
+        return None
+
+    winners = [_extreme(row, currency) for row in winners]
+    losers = [_extreme(row, currency) for row in losers]
+    # side by side in the template: one row per rank
+    return {
+        "winners": winners,
+        "losers": losers,
+        "pairs": list(zip_longest(winners, losers)),
+    }
+
+
+def concentration(assets, totals, currency):
+    """Return the largest holdings and their share of the current value, or None.
+
+    :param assets: engine's asset results
+    :type assets: list
+    :param totals: engine's bundle totals
+    :type totals: dict
+    :param currency: "algo", "usd" or another fiat's lower-case code
+    :type currency: str
+    :var value: the bundle's current value
+    :type value: float
+    :var largest: valued holdings, largest first, as many as are listed
+    :type largest: list
+    :return: dict or None
+    """
+    value = totals.get("value") or 0
+    largest = sorted(
+        (row for row in assets if (row.get("value") or 0) > 0),
+        key=lambda row: row["value"],
+        reverse=True,
+    )[:EXTREMES_SHOWN]
+    if value <= 0 or not largest:
+        return None
+
+    return {
+        "share": f"{sum(row['value'] for row in largest) / value * 100:.1f}%",
+        "count": len(largest),
+        "rows": [
+            {
+                "asset": row["asset"],
+                "label": asset_label(row),
+                "value": money(row["value"], currency),
+                "share": f"{row['value'] / value * 100:.1f}%",
+            }
+            for row in largest
+        ],
+    }
+
+
+def drawdown(points, currency):
+    """Return the chart's largest fall from a peak to a later low, or None.
+
+    :param points: engine's chart points, ascending by date
+    :type points: list
+    :param currency: "algo", "usd" or another fiat's lower-case code
+    :type currency: str
+    :var peak: highest point so far
+    :type peak: dict
+    :var fall: largest fall so far, its peak and its low
+    :type fall: tuple
+    :return: dict or None
+    """
+    peak, fall = points[0], (0.0, None, None)
+    for point in points:
+        if point["pnl"] > peak["pnl"]:
+            peak = point
+        if peak["pnl"] - point["pnl"] > fall[0]:
+            fall = (peak["pnl"] - point["pnl"], peak, point)
+
+    if fall[0] < HALF_CENT:
+        return None
+
+    return {
+        "amount": signed_money(-fall[0], currency),
+        "start": _chart_date(fall[1]["date"]),
+        "end": _chart_date(fall[2]["date"]),
+    }
+
+
+def reprocess_changes(changes, assets, currency):
+    """Return what the engine says a reprocess changed, formatted, or None.
+
+    :param changes: engine's `changes`, None when nothing moved
+    :type changes: dict or None
+    :param assets: engine's asset results, for names and decimals
+    :type assets: list
+    :param currency: "algo", "usd" or another fiat's lower-case code
+    :type currency: str
+    :var known: current asset results keyed by asset
+    :type known: dict
+    :return: dict or None
+    """
+    if not changes:
+        return None
+
+    known = {row["asset"]: row for row in assets}
+    return {
+        "since": processed_time(changes["since"]),
+        "count": changes["assets_changed"],
+        "more": changes["assets_changed"] - len(changes["assets"]),
+        **{
+            field: signed_money(changes[field], currency)
+            for field in ("cost", "realized", "income", "expenses")
+        },
+        "rows": [
+            _change_row(row, known.get(row["asset"]), currency)
+            for row in changes["assets"]
+        ],
+    }
+
+
+def _change_row(row, current, currency):
+    """Return one asset's change after a reprocess, formatted.
+
+    :param row: engine's per-asset change
+    :type row: dict
+    :param current: the asset's current result, None for an asset no longer held
+    :type current: dict or None
+    :param currency: "algo", "usd" or another fiat's lower-case code
+    :type currency: str
+    :return: dict
+    """
+    return {
+        "asset": row["asset"],
+        "label": asset_label(current) if current else f"#{row['asset']}",
+        "quantity": quantity(row["quantity"], current["decimals"]) if current else "",
+        **{
+            field: signed_money(row[field], currency)
+            for field in ("cost", "realized", "income", "expenses")
+        },
+    }
 
 
 def processed_time(timestamp):
@@ -587,5 +791,6 @@ def chart(points, currency):
         "last": signed_money(values[-1], currency),
         "last_tone": tone(values[-1]),
         "unvalued": max(point.get("unvalued_assets") or 0 for point in points),
+        "drawdown": drawdown(points, currency),
     }
 

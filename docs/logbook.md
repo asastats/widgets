@@ -2581,3 +2581,106 @@ The checkbox is preceded by a hidden `count_nfts=0`, and the choice is saved
 only when the field is posted. An unticked checkbox posts nothing, so
 without the hidden field any save from Settings (a separator, say) would have
 read as "off". The tests post partial forms, which caught it.
+
+## inhouse/pnl/templates/pnl/_table.html — methodology link (2026-10-18)
+
+The coverage notes end with "How these figures are made", linking the
+frontend's public `/methodology/` page (R5).
+
+## inhouse/pnl/templates/pnl/index.html — the Settings tab for Professional readers (2026-10-18)
+
+The Settings tab included `_settings_form.html` only for readers with the CSV
+export, the PDF report or several cost methods, which is Cluster only. The NFT
+choice (`nft_choice`, Professional and up) therefore never reached a
+Professional reader. The unit tests rendered the form fragment directly and
+passed. The frontend's new functional test (`functional_tests/test_pnl_widget.py`)
+opened the real page as a Professional reader and failed; it passes with
+`features.nft_choice` added to the condition, and fails again without it.
+`test_pnl_views_settings_tab_offers_the_nft_choice` now renders the page too.
+
+## inhouse/pnl/display.py:reprocess_changes, templates/pnl/_table.html — what changed (2026-10-18)
+
+R7, every tier. The engine's `changes` (engine logbook, same date) shows as a
+closed block under the coverage notes: the count, realized and cost basis in
+its summary line, then per asset quantity, cost basis, realized, income and
+costs, all signed. An asset no longer in the table shows as `#<id>` without a
+quantity. Same `pnl-issues` styling as the affected-assets block, so no CSS
+change. Functional test: `functional_tests/test_pnl_widget.py`. No new engine
+call, so no new integration test; the answer's shape is asserted in the engine.
+
+## inhouse/pnl/display.py:event_row, export.py:events_csv, views.py:PnlEventsExportView — explorer links and the events CSV (2026-10-18)
+
+R6. Drill-down (Asastatser and up, the drill-down's own tier): each event's id
+links to the reader's chosen explorer (`Profile.preferred_explorer`, default
+Allo). An event's id is a transaction id when it is 52 base32 characters,
+otherwise its group's id (the base64 ids in the raw report), and is sent as a
+`transaction=` or `group=` marker through `utils.explorers.marker_link`, which
+falls back to Allo for explorers without a group page (Lora, Algo Surf).
+
+Events CSV (Cluster, beside "Download CSV"): `events/` -> the engine's
+`history/` (engine logbook, same date), written with the table CSV's helpers
+and the reader's separator. Columns: date (UTC), transaction id, asset id and
+name, event, description, quantity, value, unit price, cost, realized,
+currency, and fiat per USD for the day. While the engine is still saving the
+events, the reader goes back to the table with a message, as for the table CSV.
+
+## inhouse/pnl/display.py:winners_and_losers, concentration, drawdown — R8 (2026-10-18)
+
+R8 (`p-l/PLAN.md` §18; tiers per §20). All three are worked out here from what
+the engine already sends, so no engine change and no new call.
+- **Winners and losers** (Asastatser and up, `winners`): the five assets with
+  the largest total gain and the five with the largest loss, side by side.
+  Sold-out assets count, since their realized result is the point; hidden
+  assets and no-market assets do not (a test fixture's no-market asset with a
+  total showed why). This is the one place a sold-out asset's name appears
+  before its group is opened, so the R4 test checks the table's rows only.
+- **Concentration** (Professional and up, `concentration`): the five largest
+  holdings by current value and their share of it. By asset only; R8's "by
+  dApp" needs per-position values the evaluation does not carry.
+- **Drawdown** (with the chart, Professional and up): the largest fall of the
+  cumulative P&L line from a peak to a later low, with both dates, under the
+  chart. The chart's last point is the table's total, so a fall into today
+  counts.
+The subscriptions page names them in the Asastatser and Professional lines.
+
+## inhouse/alerts — the `outflow` subject (2026-10-18)
+
+R10, first of two candidates. "Value sent out of the portfolio in one block":
+a page subject (Asastatser and up, the page pinned like the others), reading
+the `transfer` events the live pass already publishes in `lvp:{page}`. The
+reading is minus the sum of their signed ALGO worth, floored at zero, so a move
+between two addresses of one bundle (out on one, in on the other, same block)
+sends nothing out, and exchanges and liquidity rows are not transfers. Only
+rises: the form forces `up` and `alerts.js` hides the direction control.
+Limits: per block, so an outflow split over several blocks is several smaller
+readings; transfers below the pass's `LIVE_TRANSFER_LOG_MIN_ALGO` make no
+event. Migration 0014 (choices only).
+Not yet: jest test for the hidden direction control, functional and
+integration tests, and the second candidate (NFT floor; see the handoff).
+
+### Update, same day
+
+The "Not yet" above is done: a jest test for the hidden direction control
+(`alerts.js` 100%, 151 tests), functional tests in the frontend's
+`test_alerts_page.py` (the control hides and stays "up"; a saved rule reads
+"Value sent out of … rises above 1000.00 ALGO"), and integration tests in
+`test_alerts_integration.py` (a published 500 ALGO transfer out fires through
+the signed webhook; a move between two of the bundle's addresses does not).
+Those two need only Redis and ran here. The NFT floor alert is still waiting
+for a decision (handoff).
+
+## inhouse/alerts — the `nft_floor` subject (2026-10-18)
+
+R10's second candidate. "NFT collection floor": a page subject (Asastatser
+and up), stored with `collection_id` and `collection_name` (migration 0015),
+read from the `floor` event the live pass publishes for that collection on the
+page (`floor_reading`), in ALGO or the reader's fiat. A rule with no reading
+yet takes the event's old floor as its last, because floor events arrive only
+when the floor moves: arming on the first event and waiting for a second move
+would miss the first crossing. The modal's collection list is filled in the
+browser from the address page's NFT rows (`data-collection-id`,
+`data-collection-name`, which the engine's payload now carries), so opening it
+costs no account evaluation. Tests: Python (alerts 416), jest (155, 100%),
+functional (`test_alerts_page.py`), integration (`test_alerts_integration.py`,
+Redis only, ran here; the API's collection id in `test_api_integration.py`
+needs the engine).

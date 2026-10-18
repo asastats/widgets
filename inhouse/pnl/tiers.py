@@ -42,6 +42,8 @@ def features_for(permission, fiat="usd"):
         "valuations": ("spot", "mve") if professional else ("spot",),
         "chart": professional,
         "lp_analytics": professional,
+        "winners": subscriber,
+        "concentration": professional,
         "nft_choice": professional,
         "export": cluster,
         "report": cluster,

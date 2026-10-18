@@ -465,3 +465,16 @@ class TestAlertsDisplayTrimmed:
 
         assert _trimmed(5, 0) == "5"
         assert _trimmed(2.5, 3) == "2.5"
+
+
+def test_alerts_display_nft_floor_sentence():
+    rule = AlertRule(
+        subject=Subject.NFT_FLOOR,
+        direction="up",
+        threshold="500",
+        collection_id="pigs",
+        collection_name="Lost Pigs",
+    )
+    assert describe(rule) == "Lost Pigs floor rises above 500.00 ALGO"
+    rule.collection_name = ""
+    assert describe(rule).startswith("#pigs floor")

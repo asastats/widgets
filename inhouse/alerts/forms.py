@@ -17,10 +17,12 @@ from django.conf import settings
 
 from .models import (
     ASSET_SUBJECTS,
+    COLLECTION_SUBJECTS,
     CURRENCY_SUBJECTS,
     PAGE_SUBJECTS,
     PERCENT_SUBJECTS,
     PRICED_SUBJECTS,
+    UP_ONLY_SUBJECTS,
     AlertRule,
     Direction,
     Subject,
@@ -83,6 +85,9 @@ class AlertRuleForm(forms.Form):
     window_seconds = forms.TypedChoiceField(
         choices=WINDOW_CHOICES, coerce=int, required=False
     )
+    #: The collection as the page's NFT rows name it, and its name to show.
+    collection_id = forms.CharField(required=False, max_length=64)
+    collection_name = forms.CharField(required=False, max_length=100)
 
     def __init__(self, *args, user=None, address="", instance=None, **kwargs):
         """Bind the reader, the page, and the rule being edited if any.
@@ -155,6 +160,15 @@ class AlertRuleForm(forms.Form):
                 self.add_error("threshold", "A percentage move cannot be more than 100.")
         else:
             cleaned["window_seconds"] = None
+
+        if subject in {s.value for s in COLLECTION_SUBJECTS}:
+            if not cleaned.get("collection_id"):
+                self.add_error("collection_id", "Choose a collection to watch.")
+        else:
+            cleaned["collection_id"], cleaned["collection_name"] = "", ""
+
+        if subject in {s.value for s in UP_ONLY_SUBJECTS}:
+            cleaned["direction"] = Direction.UP
 
         self._settle_unit(cleaned)
         self._check_page_allowance(subject)
@@ -280,6 +294,8 @@ class AlertRuleForm(forms.Form):
             "asset_unit": self.cleaned_data.get("asset_unit") or "",
             "threshold_unit": self.cleaned_data.get("threshold_unit") or "algo",
             "window_seconds": self.cleaned_data.get("window_seconds"),
+            "collection_id": self.cleaned_data.get("collection_id") or "",
+            "collection_name": self.cleaned_data.get("collection_name") or "",
             "address": self.address,
         }
         if self.instance is None:

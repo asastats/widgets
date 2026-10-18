@@ -17,6 +17,7 @@ from django.views.generic import TemplateView, View
 
 from api.client import BackendError, engine_request
 from api.widgets import bundle_and_addresses_from_path
+from utils.explorers import normalized_explorer
 from utils.fiat import fiat_for_user
 from walletauth.gating import is_linked_to_user
 from widgethost.enforcement import WidgetAccessMixin
@@ -29,14 +30,17 @@ from widgets.inhouse.historic.structs import UpdateStatus
 from .display import (
     asset_label,
     chart,
+    concentration,
     event_row,
     issues,
     period_summary,
     processed_time,
+    reprocess_changes,
     summary,
     table_row,
+    winners_and_losers,
 )
-from .export import table_csv
+from .export import events_csv, table_csv
 from .manifest import MANIFEST
 from .models import PnlBundle, PnlHiddenAsset, PnlSettings
 from .tiers import features_for
@@ -67,6 +71,9 @@ REPORT_EXPIRED_MESSAGE = (
 )
 EXPORT_WAIT_MESSAGE = (
     "Profit and loss is still being worked out; download the CSV once the table shows."
+)
+EVENTS_WAIT_MESSAGE = (
+    "The events are still being prepared; download them again in a minute."
 )
 
 
@@ -101,6 +108,19 @@ def _engine(scope, method, bundle, suffix="", **kwargs):
         **kwargs,
     )
     return response.json() if response.content else None
+
+
+def _explorer(user):
+    """Return the reader's explorer key, the default one without a profile.
+
+    :param user: request's user
+    :type user: :class:`User`
+    :return: str
+    """
+    try:
+        return user.profile.preferred_explorer_or_default()
+    except AttributeError:
+        return normalized_explorer(None)
 
 
 def period_start(period, now=None):
@@ -489,7 +509,17 @@ class PnlStatusView(PnlAccessMixin, View):
             (group, len(groups[group]), label) for group, label in MORE_ROWS.items()
         ]
         context["hidden_count"] = len(groups["hidden"])
+        if self.features["winners"]:
+            hidden = [row["asset"] for row in groups["hidden"]]
+            context["winners"] = winners_and_losers(data["assets"], currency, hidden)
+        if self.features["concentration"]:
+            context["concentration"] = concentration(
+                data["assets"], data["totals"], currency
+            )
         context["issues"] = issues(data["assets"], currency)
+        context["changes"] = reprocess_changes(
+            data.get("changes"), data["assets"], currency
+        )
         context["processed_at"] = processed_time(data.get("processed_at"))
         context["updating"] = data.get("updating")
         context["pricing"] = data.get("pricing") or {}
@@ -821,6 +851,52 @@ class PnlExportView(PnlAccessMixin, View):
         return response
 
 
+class PnlEventsExportView(PnlAccessMixin, View):
+    """Every event of the bundle as a CSV download, for tiers with the export."""
+
+    def get(self, request, *args, **kwargs):
+        """Return the engine's events as CSV, or back to the table while they are made.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :var data: engine's history or a state marker
+        :type data: dict
+        :var response: CSV attachment
+        :type response: :class:`django.http.HttpResponse`
+        :return: :class:`django.http.HttpResponse`
+        """
+        if not self.features["export"]:
+            raise Http404
+
+        try:
+            data = _engine(
+                "pnl:asset",
+                "POST",
+                self.bundle,
+                "history/",
+                json={"currency": self.currency(), "method": self.cost_method()},
+            )
+        except BackendError:
+            data = None
+
+        if not data or "events" not in data:
+            messages.info(request, EVENTS_WAIT_MESSAGE)
+            return redirect(self.table_url())
+
+        response = HttpResponse(
+            events_csv(data, self.reader_settings().separator),
+            content_type="text/csv; charset=utf-8",
+        )
+        filename = "pnl-events-{}-{}-{}-{}.csv".format(
+            self.bundle[:8].lower(),
+            self.currency(),
+            self.cost_method(),
+            datetime.now(UTC).strftime("%Y%m%d"),
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+
 class PnlAssetView(PnlAccessMixin, View):
     """Fragment listing one asset's events, for tiers with the drill-down."""
 
@@ -852,7 +928,8 @@ class PnlAssetView(PnlAccessMixin, View):
         context = self.base_context()
         context["asset_label"] = asset_label(data)
         context["events"] = [
-            event_row(event, data.get("decimals"), currency) for event in data["events"]
+            event_row(event, data.get("decimals"), currency, _explorer(request.user))
+            for event in data["events"]
         ]
         return render(request, "pnl/_asset.html", context)
 

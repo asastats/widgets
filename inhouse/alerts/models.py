@@ -36,6 +36,8 @@ class Subject(models.TextChoices):
     ASA_TOTAL = "asa_total", "What my holding of an asset is worth"
     TOTAL_VALUE = "total_value", "Portfolio total"
     TOTAL_PERCENT = "total_percent", "Portfolio total, percentage move"
+    OUTFLOW = "outflow", "Value sent out of the portfolio in one block"
+    NFT_FLOOR = "nft_floor", "NFT collection floor"
 
 
 class Direction(models.TextChoices):
@@ -73,8 +75,16 @@ CURRENCY_SUBJECTS = frozenset(
         Subject.ASA_PRICE,
         Subject.ASA_TOTAL,
         Subject.TOTAL_VALUE,
+        Subject.OUTFLOW,
+        Subject.NFT_FLOOR,
     }
 )
+
+#: Subjects that name an NFT collection, and so require `collection_id`.
+COLLECTION_SUBJECTS = frozenset({Subject.NFT_FLOOR})
+
+#: Subjects that only rise: an outflow is never negative. See docs/logbook.md.
+UP_ONLY_SUBJECTS = frozenset({Subject.OUTFLOW})
 
 #: Subjects the per-asset evaluator answers, and so the assets the engine's
 #: price task must keep fresh.
@@ -145,6 +155,9 @@ class AlertRule(models.Model):
     #: Blank when a rule was made before this existed, or by a client that did
     #: not send it; `display` falls back to the id.
     asset_unit = models.CharField(max_length=32, blank=True, default="")
+    #: The collection, as the engine's floor events name it, and its name to show.
+    collection_id = models.CharField(max_length=64, blank=True, default="")
+    collection_name = models.CharField(max_length=100, blank=True, default="")
 
     address = models.CharField(max_length=128, blank=True, default="")
 

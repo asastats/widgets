@@ -3,9 +3,10 @@
 import csv
 import io
 import math
+from datetime import UTC, datetime
 from decimal import Decimal
 
-from .display import asset_label
+from .display import EVENT_LABELS, asset_label
 
 #: Cells starting with these are formulas to a spreadsheet; asset names are anyone's.
 FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
@@ -195,4 +196,79 @@ def table_csv(data, separator=","):
     writer.writerow(HEADER)
     writer.writerows(_asset_line(row) for row in data["assets"])
     writer.writerow(_total_line(data["totals"]))
+    return output.getvalue()
+
+
+EVENTS_HEADER = (
+    "Date (UTC)",
+    "Transaction ID",
+    "Asset ID",
+    "Asset",
+    "Event",
+    "Description",
+    "Quantity",
+    "Value",
+    "Unit price",
+    "Cost",
+    "Realized",
+    "Currency",
+    "Fiat per USD",
+)
+
+
+def _event_line(event, asset, currency):
+    """Return the CSV cells of one engine event.
+
+    :param event: engine's applied event, with the day's `rate` for a fiat
+    :type event: dict
+    :param asset: the event's asset as the engine names it
+    :type asset: dict
+    :param currency: "algo", "usd" or another fiat's lower-case code
+    :type currency: str
+    :var decimals: asset's decimals
+    :type decimals: int
+    :return: list
+    """
+    decimals = asset.get("decimals") or 0
+    value, units = event.get("value"), event["quantity"]
+    return [
+        datetime.fromtimestamp(int(event["date"]), UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        event.get("id") or "",
+        event["asset"],
+        _text(asset_label(asset)),
+        EVENT_LABELS.get(event["kind"], event["kind"]),
+        _text(event.get("description") or ""),
+        _number(units, -decimals, decimals),
+        _money(value),
+        _price(value / abs(units), decimals) if value is not None and units else "",
+        _money(event.get("cost")),
+        _money(event.get("realized")),
+        currency.upper(),
+        _number(event.get("rate"), 0, 6),
+    ]
+
+
+def events_csv(data, separator=","):
+    """Return every event of the engine's history response as CSV text, with a BOM.
+
+    :param data: engine's history response
+    :type data: dict
+    :param separator: field separator character
+    :type separator: str
+    :var output: text buffer the rows are written to
+    :type output: :class:`io.StringIO`
+    :return: str
+    """
+    output = io.StringIO()
+    output.write("\ufeff")
+    writer = csv.writer(output, delimiter=separator, lineterminator="\r\n")
+    writer.writerow(EVENTS_HEADER)
+    writer.writerows(
+        _event_line(
+            event,
+            data["assets"].get(str(event["asset"])) or {"asset": event["asset"]},
+            data["currency"],
+        )
+        for event in data["events"]
+    )
     return output.getvalue()

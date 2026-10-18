@@ -6,6 +6,8 @@ from widgets.inhouse.pnl.display import (
     alert_presets,
     asset_label,
     chart,
+    concentration,
+    drawdown,
     event_row,
     issues,
     money,
@@ -13,11 +15,13 @@ from widgets.inhouse.pnl.display import (
     period_summary,
     processed_time,
     quantity,
+    reprocess_changes,
     signed_money,
     summary,
     table_row,
     tone,
     unit_price,
+    winners_and_losers,
 )
 
 
@@ -272,6 +276,18 @@ class TestPnlDisplayRows:
         position = event_row({**event, "kind": "position_in", "value": None}, 2, "usd")
         assert position["unpriced"] is False
         assert event_row({**event, "value": None}, 2, "usd")["unpriced"] is True
+        assert row["link"] == ""
+        assert event_row(event, 2, "usd", "allo")["link"] == (
+            "https://allo.info/tx/group/TXID"
+        )
+        transaction = {**event, "id": "A" * 52}
+        assert event_row(transaction, 2, "usd", "lora")["link"] == (
+            "https://lora.algokit.io/mainnet/transaction/" + "A" * 52
+        )
+        group = {**event, "id": "ab/c+="}
+        assert event_row(group, 2, "usd", "lora")["link"] == (
+            "https://allo.info/tx/group/ab%2Fc%2B%3D"
+        )
 
     def test_pnl_display_period_summary(self):
         period = {
@@ -396,3 +412,117 @@ class TestPnlDisplayProcessedTime:
     )
     def test_pnl_display_processed_time(self, timestamp, expected):
         assert processed_time(timestamp) == expected
+
+
+class TestPnlDisplayReprocessChanges:
+    """Testing class for :py:func:`...pnl.display.reprocess_changes`."""
+
+    def test_pnl_display_reprocess_changes_without_any(self):
+        assert reprocess_changes(None, [], "usd") is None
+
+    def test_pnl_display_reprocess_changes(self):
+        changes = {
+            "since": 1_760_000_000,
+            "assets_changed": 3,
+            "cost": -2_000_000,
+            "realized": 500_000,
+            "income": 0.0,
+            "expenses": 0.0,
+            "assets": [
+                {
+                    "asset": "31566704",
+                    "quantity": 1_500_000,
+                    "cost": -2_000_000,
+                    "realized": 500_000,
+                    "income": 0.0,
+                    "expenses": 0.0,
+                },
+                {
+                    "asset": "99",
+                    "quantity": -1,
+                    "cost": 0.0,
+                    "realized": 0.0,
+                    "income": 0.0,
+                    "expenses": 0.0,
+                },
+            ],
+        }
+        returned = reprocess_changes(changes, [_engine_row()], "usd")
+        assert returned["since"] == "9 Oct 2025, 08:53 UTC"
+        assert (returned["count"], returned["more"]) == (3, 1)
+        assert (returned["cost"], returned["realized"]) == ("-$2.00", "+$0.50")
+        first, gone = returned["rows"]
+        assert (first["label"], first["quantity"], first["cost"]) == (
+            "USDC",
+            "1.500000",
+            "-$2.00",
+        )
+        assert (gone["label"], gone["quantity"]) == ("#99", "")
+
+
+def _ranked(asset, total, value=None):
+    return {
+        **_engine_row(),
+        "asset": asset,
+        "unit": f"U{asset}",
+        "total": total,
+        "value": value,
+        "return": 0.1,
+    }
+
+
+class TestPnlDisplayInsights:
+    """Testing class for winners and losers, concentration and drawdown."""
+
+    def test_pnl_display_winners_and_losers(self):
+        assets = [_ranked(str(n), (n - 4) * 1_000_000) for n in range(12)]
+        assets.append(_ranked("hid", 99_000_000))
+        assets.append(_ranked("tiny", 1_000))
+        assets.append({**_ranked("spam", 50_000_000), "no_market": True})
+        returned = winners_and_losers(assets, "usd", hidden=["hid"])
+        winners = [row["label"] for row in returned["winners"]]
+        assert winners == ["U11", "U10", "U9", "U8", "U7"]
+        assert [row["label"] for row in returned["losers"]] == ["U0", "U1", "U2", "U3"]
+        assert returned["winners"][0]["total"] == "+$7.00"
+        assert returned["losers"][0]["tone"] == "pnl-loss"
+        assert len(returned["pairs"]) == 5
+        assert returned["pairs"][4][1] is None
+
+    def test_pnl_display_winners_and_losers_without_any(self):
+        assert winners_and_losers([_ranked("1", 0.0)], "usd") is None
+
+    def test_pnl_display_concentration(self):
+        assets = [_ranked(str(n), 0, value=(n + 1) * 1_000_000) for n in range(6)]
+        assets.append(_ranked("sold", 0, value=None))
+        returned = concentration(assets, {"value": 21_000_000}, "usd")
+        assert returned["count"] == 5
+        assert returned["share"] == "95.2%"
+        assert returned["rows"][0] == {
+            "asset": "5",
+            "label": "U5",
+            "value": "$6.00",
+            "share": "28.6%",
+        }
+
+    @pytest.mark.parametrize("totals", [{"value": 0}, {}])
+    def test_pnl_display_concentration_without_value(self, totals):
+        assert concentration([_ranked("1", 0, value=5)], totals, "usd") is None
+
+    def test_pnl_display_drawdown(self):
+        points = [
+            {"date": 1_700_000_000, "pnl": 0.0},
+            {"date": 1_700_086_400, "pnl": 5_000_000},
+            {"date": 1_700_172_800, "pnl": 1_000_000},
+            {"date": 1_700_259_200, "pnl": 8_000_000},
+            {"date": 1_700_345_600, "pnl": 6_000_000},
+        ]
+        assert drawdown(points, "usd") == {
+            "amount": "-$4.00",
+            "start": "15 Nov 2023",
+            "end": "16 Nov 2023",
+        }
+        assert chart(points, "usd")["drawdown"]["amount"] == "-$4.00"
+
+    def test_pnl_display_drawdown_without_a_fall(self):
+        points = [{"date": 1, "pnl": 1_000_000}, {"date": 2, "pnl": 2_000_000}]
+        assert drawdown(points, "usd") is None

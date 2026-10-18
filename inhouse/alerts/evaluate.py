@@ -33,6 +33,7 @@ never fire is the worst outcome this file could produce.
 
 import logging
 import time
+from decimal import Decimal
 
 from django.db.models import Exists, OuterRef
 from django.utils import timezone
@@ -146,8 +147,66 @@ def in_rule_currency(rule, algo_figure, algo_per_usd):
     return float(algo_figure) / float(algo_per_usd) * rate
 
 
+def page_outflow(events):
+    """Return the ALGO value a page's transfers sent out this block, never negative.
+
+    Transfers in the same block offset it, so a move between two addresses of
+    one bundle sends nothing out. See docs/logbook.md.
+
+    :param events: what happened on the page this block, as the pass published it
+    :type events: list
+    :return: float
+    """
+    moved = sum(
+        event["algo"]
+        for event in events or ()
+        if event.get("kind") == "transfer" and event.get("algo") is not None
+    )
+    return max(0.0, -float(moved))
+
+
+def floor_reading(rule, events, algo_per_usd):
+    """Return the new floor of `rule`'s collection from this block's events, or None.
+
+    A rule with no reading yet takes the event's old floor as its last one, so
+    the first move it sees can already cross. See docs/logbook.md.
+
+    :param rule: an `nft_floor` rule
+    :type rule: :class:`widgets.inhouse.alerts.models.AlertRule`
+    :param events: what happened on the page this block, as the pass published it
+    :type events: list
+    :param algo_per_usd: how much ALGO one USD buys, for a USD rule
+    :return: float or None
+    """
+    event = next(
+        (
+            event
+            for event in events or ()
+            if event.get("kind") == "floor"
+            and event.get("collection") == rule.collection_id
+        ),
+        None,
+    )
+    if event is None:
+        return None
+
+    if rule.last_value is None:
+        old = in_rule_currency(rule, event.get("old"), algo_per_usd)
+        if old is not None:
+            rule.last_value = Decimal(str(old))
+    return in_rule_currency(rule, event.get("new"), algo_per_usd)
+
+
 def reading_for(
-    rule, total, values, client=None, now=None, amounts=None, algo_per_usd=None
+    rule,
+    total,
+    values,
+    client=None,
+    now=None,
+    amounts=None,
+    algo_per_usd=None,
+    outflow=0.0,
+    events=None,
 ):
     """Return what `rule` watches, from a published payload, or None.
 
@@ -161,6 +220,10 @@ def reading_for(
     :param amounts: {asset id: [amount, decimals]} for the page
     :type amounts: dict
     :param algo_per_usd: how much ALGO one USD buys, for a USD rule
+    :param outflow: the page's outflow this block in ALGO, see `page_outflow`
+    :type outflow: float
+    :param events: the page's events this block, for an NFT floor
+    :type events: list
     :return: the current reading, or None when it cannot be taken
     """
     if rule.subject == Subject.TOTAL_VALUE:
@@ -178,6 +241,10 @@ def reading_for(
         return in_rule_currency(rule, values.get(rule.asset_id), algo_per_usd)
     if rule.subject == Subject.ASA_AMOUNT:
         return holding_amount(amounts, rule.asset_id)
+    if rule.subject == Subject.OUTFLOW:
+        return in_rule_currency(rule, outflow, algo_per_usd)
+    if rule.subject == Subject.NFT_FLOOR:
+        return floor_reading(rule, events, algo_per_usd)
     return None
 
 
@@ -386,6 +453,7 @@ def evaluate_page(address, payload, now=None, client=None, unix_now=None):
     amounts = payload.get("amounts") or {}
     # `priceusdc` is ALGO per USD, despite the name. See `in_rule_currency`.
     algo_per_usd = payload.get("priceusdc")
+    outflow = page_outflow(payload.get("events"))
 
     fired, skipped, held, muted = [], 0, 0, 0
     # **Written once at the end, not once per rule.** See `_record_readings`.
@@ -410,6 +478,8 @@ def evaluate_page(address, payload, now=None, client=None, unix_now=None):
             now=unix_now,
             amounts=amounts,
             algo_per_usd=algo_per_usd,
+            outflow=outflow,
+            events=payload.get("events"),
         )
         if value is None:
             continue

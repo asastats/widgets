@@ -14,7 +14,7 @@
           <td data-label="Value">{{ event.value }}</td>
           <td data-label="Cost">{{ event.cost }}</td>
           <td data-label="Realized" class="{{ event.realized_tone }}">{{ event.realized }}</td>
-          <td data-label="Transaction" class="pnl-text"><span class="pnl-txid" title="{{ event.id }}">{{ event.id|truncatechars:12 }}</span></td>
+          <td data-label="Transaction" class="pnl-text">{% if event.link %}<a class="pnl-txid" href="{{ event.link }}" target="_blank" rel="noopener" title="{{ event.id }}">{{ event.id|truncatechars:12 }}</a>{% else %}<span class="pnl-txid" title="{{ event.id }}">{{ event.id|truncatechars:12 }}</span>{% endif %}</td>
         </tr>
       {% empty %}
         <tr><td colspan="7">No events.</td></tr>

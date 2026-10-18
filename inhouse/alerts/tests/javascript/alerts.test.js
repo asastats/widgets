@@ -68,8 +68,110 @@ function panel(subject) {
   return document.querySelector(".alerts-panel");
 }
 
+/** The same panel with the direction control in its own field, as `_panel.html` has it. */
+function panelWithDirectionField(subject) {
+  const root = panel(subject);
+  const select = root.querySelector(".alerts-direction");
+  const field = document.createElement("label");
+  field.className = "alerts-field alerts-direction-field";
+  select.replaceWith(field);
+  field.appendChild(select);
+  return root;
+}
+
 const assetField = () => document.querySelector(".alerts-asset-field");
 const windowField = () => document.querySelector(".alerts-window-field");
+
+/** A panel with the collection field, over page rows carrying collection ids. */
+function panelWithCollections(subject) {
+  const root = panel(subject);
+  root.querySelector(".alerts-form").insertAdjacentHTML(
+    "beforeend",
+    `<div class="alerts-field alerts-collection-field" hidden>
+       <select name="collection_id" class="alerts-collection">
+         <option value="">Choose a collection</option>
+       </select>
+       <input type="hidden" name="collection_name" class="alerts-collection-name">
+     </div>`
+  );
+  root.querySelector(".alerts-subject").insertAdjacentHTML(
+    "beforeend",
+    '<option value="nft_floor">NFT collection floor</option>'
+  );
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<details data-collection-id="pigs" data-collection-name="Lost Pigs"></details>
+     <details data-collection-id="pigs" data-collection-name="Lost Pigs"></details>
+     <details data-collection-id="owls"></details>`
+  );
+  root.querySelector(".alerts-subject").value = subject;
+  return root;
+}
+
+describe("a subject that names a collection", () => {
+  test("an NFT floor offers the page's collections once each", () => {
+    const root = panelWithCollections("nft_floor");
+    alerts.syncFields(root);
+
+    const field = root.querySelector(".alerts-collection-field");
+    const options = [...root.querySelectorAll(".alerts-collection option")];
+    expect(field.hidden).toBe(false);
+    expect(options.map((option) => option.value)).toEqual(["", "pigs", "owls"]);
+    expect(options[2].textContent).toBe("owls");
+  });
+
+  test("choosing a collection posts its name too", () => {
+    const root = panelWithCollections("nft_floor");
+    alerts.syncFields(root);
+    const select = root.querySelector(".alerts-collection");
+    select.value = "pigs";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(root.querySelector(".alerts-collection-name").value).toBe("Lost Pigs");
+    select.value = "";
+    alerts.nameCollection(root.querySelector(".alerts-form"));
+    expect(root.querySelector(".alerts-collection-name").value).toBe("");
+  });
+
+  test("other subjects hide the collection", () => {
+    const root = panelWithCollections("total_value");
+    alerts.syncFields(root);
+
+    expect(root.querySelector(".alerts-collection-field").hidden).toBe(true);
+  });
+
+  test("a form without the field offers nothing", () => {
+    const root = panel("total_value");
+    const form = root.querySelector(".alerts-form");
+    expect(alerts.fillCollections(form)).toBe(0);
+    expect(alerts.nameCollection(form)).toBeUndefined();
+  });
+});
+
+describe("a subject that only rises", () => {
+  test("an outflow hides the direction and keeps it rising", () => {
+    const root = panelWithDirectionField("total_value");
+    const subject = root.querySelector(".alerts-subject");
+    subject.insertAdjacentHTML(
+      "beforeend",
+      '<option value="outflow">Value sent out</option>'
+    );
+    root.querySelector(".alerts-direction").value = "down";
+    subject.value = "outflow";
+    alerts.syncFields(root);
+
+    expect(root.querySelector(".alerts-direction-field").hidden).toBe(true);
+    expect(root.querySelector(".alerts-direction").value).toBe("up");
+    expect(root.querySelector(".alerts-units").hidden).toBe(false);
+  });
+
+  test("any other subject shows the direction again", () => {
+    const root = panelWithDirectionField("total_value");
+    alerts.syncFields(root);
+
+    expect(root.querySelector(".alerts-direction-field").hidden).toBe(false);
+  });
+});
 
 describe("which fields a subject needs", () => {
   test("an asset price rule asks for an asset and not a window", () => {

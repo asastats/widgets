@@ -19,6 +19,49 @@
   /** Subjects with no currency, mirroring `models.CURRENCY_SUBJECTS` inverted. */
   var UNITLESS_SUBJECTS = PERCENT_SUBJECTS.concat(["asa_amount"]);
 
+  /** Subjects that only rise, mirroring `models.UP_ONLY_SUBJECTS`. */
+  var UP_ONLY_SUBJECTS = ["outflow"];
+
+  /** Subjects that name an NFT collection, mirroring `models.COLLECTION_SUBJECTS`. */
+  var COLLECTION_SUBJECTS = ["nft_floor"];
+
+  /**
+   * Offer the NFT collections shown on the page, by the id their rows carry.
+   * @param {Element} form - the rule form.
+   * @returns {number} how many collections the list offers.
+   */
+  function fillCollections(form) {
+    var select = form.querySelector(".alerts-collection");
+    if (!select) return 0;
+    var offered = {};
+    Array.prototype.forEach.call(select.options, function (option) {
+      offered[option.value] = true;
+    });
+    document.querySelectorAll("[data-collection-id]").forEach(function (row) {
+      var id = row.getAttribute("data-collection-id");
+      if (offered[id]) return;
+      offered[id] = true;
+      var option = document.createElement("option");
+      option.value = id;
+      option.textContent = row.getAttribute("data-collection-name") || id;
+      select.appendChild(option);
+    });
+    nameCollection(form);
+    return select.options.length - 1;
+  }
+
+  /**
+   * Keep the posted collection name in step with the chosen collection.
+   * @param {Element} form - the rule form.
+   */
+  function nameCollection(form) {
+    var select = form.querySelector(".alerts-collection");
+    var name = form.querySelector(".alerts-collection-name");
+    if (!select || !name) return;
+    var chosen = select.options[select.selectedIndex];
+    name.value = chosen && chosen.value ? chosen.textContent : "";
+  }
+
   /**
    * Show the fields this subject needs and hide the rest.
    * Both fields stay mounted (removing loses typed input).
@@ -38,6 +81,16 @@
     // A percentage is not a currency, so the unit control has nothing to say.
     var units = form.querySelector(".alerts-units");
     if (units) units.hidden = UNITLESS_SUBJECTS.indexOf(chosen) !== -1;
+    var collection = form.querySelector(".alerts-collection-field");
+    if (collection) {
+      collection.hidden = COLLECTION_SUBJECTS.indexOf(chosen) === -1;
+      if (!collection.hidden) fillCollections(form);
+    }
+    var direction = form.querySelector(".alerts-direction-field");
+    if (direction) {
+      direction.hidden = UP_ONLY_SUBJECTS.indexOf(chosen) !== -1;
+      if (direction.hidden) direction.querySelector("select").value = "up";
+    }
     showCurrent(root);
     return true;
   }
@@ -286,6 +339,10 @@
     // threshold the price is already past.
     if (event.target.classList.contains("alerts-direction")) {
       suggest(event.target.closest(".alerts-panel") || document);
+      return;
+    }
+    if (event.target.classList.contains("alerts-collection")) {
+      nameCollection(event.target.closest(".alerts-form"));
       return;
     }
     if (event.target.classList.contains("alerts-subject")) {
@@ -684,6 +741,8 @@
   if (typeof module !== "undefined" && module.exports) {
     module.exports = {
       syncFields: syncFields,
+      fillCollections: fillCollections,
+      nameCollection: nameCollection,
       handleSwap: handleSwap,
       placeToolbar: placeToolbar,
       syncCount: syncCount,

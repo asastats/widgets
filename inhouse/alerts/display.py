@@ -23,7 +23,7 @@ the column's scale leaking into a sentence. The reader typed "100".
 import logging
 from decimal import Decimal, InvalidOperation
 
-from .models import AMOUNT_SUBJECTS, PERCENT_SUBJECTS, Subject
+from .models import AMOUNT_SUBJECTS, COLLECTION_SUBJECTS, PERCENT_SUBJECTS, Subject
 
 #: How each subject reads *inside a sentence*, with the thing it watches in
 #: it.
@@ -40,6 +40,8 @@ SENTENCES = {
     Subject.ASA_TOTAL: "My {target} holding's value",
     Subject.TOTAL_VALUE: "Portfolio total for {target}",
     Subject.TOTAL_PERCENT: "Portfolio total change for {target}",
+    Subject.OUTFLOW: "Value sent out of {target} in one block",
+    Subject.NFT_FLOOR: "{target} floor",
 }
 
 logger = logging.getLogger(__name__)
@@ -305,7 +307,12 @@ def subject_phrase(rule):
     :type rule: :class:`widgets.inhouse.alerts.models.AlertRule`
     :return: str
     """
-    target = asset_label(rule) if rule.needs_asset else page_label(rule.address)
+    if rule.subject in COLLECTION_SUBJECTS:
+        target = (rule.collection_name or "").strip() or f"#{rule.collection_id}"
+    elif rule.needs_asset:
+        target = asset_label(rule)
+    else:
+        target = page_label(rule.address)
     form = SENTENCES.get(rule.subject)
     return (
         form.format(target=target) if form else (f"{rule.get_subject_display()} {target}")

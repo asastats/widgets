@@ -2,12 +2,15 @@
 
 import logging
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from widgets.inhouse.alerts.evaluate import (
+    floor_reading,
+    page_outflow,
     SKIPPED,
     cooling_down,
     evaluate_page,
@@ -1027,3 +1030,78 @@ class TestAlertsEvaluateMutedCrossings:
         rule.refresh_from_db()
         assert float(rule.last_value) == 90, "the crossing was not consumed"
         assert evaluate_page(PAGE, {"total": 90}, now=now)[0] == []
+
+
+@pytest.mark.django_db
+class TestAlertsEvaluateOutflow:
+    """Testing class for the `outflow` subject (R10)."""
+
+    def test_alerts_evaluate_page_outflow_nets_transfers(self):
+        events = [
+            {"kind": "transfer", "algo": -500.0},
+            {"kind": "transfer", "algo": 120.0},
+            {"kind": "transfer", "algo": None},
+            {"kind": "exchange", "algo": -900.0},
+        ]
+        assert page_outflow(events) == 380.0
+        assert page_outflow([{"kind": "transfer", "algo": 50.0}]) == 0.0
+        assert page_outflow(None) == 0.0
+
+    def test_alerts_evaluate_outflow_is_read_through_reading_for(self, reader):
+        rule = AlertRule.objects.create(
+            user=reader,
+            subject=Subject.OUTFLOW,
+            direction=Direction.UP,
+            threshold="100",
+            address=PAGE,
+        )
+        assert reading_for(rule, 0, {}, outflow=250.0) == 250.0
+
+
+@pytest.mark.django_db
+class TestAlertsEvaluateNftFloor:
+    """Testing class for the `nft_floor` subject (R10)."""
+
+    EVENTS = [
+        {"kind": "floor", "collection": "other", "old": 1.0, "new": 2.0},
+        {"kind": "floor", "collection": "pigs", "old": 400.0, "new": 520.0},
+    ]
+
+    def _rule(self, reader, **fields):
+        return AlertRule.objects.create(
+            user=reader,
+            subject=Subject.NFT_FLOOR,
+            direction=Direction.UP,
+            threshold="500",
+            address=PAGE,
+            collection_id="pigs",
+            collection_name="Lost Pigs",
+            **fields,
+        )
+
+    def test_alerts_evaluate_floor_reading_arms_with_the_old_floor(self, reader):
+        rule = self._rule(reader)
+        assert floor_reading(rule, self.EVENTS, None) == 520.0
+        assert rule.last_value == Decimal("400.0")
+        assert rule.crossed(520.0) is True
+
+    def test_alerts_evaluate_floor_reading_keeps_an_earlier_reading(self, reader):
+        rule = self._rule(reader, last_value="510")
+        assert floor_reading(rule, self.EVENTS, None) == 520.0
+        assert str(rule.last_value) == "510"
+
+    def test_alerts_evaluate_floor_reading_without_its_collection(self, reader):
+        rule = self._rule(reader)
+        assert floor_reading(rule, self.EVENTS[:1], None) is None
+        assert floor_reading(rule, None, None) is None
+        assert rule.last_value is None
+
+    def test_alerts_evaluate_floor_reading_without_a_rate(self, reader):
+        rule = self._rule(reader, threshold_unit="usd")
+        assert floor_reading(rule, self.EVENTS, None) is None
+        assert rule.last_value is None
+
+    def test_alerts_evaluate_a_floor_move_fires_on_the_page(self, reader):
+        self._rule(reader)
+        fired, _ = evaluate_page(PAGE, {"total": 1.0, "events": self.EVENTS})
+        assert [rule.collection_id for rule in fired] == ["pigs"]

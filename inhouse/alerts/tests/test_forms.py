@@ -508,3 +508,62 @@ class TestAlertRuleFormUnits:
 
         assert form.is_valid(), form.errors
         assert form.save().asset_unit == "USDC"
+
+
+@pytest.mark.django_db
+def test_alert_rule_form_outflow_only_rises(django_user_model):
+    from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
+
+    user = django_user_model.objects.create(username="outflow")
+    user.profile.permission = SUBSCRIPTION_TIER_PERMISSIONS["Asastatser"]
+    user.profile.save()
+    form = AlertRuleForm(
+        _post(subject="outflow", direction="down", threshold="100"),
+        user=user,
+        address="",
+    )
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["direction"] == "up"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("collection,valid", [("pigs", True), ("", False)])
+def test_alert_rule_form_nft_floor_needs_a_collection(
+    django_user_model, collection, valid
+):
+    from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
+
+    user = django_user_model.objects.create(username="floor")
+    user.profile.permission = SUBSCRIPTION_TIER_PERMISSIONS["Asastatser"]
+    user.profile.save()
+    form = AlertRuleForm(
+        _post(
+            subject="nft_floor",
+            direction="up",
+            threshold="500",
+            collection_id=collection,
+            collection_name="Lost Pigs",
+        ),
+        user=user,
+        address="PAGE",
+    )
+    assert form.is_valid() is valid
+    if valid:
+        rule = form.save()
+        assert (rule.collection_id, rule.collection_name) == ("pigs", "Lost Pigs")
+
+
+@pytest.mark.django_db
+def test_alert_rule_form_other_subjects_drop_the_collection(django_user_model):
+    from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
+
+    user = django_user_model.objects.create(username="nofloor")
+    user.profile.permission = SUBSCRIPTION_TIER_PERMISSIONS["Asastatser"]
+    user.profile.save()
+    form = AlertRuleForm(
+        _post(subject="total_value", threshold="5", collection_id="pigs"),
+        user=user,
+        address="PAGE",
+    )
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["collection_id"] == ""

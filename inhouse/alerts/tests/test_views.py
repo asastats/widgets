@@ -330,7 +330,7 @@ class TestInhouseAlertsViewsModal:
         assert context["rules_kept"] == 1
         # The form's choices are server-rendered, so anything else the browser
         # posts was typed by hand - which `test_forms` relies on.
-        assert len(context["subjects"]) == 6
+        assert len(context["subjects"]) == 8
         assert len(context["windows"]) == 4
 
     def test_inhouse_alerts_views_modal_is_not_capped_with_room_left(self, mocker):

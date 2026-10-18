@@ -157,7 +157,19 @@
       </div>
     </div>
 
-    <label class="alerts-field">
+    {# `alerts.js` fills the list from the page's NFT rows (`data-collection-id`). #}
+    <div class="alerts-field alerts-collection-field" hidden>
+      <span>Collection</span>
+      <select name="collection_id" class="alerts-collection">
+        <option value="">Choose a collection</option>
+        {% if form.collection_id.value %}<option value="{{ form.collection_id.value }}" selected>{{ form.collection_name.value|default:form.collection_id.value }}</option>{% endif %}
+      </select>
+      <input type="hidden" name="collection_name" class="alerts-collection-name"
+             value="{{ form.collection_name.value|default_if_none:'' }}">
+      <small class="alerts-window-note">The collections on this page.</small>
+    </div>
+
+    <label class="alerts-field alerts-direction-field">
       <span>When it</span>
       <select name="direction" class="alerts-direction">
         {% for value, label in directions %}

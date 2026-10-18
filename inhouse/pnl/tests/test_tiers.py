@@ -29,6 +29,8 @@ class TestPnlTiers:
             "valuations": ("spot",),
             "chart": False,
             "lp_analytics": False,
+            "winners": False,
+            "concentration": False,
             "nft_choice": False,
             "export": False,
             "report": False,
@@ -56,6 +58,8 @@ class TestPnlTiers:
             "valuations": ("spot",),
             "chart": False,
             "lp_analytics": False,
+            "winners": True,
+            "concentration": False,
             "nft_choice": False,
             "export": False,
             "report": False,
@@ -113,3 +117,19 @@ class TestPnlTiers:
             == expected
         )
         assert addresses_limit_for_permission(MANIFEST.required_permission, 0) == 1
+
+    @pytest.mark.parametrize(
+        "tier,expected",
+        [("Intro", False), ("Asastatser", True), ("Professional", True)],
+    )
+    def test_pnl_tiers_winners_for_asastatser_and_up(self, tier, expected):
+        assert features_for(SUBSCRIPTION_TIER_PERMISSIONS[tier])["winners"] is expected
+
+    @pytest.mark.parametrize(
+        "tier,expected",
+        [("Asastatser", False), ("Professional", True), ("Cluster", True)],
+    )
+    def test_pnl_tiers_concentration_for_professional_and_up(self, tier, expected):
+        assert (
+            features_for(SUBSCRIPTION_TIER_PERMISSIONS[tier])["concentration"] is expected
+        )

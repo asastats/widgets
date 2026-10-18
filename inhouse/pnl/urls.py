@@ -6,6 +6,7 @@ from .views import (
     PnlAlertView,
     PnlAssetView,
     PnlChartView,
+    PnlEventsExportView,
     PnlExportView,
     PnlHideView,
     PnlProcessView,
@@ -42,4 +43,7 @@ urlpatterns = [
         name="pnl_report_download",
     ),
     re_path(rf"^{PATH}/export$", PnlExportView.as_view(), name="pnl_export"),
+    re_path(
+        rf"^{PATH}/events\.csv$", PnlEventsExportView.as_view(), name="pnl_events_export"
+    ),
 ]

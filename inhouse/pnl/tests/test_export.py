@@ -5,7 +5,7 @@ import io
 
 import pytest
 
-from widgets.inhouse.pnl.export import HEADER, table_csv
+from widgets.inhouse.pnl.export import EVENTS_HEADER, HEADER, events_csv, table_csv
 
 
 def _row(**kwargs):
@@ -177,3 +177,57 @@ class TestPnlExportTableCsv:
     def test_pnl_export_table_csv_notes(self, kwargs, expected):
         line = _parsed(table_csv({"assets": [_row(**kwargs)], "totals": _totals()}))[1]
         assert line[-1] == expected
+
+
+class TestPnlExportEventsCsv:
+    """Testing class for :py:func:`...pnl.export.events_csv`."""
+
+    def _event(self, **fields):
+        return {
+            "date": 1_700_000_000,
+            "id": "TX",
+            "asset": "5",
+            "kind": "swap",
+            "quantity": -250,
+            "value": 1_000_000,
+            "cost": 800_000,
+            "realized": 200_000,
+            **fields,
+        }
+
+    def test_pnl_export_events_csv(self):
+        data = {
+            "currency": "eur",
+            "assets": {"5": {"asset": "5", "unit": "FIV", "name": "Five", "decimals": 2}},
+            "events": [
+                self._event(rate=0.912345678, description="=Pact swap"),
+                self._event(
+                    asset="9",
+                    kind="income",
+                    quantity=4,
+                    value=None,
+                    cost=None,
+                    realized=None,
+                ),
+            ],
+        }
+        header, first, second = _parsed(events_csv(data, ";"), ";")
+        assert tuple(header) == EVENTS_HEADER
+        assert first == [
+            "2023-11-14 22:13:20",
+            "TX",
+            "5",
+            "FIV",
+            "Swap",
+            "'=Pact swap",
+            "-2.50",
+            "1.000000",
+            "0.400000000000",
+            "0.800000",
+            "0.200000",
+            "EUR",
+            "0.912346",
+        ]
+        assert second[2:5] == ["9", "#9", "Income"]
+        assert second[6:9] == ["4", "", ""]
+        assert second[-2:] == ["EUR", ""]
