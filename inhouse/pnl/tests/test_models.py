@@ -2,7 +2,7 @@
 
 from django.contrib.auth import get_user_model
 
-from widgets.inhouse.pnl.models import PnlBundle, PnlSettings
+from widgets.inhouse.pnl.models import PnlBundle, PnlHiddenAsset, PnlSettings
 
 
 class TestPnlModelsPnlBundle:
@@ -29,3 +29,10 @@ class TestPnlModelsPnlSettings:
             PnlSettings(csv_separator=key).separator
             for key, _ in PnlSettings.SEPARATOR_CHOICES
         ] == [",", ";", "\t"]
+
+
+class TestPnlModelsPnlHiddenAsset:
+    """Testing class for :py:class:`...pnl.models.PnlHiddenAsset`."""
+
+    def test_pnl_models_pnl_hidden_asset_str(self):
+        assert str(PnlHiddenAsset(bundle="B" * 40, asset="7")) == f"{'B' * 40} 7"

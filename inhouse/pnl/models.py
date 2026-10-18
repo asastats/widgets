@@ -89,3 +89,37 @@ class PnlSettings(models.Model):
         :return: str
         """
         return self.SEPARATORS[self.csv_separator]
+
+
+class PnlHiddenAsset(models.Model):
+    """An asset a reader hid from a bundle's table; it still counts in the totals.
+
+    :var PnlHiddenAsset.user: reader who hid it
+    :type PnlHiddenAsset.user: :class:`django.contrib.auth.models.User`
+    :var PnlHiddenAsset.bundle: bundle hash
+    :type PnlHiddenAsset.bundle: str
+    :var PnlHiddenAsset.asset: asset id as the engine names it
+    :type PnlHiddenAsset.asset: str
+    :var PnlHiddenAsset.created_at: when the reader hid it
+    :type PnlHiddenAsset.created_at: :class:`datetime.datetime`
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="pnl_hidden_assets",
+    )
+    bundle = models.CharField(max_length=58)
+    asset = models.CharField(max_length=32)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "bundle", "asset"], name="pnl_user_bundle_asset_uniq"
+            )
+        ]
+
+    def __str__(self):
+        """Return the bundle and the asset."""
+        return f"{self.bundle} {self.asset}"

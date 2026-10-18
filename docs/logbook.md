@@ -2449,3 +2449,28 @@ the drill-down where the tier has it. Group titles are `<strong>` inside the
 On the saved `CE63DD…` page this would list 2,343 unvalued holdings ($74.5k of
 cost, largely NFTs until R1 and LP tokens of small non-ALGO pools), 8 assets
 sold beyond history and the assets behind 1,494 unpriced events.
+
+## inhouse/pnl/views.py, models.py, templates/pnl/_row*.html — collapsed and hidden rows (R4) (2026-10-18)
+
+R4 from `p-l/PLAN.md` §18, as the user agreed on 2026-10-18 (every tier). The
+user's saved `CE63DD…` page had 8,485 rows in 14 MB, most of them sold out or
+never priced. The table now renders only held assets with a market; the rest
+sit behind "Show N more: sold out or without a market", fetched on click from
+`PnlRowsView` (`rows?group=collapsed`). The button swaps its own `<tbody>`
+for `_rows.html`. htmx 4 parses responses inside a `<template>`, so `<tbody>`
+and `<tr>` fragments come through. Rows render from `_row.html` in all three
+places: the table, the extra rows and the unhide response.
+
+Any row can be hidden (`PnlHideView`, `hide/<asset>`, a `PnlHiddenAsset` row per
+reader, bundle and asset; migration `widgets/0009_pnlhiddenasset`). Hiding is
+display only: hidden assets still count in every total, the issues view and the
+CSV export, and the table says so. A hidden row is replaced in place by "X is
+hidden … Undo". Hidden assets have their own "Show N hidden by you" group,
+where "Show again" puts the row back as an ordinary row. Counts in the buttons
+refresh on the next load. A separate model, not a field on `PnlBundle`,
+because a reader may view a bundle they never processed, and a `PnlBundle` row
+counts against their address allowance. `table_rows()` reads hidden assets
+through `request.user.pnl_hidden_assets`, the related manager. The view tests'
+fake user carries an empty queryset under that name. Clicking "Show more" on
+a very large bundle still renders every collapsed row at once; paging it is
+the next step if that turns out slow.

@@ -1,0 +1,40 @@
+<tr{% if not row.held or row.no_market %} class="pnl-closed"{% endif %}>
+  <th scope="row" title="{{ row.name }}">
+    {% if features.drilldown %}
+      <button type="button" class="pnl-link" hx-get="{% url 'pnl_asset' path row.asset %}?{{ query }}" hx-target="#id-pnl-asset" hx-swap="innerHTML show:top">{{ row.label }}</button>
+    {% else %}{{ row.label }}{% endif %}
+    {% if row.incomplete %}<span class="pnl-badge" title="Sold beyond the known history, or an acquisition, income or cost without a price">incomplete</span>{% endif %}
+    {% if row.no_market %}<span class="pnl-badge pnl-badge-muted">no market</span>{% endif %}
+    {% if row.illiquid %}<span class="pnl-badge pnl-badge-illiquid" title="Selling the whole holding would fetch less than 80% of its spot value">illiquid</span>{% endif %}
+  </th>
+  <td data-label="Quantity">{{ row.quantity }}</td>
+  <td data-label="Avg cost">{{ row.average_cost }}</td>
+  <td data-label="Price">{{ row.price }}</td>
+  <td data-label="Value">{{ row.value }}</td>
+  <td data-label="Unrealized" class="{{ row.unrealized_tone }}">{{ row.unrealized }}</td>
+  <td data-label="Realized" class="{{ row.realized_tone }}">{{ row.realized }}</td>
+  <td data-label="Income">{{ row.income }}{% if features.lp_analytics and row.farm_income %}<span class="pnl-cell-note" title="Rewards paid by the farms and staking this asset was in{% if row.farm_paid_in %}, in {{ row.farm_paid_in }}: open those assets for the reward events{% endif %}. Already counted as their income.">farm yield {{ row.farm_income }}{% if row.farm_unpriced %}, {{ row.farm_unpriced }} without a price{% endif %}</span>{% endif %}</td>
+  <td data-label="Return" class="{{ row.return_tone }}">{{ row.return }}</td>
+  {% if features.lp_analytics %}<td{% if row.vs_hold %} data-label="vs holding"{% endif %} class="{{ row.vs_hold_tone }}">{{ row.vs_hold }}{% if row.fees %}<span class="pnl-cell-note" title="Fees earned since adding liquidity, and the rest: price divergence">fees {{ row.fees }} · divergence {{ row.divergence }}</span>{% endif %}</td>{% endif %}
+  <td class="pnl-alert-cell">
+    {% if row.alerts %}
+      <details class="pnl-alert">
+        <summary title="Price alert from your average cost">Alert</summary>
+        {% for preset in row.alerts %}
+          <form hx-post="{% url 'pnl_alert' path row.asset %}?{{ query }}" hx-target="closest td">
+            <input type="hidden" name="direction" value="{{ preset.direction }}">
+            <input type="hidden" name="threshold" value="{{ preset.threshold }}">
+            <input type="hidden" name="unit" value="{{ row.label }}">
+            <button type="submit" class="pnl-alert-option">{{ preset.label }}</button>
+          </form>
+        {% endfor %}
+      </details>
+    {% endif %}
+    {# The response replaces this row (closest tr). #}
+    <form hx-post="{% url 'pnl_hide' path row.asset %}?{{ query }}" hx-target="closest tr" hx-swap="outerHTML">
+      <input type="hidden" name="hidden" value="{{ row.hidden|yesno:'0,1' }}">
+      <input type="hidden" name="label" value="{{ row.label }}">
+      <button type="submit" class="pnl-link pnl-hide" title="{% if row.hidden %}Show this asset in the table again{% else %}Hide this asset from the table; it still counts in the totals{% endif %}">{{ row.hidden|yesno:'Show again,Hide' }}</button>
+    </form>
+  </td>
+</tr>

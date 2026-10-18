@@ -10,7 +10,7 @@ from django.urls import resolve
 
 from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
 from api.client import BackendError
-from widgets.inhouse.pnl.models import PnlBundle, PnlSettings
+from widgets.inhouse.pnl.models import PnlBundle, PnlHiddenAsset, PnlSettings
 from widgets.inhouse.pnl.manifest import MANIFEST
 from widgets.inhouse.alerts.models import AlertRule
 from widgets.inhouse.pnl.views import (
@@ -18,9 +18,11 @@ from widgets.inhouse.pnl.views import (
     PnlAssetView,
     PnlChartView,
     PnlExportView,
+    PnlHideView,
     PnlProcessView,
     PnlRemoveView,
     PnlResetView,
+    PnlRowsView,
     PnlSettingsView,
     PnlStatusView,
     PnlView,
@@ -40,6 +42,7 @@ def _user(permission=0, user=None):
     if user is None:
         user = types.SimpleNamespace(is_authenticated=True)
         user.profile = types.SimpleNamespace(permission=permission)
+        user.pnl_hidden_assets = PnlHiddenAsset.objects.none()
         return user
 
     user.profile.permission = permission
@@ -843,6 +846,156 @@ class TestPnlViewsAsset:
         }
 
 
+def _grouped_results():
+    results = _engine_results()
+    held = results["assets"][0]
+    results["assets"] += [
+        {**held, "asset": "5", "name": "Sold", "unit": "SOLD", "quantity": 0},
+        {**held, "asset": "6", "name": "Spam", "unit": "SPAM", "no_market": True},
+        {**held, "asset": "7", "name": "Muted", "unit": "MUTE"},
+    ]
+    return results
+
+
+class TestPnlViewsRowGroups:
+    """Testing class for the table's collapsed and hidden rows."""
+
+    def test_pnl_views_status_collapses_closed_and_hidden_rows(
+        self, mocker, django_user_model
+    ):
+        user = django_user_model.objects.create(username="reader")
+        PnlHiddenAsset.objects.create(user=user, bundle=BUNDLE, asset="7")
+        events = {BUNDLE: {"-1": {"state": "finished"}}}
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine",
+            side_effect=[events, _grouped_results()],
+        )
+        view = _view(PnlStatusView, ASASTATSER, user=user)
+        response = view.get(view.request)
+        assert b">ALGO</button>" in response.content
+        assert b"SOLD" not in response.content
+        assert b"SPAM" not in response.content
+        assert b"MUTE" not in response.content
+        assert b"Show 2 more: sold out or without a market" in response.content
+        assert b"Show 1 hidden by you" in response.content
+        assert b"group=collapsed" in response.content
+        assert b"group=hidden" in response.content
+        assert b'colspan="10"' in response.content
+        assert b"Assets you hide still count in the totals." in response.content
+
+    def test_pnl_views_status_without_rows_to_collapse(self, mocker):
+        events = {BUNDLE: {"-1": {"state": "finished"}}}
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine",
+            side_effect=[events, _engine_results()],
+        )
+        view = _view(PnlStatusView, PROFESSIONAL)
+        response = view.get(view.request)
+        assert b"pnl-more-cell" not in response.content
+        assert b"still count in the totals" not in response.content
+
+    def test_pnl_views_rows_needs_a_known_group(self):
+        view = _view(PnlRowsView, query="?group=all")
+        with pytest.raises(Http404):
+            view.get(view.request)
+
+    def test_pnl_views_rows_when_the_engine_fails(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine", side_effect=BackendError("down")
+        )
+        view = _view(PnlRowsView, query="?group=collapsed")
+        with pytest.raises(Http404):
+            view.get(view.request)
+
+    def test_pnl_views_rows_without_results(self, mocker):
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine", return_value={"type": "pricing"}
+        )
+        view = _view(PnlRowsView, query="?group=collapsed")
+        with pytest.raises(Http404):
+            view.get(view.request)
+
+    def test_pnl_views_rows_renders_the_collapsed_group(self, mocker):
+        mocker.patch("widgets.inhouse.pnl.views._engine", return_value=_grouped_results())
+        view = _view(PnlRowsView, PROFESSIONAL, query="?group=collapsed")
+        response = view.get(view.request)
+        assert response.content.strip().startswith(b"<tbody>")
+        assert b"SOLD" in response.content
+        assert b"SPAM" in response.content
+        assert b"MUTE" not in response.content
+        assert b">ALGO<" not in response.content
+        assert response.content.count(b'class="pnl-closed"') == 2
+        assert b">Hide</button>" in response.content
+
+    def test_pnl_views_rows_renders_the_hidden_group(self, mocker, django_user_model):
+        user = django_user_model.objects.create(username="reader")
+        PnlHiddenAsset.objects.create(user=user, bundle=BUNDLE, asset="7")
+        PnlHiddenAsset.objects.create(user=user, bundle="C" * 40, asset="5")
+        mocker.patch("widgets.inhouse.pnl.views._engine", return_value=_grouped_results())
+        view = _view(PnlRowsView, query="?group=hidden", user=user)
+        response = view.get(view.request)
+        assert b"MUTE" in response.content
+        assert b"SOLD" not in response.content
+        assert b">Show again</button>" in response.content
+        assert b'name="hidden" value="0"' in response.content
+
+
+class TestPnlViewsHide:
+    """Testing class for :py:class:`...pnl.views.PnlHideView`."""
+
+    def _post(self, user, data, asset="7"):
+        view = _view(PnlHideView, user=user)
+        view.request = RequestFactory().post("/", data)
+        view.request.user = user
+        return view.post(view.request, BUNDLE, asset)
+
+    def test_pnl_views_hide_stores_the_asset_once(self, django_user_model):
+        user = django_user_model.objects.create(username="reader")
+        for _ in range(2):
+            response = self._post(user, {"hidden": "1", "label": "MUTE"})
+        assert list(
+            PnlHiddenAsset.objects.filter(user=user).values_list("bundle", "asset")
+        ) == [(BUNDLE, "7")]
+        assert b"MUTE is hidden; it still counts in the totals." in response.content
+        assert b">Undo</button>" in response.content
+        assert b'colspan="10"' in response.content
+
+    def test_pnl_views_hide_without_a_label(self, django_user_model):
+        user = django_user_model.objects.create(username="reader")
+        response = self._post(user, {"hidden": "1"})
+        assert b"#7 is hidden" in response.content
+
+    def test_pnl_views_hide_shows_the_asset_again(self, mocker, django_user_model):
+        user = django_user_model.objects.create(username="reader")
+        PnlHiddenAsset.objects.create(user=user, bundle=BUNDLE, asset="7")
+        mocker.patch("widgets.inhouse.pnl.views._engine", return_value=_grouped_results())
+        response = self._post(user, {"hidden": "0"})
+        assert not PnlHiddenAsset.objects.filter(user=user).exists()
+        assert response.content.strip().startswith(b"<tr>")
+        assert b"MUTE" in response.content
+        assert b">Hide</button>" in response.content
+
+    def test_pnl_views_hide_shows_again_an_asset_the_engine_lacks(
+        self, mocker, django_user_model
+    ):
+        user = django_user_model.objects.create(username="reader")
+        mocker.patch("widgets.inhouse.pnl.views._engine", return_value=_grouped_results())
+        with pytest.raises(Http404):
+            self._post(user, {"hidden": "0"}, asset="99")
+
+    def test_pnl_views_hide_shows_again_when_the_engine_fails(
+        self, mocker, django_user_model
+    ):
+        user = django_user_model.objects.create(username="reader")
+        PnlHiddenAsset.objects.create(user=user, bundle=BUNDLE, asset="7")
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine", side_effect=BackendError("down")
+        )
+        with pytest.raises(Http404):
+            self._post(user, {"hidden": "0"})
+        assert not PnlHiddenAsset.objects.filter(user=user).exists()
+
+
 class TestPnlUrls:
     """Testing class for the widget's URL configuration."""
 
@@ -855,6 +1008,8 @@ class TestPnlUrls:
             ("/remove", PnlRemoveView),
             ("/reset", PnlResetView),
             ("/asset/LP123", PnlAssetView),
+            ("/rows", PnlRowsView),
+            ("/hide/31566704", PnlHideView),
             ("/alert/31566704", PnlAlertView),
             ("/settings", PnlSettingsView),
             ("/export", PnlExportView),

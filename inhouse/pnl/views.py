@@ -37,7 +37,7 @@ from .display import (
 )
 from .export import table_csv
 from .manifest import MANIFEST
-from .models import PnlBundle, PnlSettings
+from .models import PnlBundle, PnlHiddenAsset, PnlSettings
 from .tiers import features_for
 
 ADDRESSES_LIMIT_ERROR = (
@@ -54,6 +54,10 @@ LINKED_ONLY_ERROR = (
     "Without a subscription, profit and loss is available for one address you "
     "have linked to your account."
 )
+MORE_ROWS = {
+    "collapsed": "more: sold out or without a market",
+    "hidden": "hidden by you",
+}
 EXPORT_WAIT_MESSAGE = (
     "Profit and loss is still being worked out; download the CSV once the table shows."
 )
@@ -282,6 +286,60 @@ class PnlAccessMixin(WidgetAccessMixin):
         """
         return f"{reverse('pnl', args=[self.args[0]])}?{self.base_context()['query']}"
 
+    def evaluation(self):
+        """Return the engine's P&L results for the reader's switches.
+
+        :return: dict or None
+        """
+        return _engine(
+            "pnl:evaluate", "POST", self.bundle, "evaluate/", json=self.evaluate_payload()
+        )
+
+    def table_rows(self, data):
+        """Return every asset of `data` formatted for the table, by row group.
+
+        :param data: engine's P&L results
+        :type data: dict
+        :var hidden: ids of the assets the reader hid from this bundle's table
+        :type hidden: set
+        :var rows: formatted rows in the engine's order
+        :type rows: list
+        :var labels: asset labels by asset id
+        :type labels: dict
+        :return: dict
+        """
+        hidden = set(
+            self.request.user.pnl_hidden_assets.filter(bundle=self.bundle).values_list(
+                "asset", flat=True
+            )
+        )
+        rows = [table_row(row, self.currency()) for row in data["assets"]]
+        labels = {row["asset"]: row["label"] for row in rows}
+        groups = {"open": [], "collapsed": [], "hidden": []}
+        for row in rows:
+            row["farm_paid_in"] = ", ".join(
+                labels.get(asset, f"#{asset}") for asset in row["farm_assets"]
+            )
+            row["hidden"] = row["asset"] in hidden
+            if row["hidden"]:
+                groups["hidden"].append(row)
+            elif row["held"] and not row["no_market"]:
+                groups["open"].append(row)
+            else:
+                groups["collapsed"].append(row)
+
+        return groups
+
+    def row_context(self):
+        """Return the context a table row needs besides the row itself.
+
+        :return: dict
+        """
+        return {
+            **self.base_context(),
+            "columns": 11 if self.features["lp_analytics"] else 10,
+        }
+
     def base_context(self):
         """Return the context every fragment of this widget needs.
 
@@ -379,10 +437,8 @@ class PnlStatusView(PnlAccessMixin, View):
             return self._progress(events)
 
         currency = self.currency()
-        data = _engine(
-            "pnl:evaluate", "POST", self.bundle, "evaluate/", json=self.evaluate_payload()
-        )
-        context = self.base_context()
+        data = self.evaluation()
+        context = self.row_context()
         if data and data.get("type") == "processing":
             return self._progress(None)
 
@@ -402,14 +458,92 @@ class PnlStatusView(PnlAccessMixin, View):
         context["summary"] = summary(data["totals"], currency)
         if data["totals"].get("period"):
             context["period_summary"] = period_summary(data["totals"]["period"], currency)
-        context["rows"] = [table_row(row, currency) for row in data["assets"]]
+        groups = self.table_rows(data)
+        context["rows"] = groups["open"]
+        context["more"] = [
+            (group, len(groups[group]), label) for group, label in MORE_ROWS.items()
+        ]
+        context["hidden_count"] = len(groups["hidden"])
         context["issues"] = issues(data["assets"], currency)
-        labels = {row["asset"]: row["label"] for row in context["rows"]}
-        for row in context["rows"]:
-            row["farm_paid_in"] = ", ".join(
-                labels.get(asset, f"#{asset}") for asset in row["farm_assets"]
-            )
         return render(request, "pnl/_table.html", context)
+
+
+class PnlRowsView(PnlAccessMixin, View):
+    """Fragment with the table rows collapsed by default, or those the reader hid."""
+
+    def get(self, request, *args, **kwargs):
+        """Render the requested group's rows as a table body.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :var group: "collapsed" or "hidden"
+        :type group: str
+        :var data: engine's P&L results or a state marker
+        :type data: dict
+        :return: :class:`django.http.HttpResponse`
+        """
+        group = request.GET.get("group")
+        if group not in MORE_ROWS:
+            raise Http404
+
+        try:
+            data = self.evaluation()
+        except BackendError:
+            raise Http404
+
+        if not data or "assets" not in data:
+            raise Http404
+
+        context = self.row_context()
+        context["rows"] = self.table_rows(data)[group]
+        return render(request, "pnl/_rows.html", context)
+
+
+class PnlHideView(PnlAccessMixin, View):
+    """Hide an asset from the bundle's table, or show it again."""
+
+    def post(self, request, *args, **kwargs):
+        """Store the reader's choice and render what replaces the asset's row.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :var asset: asset id as the engine names it
+        :type asset: str
+        :var data: engine's P&L results or a state marker
+        :type data: dict
+        :var groups: the bundle's formatted rows by row group
+        :type groups: dict
+        :var rows: the asset's formatted row, empty if the engine has none
+        :type rows: list
+        :return: :class:`django.http.HttpResponse`
+        """
+        asset = args[1]
+        context = self.row_context()
+        if request.POST.get("hidden") == "1":
+            PnlHiddenAsset.objects.get_or_create(
+                user=request.user, bundle=self.bundle, asset=asset
+            )
+            context["asset"] = asset
+            context["label"] = request.POST.get("label", "")[:64] or f"#{asset}"
+            return render(request, "pnl/_row_hidden.html", context)
+
+        PnlHiddenAsset.objects.filter(
+            user=request.user, bundle=self.bundle, asset=asset
+        ).delete()
+        try:
+            data = self.evaluation()
+        except BackendError:
+            data = None
+
+        groups = self.table_rows(data) if data and "assets" in data else {}
+        rows = [
+            row for group in groups.values() for row in group if row["asset"] == asset
+        ]
+        if not rows:
+            raise Http404
+
+        context["row"] = rows[0]
+        return render(request, "pnl/_row.html", context)
 
 
 class PnlProcessView(PnlAccessMixin, View):
@@ -566,13 +700,7 @@ class PnlExportView(PnlAccessMixin, View):
             raise Http404
 
         try:
-            data = _engine(
-                "pnl:evaluate",
-                "POST",
-                self.bundle,
-                "evaluate/",
-                json=self.evaluate_payload(),
-            )
+            data = self.evaluation()
         except BackendError:
             data = None
 

@@ -1,0 +1,10 @@
+<tr class="pnl-closed">
+  <td colspan="{{ columns }}" class="pnl-more-cell">
+    <form hx-post="{% url 'pnl_hide' path asset %}?{{ query }}" hx-target="closest tr" hx-swap="outerHTML">
+      {{ label }} is hidden; it still counts in the totals.
+      <input type="hidden" name="hidden" value="0">
+      <input type="hidden" name="label" value="{{ label }}">
+      <button type="submit" class="pnl-link">Undo</button>
+    </form>
+  </td>
+</tr>
