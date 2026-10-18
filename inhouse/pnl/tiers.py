@@ -44,5 +44,5 @@ def features_for(permission, fiat="usd"):
         "lp_analytics": professional,
         "export": cluster,
         "report": cluster,
-        "cost_methods": ("average", "fifo", "lifo") if cluster else ("average",),
+        "cost_methods": ("average", "fifo", "lifo", "hifo") if cluster else ("average",),
     }

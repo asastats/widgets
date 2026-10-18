@@ -80,7 +80,7 @@ class TestPnlTiers:
 
     @pytest.mark.parametrize(
         "tier,expected",
-        [("Professional", ("average",)), ("Cluster", ("average", "fifo", "lifo"))],
+        [("Professional", ("average",)), ("Cluster", ("average", "fifo", "lifo", "hifo"))],
     )
     def test_pnl_tiers_cost_methods_for_cluster(self, tier, expected):
         assert features_for(SUBSCRIPTION_TIER_PERMISSIONS[tier])["cost_methods"] == expected

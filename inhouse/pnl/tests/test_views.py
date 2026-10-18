@@ -718,6 +718,17 @@ class TestPnlViewsCostMethod:
         assert engine.call_args.kwargs["json"]["method"] == "lifo"
         assert b"Last in, first out" in content
 
+    def test_pnl_views_status_explains_hifo(self, mocker, django_user_model):
+        user = self._reader(django_user_model, CLUSTER, method="hifo")
+        events = {BUNDLE: {"-1": {"state": "finished"}}}
+        engine = mocker.patch(
+            "widgets.inhouse.pnl.views._engine", side_effect=[events, _engine_results()]
+        )
+        view = _view(PnlStatusView, CLUSTER, user=user)
+        content = view.get(view.request).content
+        assert engine.call_args.kwargs["json"]["method"] == "hifo"
+        assert b"Highest cost out first" in content
+
     def test_pnl_views_asset_sends_the_saved_method(self, mocker, django_user_model):
         user = self._reader(django_user_model, CLUSTER)
         engine = mocker.patch(

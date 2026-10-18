@@ -2535,3 +2535,10 @@ returns to the table with a message once the engine no longer has it (an hour,
 or newer priced rows). The page size is `PnlSettings.page_format` (A4 or US
 Letter, migration `widgets/0011`), in the Settings tab. Layout and rendering:
 engine logbook, `pnl/report.py` (same date).
+
+## inhouse/pnl — HIFO (2026-10-18)
+
+`cost_method` gains "hifo" (migration 0012), offered to Cluster with FIFO and
+LIFO (`tiers.cost_methods`); the table footnote explains it. The engine's
+`pnl/lots.py:HifoLot` does the work: units leave from the parcel with the
+highest cost per unit, oldest first on a tie.

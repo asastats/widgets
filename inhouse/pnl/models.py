@@ -67,6 +67,7 @@ class PnlSettings(models.Model):
         ("average", "Average cost"),
         ("fifo", "FIFO (first in, first out)"),
         ("lifo", "LIFO (last in, first out)"),
+        ("hifo", "HIFO (highest cost out first)"),
     ]
     PAGE_FORMAT_CHOICES = [("a4", "A4"), ("letter", "US Letter")]
 
