@@ -1,0 +1,18 @@
+{# The response replaces this whole section (#id-pnl-wallets). #}
+<section id="id-pnl-wallets">
+  <h2>Your other wallets</h2>
+  <p class="pnl-muted">Units you send to one of these wallets and later bring back keep the cost they left with, instead of taking their market value on return.</p>
+  {% if wallets %}
+  <ul class="pnl-wallets">
+    {% for wallet in wallets %}
+      <li><span class="pnl-txid" title="{{ wallet.event }}">{{ wallet.event|truncatechars:16 }}</span>
+        <form hx-post="{% url 'pnl_wallets' path %}?{{ query }}" hx-target="#id-pnl-wallets" hx-swap="outerHTML"><input type="hidden" name="address" value="{{ wallet.event }}"><input type="hidden" name="remove" value="1"><button type="submit" class="pnl-link pnl-hide">Remove</button></form></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <form hx-post="{% url 'pnl_wallets' path %}?{{ query }}" hx-target="#id-pnl-wallets" hx-swap="outerHTML" class="pnl-wallet-add">
+    <label>Address <input type="text" name="address" required maxlength="58" autocomplete="off" spellcheck="false"></label>
+    <button type="submit" class="pnl-button">Add</button>
+    {% if wallet_error %}<span class="pnl-override-error" role="alert">{{ wallet_error }}</span>{% endif %}
+  </form>
+</section>

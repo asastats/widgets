@@ -4,6 +4,7 @@ import time
 from datetime import UTC, datetime
 from urllib.parse import urlencode
 
+from algosdk.encoding import is_valid_address
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -41,8 +42,9 @@ from .display import (
     winners_and_losers,
 )
 from .export import events_csv, table_csv
+from .forms import OVERRIDE_EVENT, PnlOverrideForm
 from .manifest import MANIFEST
-from .models import PnlBundle, PnlHiddenAsset, PnlSettings
+from .models import PnlBundle, PnlHiddenAsset, PnlOverride, PnlSettings
 from .tiers import features_for
 
 ADDRESSES_LIMIT_ERROR = (
@@ -75,6 +77,8 @@ EXPORT_WAIT_MESSAGE = (
 EVENTS_WAIT_MESSAGE = (
     "The events are still being prepared; download them again in a minute."
 )
+#: Most overrides of each kind a reader may keep per bundle; the engine's limit.
+OVERRIDES_LIMIT = 1000
 
 
 def _permission(user):
@@ -289,6 +293,61 @@ class PnlAccessMixin(WidgetAccessMixin):
         saved = getattr(self.request.user, "pnl_settings", None)
         return not (self.features["nft_choice"] and saved and not saved.count_nfts)
 
+    def saved_overrides(self, kind):
+        """Return the reader's overrides of `kind` for this bundle, none below the tier.
+
+        :param kind: "basis" or "value"
+        :type kind: str
+        :return: :class:`django.db.models.QuerySet`
+        """
+        if not self.features["overrides"]:
+            return PnlOverride.objects.none()
+
+        return self.request.user.pnl_overrides.filter(
+            bundle=self.bundle, kind=kind
+        ).order_by("asset", "event")
+
+    def overrides(self):
+        """Return the reader's overrides as the engine reads them, None without any.
+
+        :var payload: overrides keyed by the engine's kind names
+        :type payload: dict
+        :return: dict or None
+        """
+        payload = {
+            "basis": [
+                {
+                    "id": override.event,
+                    "asset": override.asset,
+                    "amount": override.amount_text,
+                    "currency": override.currency,
+                }
+                for override in self.saved_overrides("basis")
+            ],
+            "values": [
+                {
+                    "asset": override.asset,
+                    "amount": override.amount_text,
+                    "currency": override.currency,
+                }
+                for override in self.saved_overrides("value")
+            ],
+            "own": [override.event for override in self.saved_overrides("own")],
+        }
+        return {kind: entries for kind, entries in payload.items() if entries} or None
+
+    def with_overrides(self, payload):
+        """Return the engine request `payload` with the reader's overrides, if any.
+
+        :param payload: engine request
+        :type payload: dict
+        :var overrides: see :meth:`overrides`
+        :type overrides: dict or None
+        :return: dict
+        """
+        overrides = self.overrides()
+        return {**payload, "overrides": overrides} if overrides else payload
+
     def evaluate_payload(self):
         """Return the engine's evaluate request for the reader's switches.
 
@@ -307,7 +366,7 @@ class PnlAccessMixin(WidgetAccessMixin):
         if not self.count_nfts():
             payload["nfts"] = False
 
-        return payload
+        return self.with_overrides(payload)
 
     def reader_settings(self):
         """Return the reader's saved P&L settings, unsaved defaults without any.
@@ -352,6 +411,7 @@ class PnlAccessMixin(WidgetAccessMixin):
                 "asset", flat=True
             )
         )
+        values = {override.asset: override for override in self.saved_overrides("value")}
         rows = [table_row(row, self.currency()) for row in data["assets"]]
         labels = {row["asset"]: row["label"] for row in rows}
         groups = {"open": [], **{group: [] for group in MORE_ROWS}}
@@ -360,6 +420,10 @@ class PnlAccessMixin(WidgetAccessMixin):
                 labels.get(asset, f"#{asset}") for asset in row["farm_assets"]
             )
             row["hidden"] = row["asset"] in hidden
+            row["override"] = values.get(row["asset"])
+            row["can_set_value"] = self.features["overrides"] and (
+                row["held"] and (not row["valued"] or row["override"] is not None)
+            )
             if row["hidden"]:
                 groups["hidden"].append(row)
             elif not row["held"] or row["no_market"]:
@@ -426,6 +490,7 @@ class PnlView(PnlAccessMixin, TemplateView):
         if self.request.GET.get("tab") == "settings":
             context["tab"] = "settings"
             context["pnl_settings"] = self.reader_settings()
+            context["wallets"] = self.saved_overrides("own")
         return context
 
 
@@ -521,6 +586,10 @@ class PnlStatusView(PnlAccessMixin, View):
             data.get("changes"), data["assets"], currency
         )
         context["processed_at"] = processed_time(data.get("processed_at"))
+        context["unapplied"] = sum(
+            len(data["totals"].get(key, []))
+            for key in ("unapplied_basis", "unapplied_values", "unapplied_own")
+        )
         context["updating"] = data.get("updating")
         context["pricing"] = data.get("pricing") or {}
         return render(request, "pnl/_table.html", context)
@@ -808,6 +877,120 @@ class PnlSettingsView(PnlAccessMixin, View):
         return render(request, "pnl/_settings_form.html", context)
 
 
+class PnlOverrideView(PnlAccessMixin, View):
+    """Set or remove the reader's cost for a deposit, or value for an asset."""
+
+    def post(self, request, *args, **kwargs):
+        """Store the figure and send the page back to the table to re-evaluate.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :var kind: "basis" or "value"
+        :type kind: str
+        :var event: the deposit's transaction or group id; empty for a value
+        :type event: str
+        :var lookup: fields naming the override
+        :type lookup: dict
+        :var form: the posted amount and currency
+        :type form: :class:`PnlOverrideForm`
+        :var response: empty answer redirecting the page
+        :type response: :class:`django.http.HttpResponse`
+        :return: :class:`django.http.HttpResponse`
+        """
+        if not self.features["overrides"]:
+            raise Http404
+
+        kind = request.POST.get("kind")
+        event = request.POST.get("event", "") if kind == "basis" else ""
+        if kind not in dict(PnlOverride.KIND_CHOICES) or (
+            kind == "basis" and not OVERRIDE_EVENT.fullmatch(event)
+        ):
+            raise Http404
+
+        lookup = {
+            "user": request.user,
+            "bundle": self.bundle,
+            "kind": kind,
+            "asset": args[1],
+            "event": event,
+        }
+        if request.POST.get("remove") == "1":
+            PnlOverride.objects.filter(**lookup).delete()
+        else:
+            form = PnlOverrideForm(request.POST, currencies=self.features["currencies"])
+            existing = PnlOverride.objects.filter(**lookup).exists()
+            count = PnlOverride.objects.filter(
+                user=request.user, bundle=self.bundle, kind=kind
+            ).count()
+            if not form.is_valid() or (not existing and count >= OVERRIDES_LIMIT):
+                errors = [
+                    message for messages in form.errors.values() for message in messages
+                ] or [f"At most {OVERRIDES_LIMIT} per bundle."]
+                return render(request, "pnl/_override_error.html", {"errors": errors})
+
+            PnlOverride.objects.update_or_create(
+                **lookup,
+                defaults={
+                    "amount": form.cleaned_data["amount"],
+                    "currency": form.cleaned_data["currency"],
+                },
+            )
+
+        response = HttpResponse(status=204)
+        response["HX-Redirect"] = self.table_url()
+        return response
+
+
+class PnlWalletsView(PnlAccessMixin, View):
+    """Add or remove another wallet of the reader's, from the Settings tab."""
+
+    def post(self, request, *args, **kwargs):
+        """Store or remove the wallet and render the list again.
+
+        :param request: Django request object
+        :type request: :class:`django.http.HttpRequest`
+        :var address: the posted public Algorand address
+        :type address: str
+        :var lookup: fields naming the wallet
+        :type lookup: dict
+        :var error: why the address was not added
+        :type error: str
+        :return: :class:`django.http.HttpResponse`
+        """
+        if not self.features["overrides"]:
+            raise Http404
+
+        address = request.POST.get("address", "").strip().upper()
+        lookup = {
+            "user": request.user,
+            "bundle": self.bundle,
+            "kind": "own",
+            "asset": "",
+            "event": address,
+        }
+        error = ""
+        if request.POST.get("remove") == "1":
+            PnlOverride.objects.filter(**lookup).delete()
+        elif not is_valid_address(address):
+            error = "That is not an Algorand address."
+        elif address in self.addresses.split():
+            error = "That address is already in this bundle."
+        elif (
+            not PnlOverride.objects.filter(**lookup).exists()
+            and self.saved_overrides("own").count() >= OVERRIDES_LIMIT
+        ):
+            error = f"At most {OVERRIDES_LIMIT} per bundle."
+        else:
+            PnlOverride.objects.get_or_create(
+                **lookup, defaults={"amount": 0, "currency": ""}
+            )
+
+        context = self.base_context()
+        context["wallets"] = self.saved_overrides("own")
+        context["wallet_error"] = error
+        return render(request, "pnl/_wallets.html", context)
+
+
 class PnlExportView(PnlAccessMixin, View):
     """The P&L table as a CSV download, for tiers with the export."""
 
@@ -874,7 +1057,9 @@ class PnlEventsExportView(PnlAccessMixin, View):
                 "POST",
                 self.bundle,
                 "history/",
-                json={"currency": self.currency(), "method": self.cost_method()},
+                json=self.with_overrides(
+                    {"currency": self.currency(), "method": self.cost_method()}
+                ),
             )
         except BackendError:
             data = None
@@ -920,17 +1105,26 @@ class PnlAssetView(PnlAccessMixin, View):
             "POST",
             self.bundle,
             "asset/",
-            json={"asset": args[1], "currency": currency, "method": self.cost_method()},
+            json=self.with_overrides(
+                {"asset": args[1], "currency": currency, "method": self.cost_method()}
+            ),
         )
         if not data or data.get("type") in ("show_update", "processing", "pricing"):
             raise Http404
 
         context = self.base_context()
+        context["asset"] = args[1]
         context["asset_label"] = asset_label(data)
+        costs = {
+            override.event: override
+            for override in self.saved_overrides("basis").filter(asset=args[1])
+        }
         context["events"] = [
             event_row(event, data.get("decimals"), currency, _explorer(request.user))
             for event in data["events"]
         ]
+        for event in context["events"]:
+            event["override"] = costs.get(event["id"]) if event["deposit"] else None
         return render(request, "pnl/_asset.html", context)
 
 
@@ -956,7 +1150,7 @@ class PnlChartView(PnlAccessMixin, View):
                 "POST",
                 self.bundle,
                 "chart/",
-                json={"currency": self.currency()},
+                json=self.with_overrides({"currency": self.currency()}),
             )
         except BackendError:
             return render(request, "pnl/_chart_wait.html", {**context, "failed": True})

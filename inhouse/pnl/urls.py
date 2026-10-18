@@ -9,6 +9,7 @@ from .views import (
     PnlEventsExportView,
     PnlExportView,
     PnlHideView,
+    PnlOverrideView,
     PnlProcessView,
     PnlRemoveView,
     PnlReportDownloadView,
@@ -19,6 +20,7 @@ from .views import (
     PnlStatusView,
     PnlUpdatingView,
     PnlView,
+    PnlWalletsView,
 )
 
 PATH = r"(\w{40}|\w{58})"
@@ -33,9 +35,11 @@ urlpatterns = [
     re_path(rf"^{PATH}/updating$", PnlUpdatingView.as_view(), name="pnl_updating"),
     re_path(rf"^{PATH}/rows$", PnlRowsView.as_view(), name="pnl_rows"),
     re_path(rf"^{PATH}/hide/(\w+)$", PnlHideView.as_view(), name="pnl_hide"),
+    re_path(rf"^{PATH}/override/(\w+)$", PnlOverrideView.as_view(), name="pnl_override"),
     re_path(rf"^{PATH}/chart$", PnlChartView.as_view(), name="pnl_chart"),
     re_path(rf"^{PATH}/alert/(\d+)$", PnlAlertView.as_view(), name="pnl_alert"),
     re_path(rf"^{PATH}/settings$", PnlSettingsView.as_view(), name="pnl_settings"),
+    re_path(rf"^{PATH}/wallets$", PnlWalletsView.as_view(), name="pnl_wallets"),
     re_path(rf"^{PATH}/report$", PnlReportView.as_view(), name="pnl_report"),
     re_path(
         rf"^{PATH}/report/download$",

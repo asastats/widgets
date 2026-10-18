@@ -12,7 +12,7 @@
           <td data-label="Event" class="pnl-text">{{ event.kind }}{% if event.unpriced %} <span class="pnl-badge">no price</span>{% endif %}{% if event.description %}<span class="pnl-event-note">{{ event.description }}</span>{% endif %}</td>
           <td data-label="Quantity">{{ event.quantity }}</td>
           <td data-label="Value">{{ event.value }}</td>
-          <td data-label="Cost">{{ event.cost }}</td>
+          <td data-label="Cost">{{ event.cost }}{% if event.override %}<span class="pnl-cell-note" title="Set by you on {{ event.override.updated_at|date:'j M Y' }}">you paid {{ event.override.amount_text }} {{ event.override.currency|upper }}</span>{% endif %}{% if features.overrides and event.deposit %}{% include "pnl/_override_form.html" with kind="basis" event=event.id override=event.override title="What you paid for this deposit in total, instead of its market value on arrival" set_label="Set cost" change_label="Change cost" amount_label="Paid in total" remove_label="Remove your cost" %}{% endif %}</td>
           <td data-label="Realized" class="{{ event.realized_tone }}">{{ event.realized }}</td>
           <td data-label="Transaction" class="pnl-text">{% if event.link %}<a class="pnl-txid" href="{{ event.link }}" target="_blank" rel="noopener" title="{{ event.id }}">{{ event.id|truncatechars:12 }}</a>{% else %}<span class="pnl-txid" title="{{ event.id }}">{{ event.id|truncatechars:12 }}</span>{% endif %}</td>
         </tr>

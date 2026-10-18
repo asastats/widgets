@@ -38,6 +38,8 @@ EVENT_LABELS = {
     "liquidity_out": "Liquidity removed",
     "position_in": "Deposited in dApp",
     "position_out": "Withdrawn from dApp",
+    "own_out": "To your other wallet",
+    "own_in": "From your other wallet",
 }
 
 
@@ -251,6 +253,7 @@ def table_row(row, currency):
         "no_market": bool(row.get("no_market")),
         "illiquid": bool(row.get("illiquid")),
         "nft": bool(row.get("nft")),
+        "manual": bool(row.get("manual")),
         "held": row["quantity"] > 0,
         "valued": row["value"] is not None,
         "alerts": alert_presets(row),
@@ -512,6 +515,7 @@ def event_row(event, decimals, currency, explorer=None):
             "%-d %b %Y %H:%M"
         ),
         "kind": EVENT_LABELS.get(event["kind"], event["kind"]),
+        "deposit": event["kind"] == "deposit",
         "quantity": quantity(event["quantity"], decimals),
         "value": money(event["value"], currency),
         "cost": money(event["cost"], currency),

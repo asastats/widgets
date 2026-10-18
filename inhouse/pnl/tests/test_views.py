@@ -10,7 +10,12 @@ from django.urls import resolve
 
 from utils.constants.users import SUBSCRIPTION_TIER_PERMISSIONS
 from api.client import BackendError
-from widgets.inhouse.pnl.models import PnlBundle, PnlHiddenAsset, PnlSettings
+from widgets.inhouse.pnl.models import (
+    PnlBundle,
+    PnlHiddenAsset,
+    PnlOverride,
+    PnlSettings,
+)
 from widgets.inhouse.pnl.manifest import MANIFEST
 from widgets.inhouse.alerts.models import AlertRule
 from widgets.inhouse.pnl.views import (
@@ -20,6 +25,7 @@ from widgets.inhouse.pnl.views import (
     PnlEventsExportView,
     PnlExportView,
     PnlHideView,
+    PnlOverrideView,
     PnlProcessView,
     PnlRemoveView,
     PnlReportDownloadView,
@@ -30,6 +36,7 @@ from widgets.inhouse.pnl.views import (
     PnlStatusView,
     PnlUpdatingView,
     PnlView,
+    PnlWalletsView,
     _engine,
     addresses_in_use,
     period_start,
@@ -47,6 +54,7 @@ def _user(permission=0, user=None):
         user = types.SimpleNamespace(is_authenticated=True)
         user.profile = types.SimpleNamespace(permission=permission)
         user.pnl_hidden_assets = PnlHiddenAsset.objects.none()
+        user.pnl_overrides = PnlOverride.objects.none()
         return user
 
     user.profile.permission = permission
@@ -1481,3 +1489,273 @@ class TestPnlViewsReport:
         response = view.get(view.request)
         assert response.status_code == 302
         assert response.url.startswith(f"/widgets/pnl/{BUNDLE}?")
+
+
+def _override(user, kind="value", asset="8", event="", amount="2.5", currency="usd"):
+    return PnlOverride.objects.create(
+        user=user,
+        bundle=BUNDLE,
+        kind=kind,
+        asset=asset,
+        event=event,
+        amount=amount,
+        currency=currency,
+    )
+
+
+def _deposit_events():
+    return {
+        "asset": "8",
+        "unit": "NOPR",
+        "decimals": 0,
+        "events": [
+            {
+                "date": 1_700_000_000,
+                "id": "DEP/1+=",
+                "asset": "8",
+                "kind": "deposit",
+                "quantity": 10,
+                "value": None,
+                "cost": 0,
+                "realized": None,
+            },
+            {
+                "date": 1_700_000_100,
+                "id": "SWAP",
+                "asset": "8",
+                "kind": "swap",
+                "quantity": -2,
+                "value": 1_000_000,
+                "cost": 0,
+                "realized": 1_000_000,
+            },
+        ],
+    }
+
+
+@pytest.mark.django_db
+class TestPnlViewsOverrides:
+    """Testing class for :py:class:`...pnl.views.PnlOverrideView` and its payloads."""
+
+    def _reader(self, django_user_model, permission=ASASTATSER):
+        return _user(permission, django_user_model.objects.create(username="reader"))
+
+    def _post(self, user, data, asset="8", permission=ASASTATSER):
+        view = _view(PnlOverrideView, permission, user=user)
+        view.request = RequestFactory().post("/", data)
+        view.request.user = user
+        return view.post(view.request, BUNDLE, asset)
+
+    def test_pnl_views_override_value_saved_changed_and_removed(
+        self, django_user_model
+    ):
+        user = self._reader(django_user_model)
+        response = self._post(user, {"kind": "value", "amount": "2.50", "currency": "usd"})
+        assert response.status_code == 204
+        assert f"/pnl/{BUNDLE}?currency=usd" in response["HX-Redirect"]
+        self._post(user, {"kind": "value", "amount": "3", "currency": "algo"})
+        saved = PnlOverride.objects.get(user=user)
+        assert (saved.kind, saved.asset, saved.event) == ("value", "8", "")
+        assert (saved.amount_text, saved.currency) == ("3", "algo")
+        self._post(user, {"kind": "value", "remove": "1"})
+        assert not PnlOverride.objects.exists()
+
+    def test_pnl_views_override_basis_needs_an_event(self, django_user_model):
+        user = self._reader(django_user_model)
+        for event in ("", "a b", "x" * 65):
+            with pytest.raises(Http404):
+                self._post(
+                    user,
+                    {"kind": "basis", "event": event, "amount": "1", "currency": "usd"},
+                )
+        self._post(
+            user, {"kind": "basis", "event": "DEP/1+=", "amount": "50", "currency": "usd"}
+        )
+        assert PnlOverride.objects.get().event == "DEP/1+="
+
+    @pytest.mark.parametrize(
+        "permission,kind",
+        [(SUBSCRIPTION_TIER_PERMISSIONS["Intro"], "value"), (ASASTATSER, "other")],
+    )
+    def test_pnl_views_override_refused(self, django_user_model, permission, kind):
+        user = self._reader(django_user_model, permission)
+        with pytest.raises(Http404):
+            self._post(
+                user,
+                {"kind": kind, "amount": "1", "currency": "usd"},
+                permission=permission,
+            )
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            {"amount": "-1", "currency": "usd"},
+            {"amount": "many", "currency": "usd"},
+            {"amount": "1", "currency": "eur"},
+        ],
+    )
+    def test_pnl_views_override_invalid(self, django_user_model, data):
+        user = self._reader(django_user_model)
+        response = self._post(user, {"kind": "value", **data})
+        assert b'class="pnl-override-error"' in response.content
+        assert not PnlOverride.objects.exists()
+
+    def test_pnl_views_override_limit(self, django_user_model, mocker):
+        user = self._reader(django_user_model)
+        mocker.patch("widgets.inhouse.pnl.views.OVERRIDES_LIMIT", 1)
+        _override(user, asset="7")
+        response = self._post(user, {"kind": "value", "amount": "1", "currency": "usd"})
+        assert b"At most 1 per bundle." in response.content
+        response = self._post(
+            user, {"kind": "value", "amount": "1", "currency": "usd"}, asset="7"
+        )
+        assert response.status_code == 204
+
+    def test_pnl_views_override_payloads(self, django_user_model, mocker):
+        user = self._reader(django_user_model)
+        _override(user, kind="basis", event="DEP", amount="50.500", currency="usd")
+        _override(user)
+        PnlOverride.objects.create(
+            user=user, bundle="C" * 40, kind="value", asset="9", amount=1, currency="usd"
+        )
+        view = _view(PnlStatusView, ASASTATSER, user=user)
+        expected = {
+            "basis": [{"id": "DEP", "asset": "8", "amount": "50.5", "currency": "usd"}],
+            "values": [{"asset": "8", "amount": "2.5", "currency": "usd"}],
+        }
+        assert view.evaluate_payload()["overrides"] == expected
+        assert view.overrides() == expected
+        engine = mocker.patch("widgets.inhouse.pnl.views._engine", return_value={})
+        mocker.patch("widgets.inhouse.pnl.views.messages")
+        for view_class, method in (
+            (PnlAssetView, "get"),
+            (PnlChartView, "get"),
+            (PnlEventsExportView, "get"),
+        ):
+            view = _view(view_class, CLUSTER, user=user)
+            try:
+                getattr(view, method)(view.request, BUNDLE, "8")
+            except Http404:
+                pass
+            assert engine.call_args.kwargs["json"]["overrides"] == expected
+
+    def test_pnl_views_override_payload_none(self, django_user_model):
+        user = self._reader(django_user_model, SUBSCRIPTION_TIER_PERMISSIONS["Intro"])
+        _override(user)
+        view = _view(PnlStatusView, SUBSCRIPTION_TIER_PERMISSIONS["Intro"], user=user)
+        assert view.overrides() is None
+        assert "overrides" not in view.evaluate_payload()
+
+    def test_pnl_views_override_forms_in_the_drilldown(self, django_user_model, mocker):
+        user = self._reader(django_user_model)
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine", return_value=_deposit_events()
+        )
+        view = _view(PnlAssetView, ASASTATSER, user=user)
+        content = view.get(view.request, BUNDLE, "8").content
+        assert content.count(b">Set cost</summary>") == 1
+        assert b'name="event" value="DEP/1+="' in content
+        assert b">you paid" not in content
+        _override(user, kind="basis", event="DEP/1+=", amount="50", currency="algo")
+        content = view.get(view.request, BUNDLE, "8").content
+        assert b"you paid 50 ALGO" in content
+        assert b">Change cost</summary>" in content
+        assert b">Remove your cost</button>" in content
+        assert b'<option value="algo" selected>' in content
+
+    def test_pnl_views_override_forms_in_the_table(self, django_user_model, mocker):
+        user = self._reader(django_user_model)
+        results = _grouped_results()
+        results["assets"][3]["manual"] = True
+        results["totals"] = {"unapplied_basis": [{}], "unapplied_values": [{}, {}]}
+        _override(user, asset="7", amount="4")
+        mocker.patch("widgets.inhouse.pnl.views._engine", return_value=results)
+        view = _view(PnlRowsView, ASASTATSER, query="?group=unvalued", user=user)
+        content = view.get(view.request).content
+        assert b">Set value</summary>" in content
+        assert b"Per unit" in content
+        view = _view(PnlStatusView, ASASTATSER, user=user)
+        mocker.patch(
+            "widgets.inhouse.pnl.views._engine",
+            side_effect=[{BUNDLE: {"-1": {"state": "finished"}}}, results],
+        )
+        content = view.get(view.request).content
+        assert b">set by you</span>" in content
+        assert b"4 USD per unit" in content
+        assert b">Your value</summary>" in content
+        assert b"3 of your own figures are not used" in content
+
+
+WALLET = "2EVGZ4BGOSL3J64UYDE2BUGTNTBZZZLI54VUQQNZZLYCDODLY33UGXNSIU"
+
+
+@pytest.mark.django_db
+class TestPnlViewsWallets:
+    """Testing class for :py:class:`...pnl.views.PnlWalletsView`."""
+
+    def _reader(self, django_user_model, permission=ASASTATSER):
+        return _user(permission, django_user_model.objects.create(username="reader"))
+
+    def _post(self, user, data, permission=ASASTATSER):
+        view = _view(PnlWalletsView, permission, user=user)
+        view.request = RequestFactory().post("/", data)
+        view.request.user = user
+        return view.post(view.request, BUNDLE)
+
+    def test_pnl_views_wallets_add_and_remove(self, django_user_model):
+        user = self._reader(django_user_model)
+        for _ in range(2):
+            response = self._post(user, {"address": f" {WALLET.lower()} "})
+        saved = PnlOverride.objects.get(user=user)
+        assert (saved.kind, saved.asset, saved.event) == ("own", "", WALLET)
+        assert b'id="id-pnl-wallets"' in response.content
+        assert WALLET.encode() in response.content
+        assert b'role="alert"' not in response.content
+        response = self._post(user, {"address": WALLET, "remove": "1"})
+        assert not PnlOverride.objects.exists()
+        assert b'name="remove"' not in response.content
+
+    @pytest.mark.parametrize(
+        "address,error",
+        [
+            ("NOTANADDRESS", b"That is not an Algorand address."),
+            ("ADDRA", b"That is not an Algorand address."),
+        ],
+    )
+    def test_pnl_views_wallets_refused(self, django_user_model, address, error):
+        user = self._reader(django_user_model)
+        response = self._post(user, {"address": address})
+        assert error in response.content
+        assert not PnlOverride.objects.exists()
+
+    def test_pnl_views_wallets_refuses_a_bundle_address(self, django_user_model):
+        user = self._reader(django_user_model)
+        view = _view(PnlWalletsView, ASASTATSER, user=user)
+        view.addresses = f"{WALLET} ADDRB"
+        view.request = RequestFactory().post("/", {"address": WALLET})
+        view.request.user = user
+        response = view.post(view.request, BUNDLE)
+        assert b"That address is already in this bundle." in response.content
+
+    def test_pnl_views_wallets_limit(self, django_user_model, mocker):
+        user = self._reader(django_user_model)
+        mocker.patch("widgets.inhouse.pnl.views.OVERRIDES_LIMIT", 0)
+        response = self._post(user, {"address": WALLET})
+        assert b"At most 0 per bundle." in response.content
+
+    def test_pnl_views_wallets_need_the_tier(self, django_user_model):
+        intro = SUBSCRIPTION_TIER_PERMISSIONS["Intro"]
+        user = self._reader(django_user_model, intro)
+        with pytest.raises(Http404):
+            self._post(user, {"address": WALLET}, permission=intro)
+
+    def test_pnl_views_wallets_in_the_payload_and_settings(self, django_user_model):
+        user = self._reader(django_user_model)
+        _override(user, kind="own", asset="", event=WALLET, amount=0, currency="")
+        view = _view(PnlStatusView, ASASTATSER, user=user)
+        assert view.overrides() == {"own": [WALLET]}
+        view = _view(PnlView, ASASTATSER, query="?tab=settings", user=user)
+        view.setup(view.request)
+        view.args = (BUNDLE,)
+        context = view.get_context_data()
+        assert [wallet.event for wallet in context["wallets"]] == [WALLET]

@@ -62,6 +62,7 @@
     </details>
     {% endif %}
   {% endif %}
+  {% if unapplied %}<p class="pnl-muted">{{ unapplied }} of your own figure{{ unapplied|pluralize }} {{ unapplied|pluralize:"is,are" }} not used: the asset now has a market price or is no longer held, or the deposit is no longer found.</p>{% endif %}
   {% if changes %}
     <details class="pnl-issues">
       <summary>What changed when the history was processed again: {{ changes.count }} asset{{ changes.count|pluralize }}, realized {{ changes.realized }}, cost basis {{ changes.cost }}</summary>

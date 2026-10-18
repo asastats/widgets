@@ -2684,3 +2684,48 @@ costs no account evaluation. Tests: Python (alerts 416), jest (155, 100%),
 functional (`test_alerts_page.py`), integration (`test_alerts_integration.py`,
 Redis only, ran here; the API's collection id in `test_api_integration.py`
 needs the engine).
+
+## inhouse/pnl/models.py:PnlOverride; inhouse/pnl/views.py:PnlOverrideView, PnlAccessMixin.overrides; inhouse/pnl/forms.py; templates/pnl/_override_form.html — R3, the reader's own figures (2026-10-18)
+
+The user chose to build two of the three R3 overrides now (a deposit's cost,
+and a value for a holding without a price, today only) and "this outside
+address is mine" later. Asastatser and up (`features["overrides"]`, the tier
+decision of PLAN §20).
+
+One row per reader, bundle, kind, asset and deposit id (`event`, empty for a
+value), with the amount as entered and its currency, and when it was set and
+changed. They stay in the website's database, like hidden assets, and go to the
+engine with every request that depends on them: evaluate (so updating, the
+table CSV and the report too), the drill-down, the events CSV and the chart.
+The engine keys its saved results by them; see the engine's logbook under
+`pnl/overrides.py`. Below the tier the saved rows are kept but not sent, so a
+reader who drops a tier and comes back finds them again.
+
+`PnlOverrideView` stores, changes or removes one figure and answers with
+`HX-Redirect` to the table's address: every figure on the page may move, and
+the engine evaluates the new request shape from scratch, so a reload through
+the usual "evaluating" state is simpler and safer than patching fragments. An
+invalid amount or currency, or the 1,000th figure of a kind (the engine's
+limit), answers 200 with `_override_error.html`, which the form swaps into its
+own error slot (htmx 4 swaps `find .pnl-override-error`).
+
+Where the forms show: a deposit event in the drill-down ("Set cost", "you paid
+… " under the cost once set), and a held asset without a value, or with the
+reader's own value, in the table ("Set value"; "set by you" badge, its title
+naming the figure). The table states how many of the reader's figures the
+engine did not use (`unapplied_basis` and `unapplied_values`: the asset gained
+a market price or is no longer held, or the deposit is gone after a reprocess).
+
+## inhouse/pnl/views.py:PnlWalletsView; templates/pnl/_wallets.html; PnlOverride kind "own" — R3 step two (2026-10-18)
+
+The reader lists their other wallets in Settings ("Your other wallets"),
+Asastatser and up; the user chose marking by address over marking each
+transfer. A wallet is a `PnlOverride` of kind "own" with the address in
+`event` (asset empty, amount 0); `overrides()` sends them as `own`, so the
+engine finds the transfers with them and carries the cost basis out and back
+(engine logbook, `pnl/own.py`). The view refuses what is not an Algorand
+address and an address already in the bundle, upper-cases and trims the
+input, and re-renders the section; the table re-evaluates when next shown
+because the request's key changes. Drill-down labels: "To your other wallet",
+"From your other wallet". Wallets that matched no transfer count in the
+table's "not used" note. Migration 0017 only changes the kind's choices.

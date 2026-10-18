@@ -43,6 +43,7 @@ def features_for(permission, fiat="usd"):
         "chart": professional,
         "lp_analytics": professional,
         "winners": subscriber,
+        "overrides": subscriber,
         "concentration": professional,
         "nft_choice": professional,
         "export": cluster,

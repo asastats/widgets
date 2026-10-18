@@ -273,6 +273,14 @@ class TestPnlDisplayRows:
         assert event_row({**event, "description": "Pact AMM swap"}, 2, "usd")[
             "description"
         ] == "Pact AMM swap"
+        assert row["deposit"] is False
+        assert event_row({**event, "kind": "deposit"}, 2, "usd")["deposit"] is True
+        assert event_row({**event, "kind": "own_out"}, 2, "usd")["kind"] == (
+            "To your other wallet"
+        )
+        assert event_row({**event, "kind": "own_in"}, 2, "usd")["kind"] == (
+            "From your other wallet"
+        )
         position = event_row({**event, "kind": "position_in", "value": None}, 2, "usd")
         assert position["unpriced"] is False
         assert event_row({**event, "value": None}, 2, "usd")["unpriced"] is True

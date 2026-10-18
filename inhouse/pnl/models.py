@@ -138,3 +138,67 @@ class PnlHiddenAsset(models.Model):
     def __str__(self):
         """Return the bundle and the asset."""
         return f"{self.bundle} {self.asset}"
+
+
+class PnlOverride(models.Model):
+    """The reader's own figure for a bundle: a deposit's cost or an asset's value.
+
+    Sent to the engine with every request; see docs/logbook.md.
+
+    :var PnlOverride.KIND_CHOICES: override kinds and their labels
+    :type PnlOverride.KIND_CHOICES: list
+    :var PnlOverride.user: reader who set it
+    :type PnlOverride.user: :class:`django.contrib.auth.models.User`
+    :var PnlOverride.bundle: bundle hash
+    :type PnlOverride.bundle: str
+    :var PnlOverride.kind: "basis" for a deposit's cost, "value" for an asset's
+        value, "own" for another wallet of the reader's
+    :type PnlOverride.kind: str
+    :var PnlOverride.asset: asset id as the engine names it
+    :type PnlOverride.asset: str
+    :var PnlOverride.event: the deposit's transaction or group id, or the wallet's
+        address; empty for a value
+    :type PnlOverride.event: str
+    :var PnlOverride.amount: the deposit's whole cost, or the value of one whole unit
+    :type PnlOverride.amount: :class:`decimal.Decimal`
+    :var PnlOverride.currency: `amount`'s currency, as the engine names it
+    :type PnlOverride.currency: str
+    :var PnlOverride.created_at: when the reader first set it
+    :type PnlOverride.created_at: :class:`datetime.datetime`
+    :var PnlOverride.updated_at: when the reader last changed it
+    :type PnlOverride.updated_at: :class:`datetime.datetime`
+    """
+
+    KIND_CHOICES = [("basis", "Deposit cost"), ("value", "Value"), ("own", "Wallet")]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="pnl_overrides"
+    )
+    bundle = models.CharField(max_length=58)
+    kind = models.CharField(max_length=5, choices=KIND_CHOICES)
+    asset = models.CharField(max_length=32)
+    event = models.CharField(max_length=64, blank=True, default="")
+    amount = models.DecimalField(max_digits=28, decimal_places=12)
+    currency = models.CharField(max_length=8)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "bundle", "kind", "asset", "event"],
+                name="pnl_user_bundle_override_uniq",
+            )
+        ]
+
+    def __str__(self):
+        """Return the bundle, the asset and the figure."""
+        return f"{self.bundle} {self.kind} {self.asset} {self.amount} {self.currency}"
+
+    @property
+    def amount_text(self):
+        """Return the amount without trailing zeros, as the engine reads it.
+
+        :return: str
+        """
+        return "0" if not self.amount else format(self.amount.normalize(), "f")
