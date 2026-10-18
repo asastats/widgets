@@ -18,7 +18,8 @@
   <div class="pnl-total">
     <span>Total profit and loss</span>
     <strong class="{{ summary.total_tone }}">{{ summary.total }}</strong>
-    <small>{{ summary.return }}</small>
+    <small title="Profit and loss against the cost of everything acquired, each swap counting again">{{ summary.return }} of all purchases</small>
+    <small title="Profit and loss against what was brought in from outside this bundle, at its value on arrival, minus what was sent out">{% if summary.return_brought_in %}{{ summary.return_brought_in }} of {{ summary.brought_in }} net brought in{% else %}Net brought in {{ summary.brought_in }}{% endif %}</small>
   </div>
   <dl class="pnl-figures">
     <div><dt>Realized</dt><dd>{{ summary.realized }}</dd></div>

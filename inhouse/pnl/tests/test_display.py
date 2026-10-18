@@ -230,6 +230,15 @@ class TestPnlDisplayRows:
         assert summary({"total": 0.0, "valuation": "mve"}, "usd")["mve"] is True
         assert summary({"total": 0.0}, "usd")["return"] == "—"
 
+    def test_pnl_display_summary_against_money_brought_in(self):
+        totals = {"total": -1_000_000, "inflows": 30_000_000, "outflows": 10_000_000}
+        returned = summary(totals, "usd")
+        assert returned["brought_in"] == "+$20.00"
+        assert returned["return_brought_in"] == "-5.0%"
+        taken_out = summary({"total": 1.0, "inflows": 1.0, "outflows": 3.0}, "usd")
+        assert taken_out["return_brought_in"] is None
+        assert summary({"total": 0.0}, "usd")["return_brought_in"] is None
+
     def test_pnl_display_event_row(self):
         event = {
             "date": 1_700_000_000,

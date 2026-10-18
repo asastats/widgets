@@ -421,13 +421,20 @@ def summary(totals, currency):
     :type currency: str
     :var invested: cumulative cost of all acquisitions
     :type invested: float
+    :var brought_in: value brought in from outside the bundle minus value sent out
+    :type brought_in: float
     :return: dict
     """
     invested = totals.get("invested") or 0
+    brought_in = (totals.get("inflows") or 0) - (totals.get("outflows") or 0)
     return {
         "total": signed_money(totals.get("total"), currency),
         "total_tone": tone(totals.get("total")),
         "return": percent(totals["total"] / invested if invested else None),
+        "brought_in": signed_money(brought_in, currency),
+        "return_brought_in": (
+            percent(totals["total"] / brought_in) if brought_in > 0 else None
+        ),
         "realized": signed_money(totals.get("realized"), currency),
         "unrealized": signed_money(totals.get("unrealized"), currency),
         "income": money(totals.get("income"), currency),

@@ -2542,3 +2542,20 @@ engine logbook, `pnl/report.py` (same date).
 LIFO (`tiers.cost_methods`); the table footnote explains it. The engine's
 `pnl/lots.py:HifoLot` does the work: units leave from the parcel with the
 highest cost per unit, oldest first on a tie.
+
+## inhouse/pnl/display.py:summary, templates/pnl/_table.html — return on money brought in (2026-10-18)
+
+The header's percentage is `total / invested`, and `invested` adds the cost
+of every acquisition, so each swap counts the same money again. On `CE63DD…`
+that was about $3.7M and gave −3.2% for a −$118,836.70 loss. The card now
+labels it "of all purchases" and adds a second figure: total against net money
+brought in (`inflows − outflows` from the engine's totals: transfers in from
+outside the bundle at their value on arrival, minus transfers out). When more
+went out than came in, the ratio means nothing, so only "Net brought in" with
+the signed amount shows. Income is not money brought in: it is earned.
+
+## inhouse/pnl/templates/pnl/_settings_form.html — settings stacked (2026-10-18)
+
+The form was one wrapping row of headings and selects. Each setting is now a
+`.pnl-setting` block (heading, then its labelled select), stacked, with Save
+in its own row (`.pnl-setting-save`). CSS in the frontend's `input.css`.
