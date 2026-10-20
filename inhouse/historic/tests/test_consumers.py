@@ -491,7 +491,7 @@ class TestHistoricConsumersFramesSwapOutOfBand:
         html = get_template("historic/update_status.html").render(
             context={"address": "A1", "phase": 2, "value": 50}
         )
-        assert html.startswith('<div id="id-A1-2" hx-swap-oob="true"')
+        assert html.startswith('<progress id="id-A1-2" hx-swap-oob="true"')
 
     def test_historic_consumers_locked_frame_is_out_of_band(self):
         html = get_template("historic/address_locked.html").render(

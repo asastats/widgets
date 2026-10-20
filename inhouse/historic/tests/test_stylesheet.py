@@ -1,9 +1,9 @@
 """Markup in this widget's templates has rules in this widget's stylesheet.
 
 The widget links exactly one stylesheet -- its own ``static/historic/style.css``
--- and it may not name framework classes, because it is dropped into a host page
-that has no Tailwind and no Materialize. Those two facts together mean a class
-in one of these templates either has a rule here or does nothing at all.
+-- and names a framework class only where ``DELIBERATELY_UNSTYLED`` lists it
+(daisyUI's progress bar, from the host's ``style.tw.css``). So a class in one of
+these templates has a rule here, is declared below, or does nothing at all.
 
 Nothing enforced that, and the DaisyUI conversion made it easy to get wrong:
 stripping the framework classes out of the markup is *correct*, and adding the
@@ -56,16 +56,13 @@ PRESENTATION_ONLY = [
     "cons-grid",
     "cons-text",
     "cons-value",
-    "determinate",
     "historic-total",
     "htip",
     "hoverable",
-    "indeterminate",
     "nft-element-image",
     "nft-trait",
     "phase-bar",
     "phase-rows",
-    "progress",
     "responsive-img",
     "sr-only",
     "title",
@@ -93,6 +90,9 @@ DELIBERATELY_UNSTYLED = {
     "historic-settings-notes": "wraps `.historic-note` sections, which space "
     "themselves with an adjacent-sibling rule",
     # Owned elsewhere, on purpose.
+    "progress": "daisyUI's progress bar, from the host's style.tw.css; the bars "
+    "are native <progress> elements (widgets logbook, 2026-10-20)",
+    "progress-primary": "daisyUI's colour modifier for `.progress`",
     "c": "not a class: the templates emit `c{{ slot }}`, and the per-slot "
     "colours are the host's, because a stripe has to equal the colour "
     "Chart.js drew. See the comment on `.item-header.token`",
@@ -184,43 +184,18 @@ def test_the_category_figure_carries_the_weight(stylesheet):
     assert "font-weight" in _rule(stylesheet, "cons-value")
 
 
-def test_the_progress_bars_have_something_to_show(stylesheet):
-    """They were empty divs. The template drives a width and nothing appeared.
-
-    `processing.html` writes `style="width: N%"` onto `.determinate` and
-    `historic.js` adds `.progress` to the loading bar's parent, so both were
-    driving an element with no height and no colour: an address processed with
-    nothing on screen moving. The track has to establish a containing block,
-    because both fills are positioned inside it.
-    """
-    track = _rule(stylesheet, "progress")
-
-    assert "height" in track, "the track has no height, so nothing can show in it"
-    assert (
-        "position: relative" in track
-    ), "the fills are absolutely positioned, so the track must contain them"
-    assert "background" in _rule(
-        stylesheet, "determinate"
-    ), "the fill has no colour, so a part-finished phase looks like an empty one"
+def test_the_phase_bars_are_daisy_ui_progress_elements():
+    """A phase bar is a native `<progress>` whose `value` is the percentage."""
+    bar = 'class="progress progress-primary" max="100" value="{{ value }}"></progress>'
+    for name in ("processing.html", "update_status.html"):
+        source = (WIDGET / "templates" / "historic" / name).read_text()
+        assert "<progress " in source and bar in source, name
 
 
-def test_the_loading_bar_is_a_bar_only_while_there_is_work(stylesheet):
-    """`.progress` is a state the script drives, not a description.
-
-    `historic.js` puts `.progress` on `.historic-progress` while work is in
-    flight and takes it off when it is done, so the rules that give the bar an
-    appearance have to be conditional on it. The first version of them was not,
-    and the bar swept for as long as the page stayed open -- which had been
-    invisible up to then only because the element had no rules at all.
-
-    The phase bars in `processing.html` are the other case: they carry
-    `.progress` in the markup because they are always on screen, so styling
-    `.progress` itself is right and it is `.historic-progress` alone that must
-    show nothing.
-    """
-    idle = re.search(r"\.historic-progress:not\(\.progress\)[^{]*\{([^}]*)\}", stylesheet)
-    assert idle, "the loading bar has no idle state, so it animates forever"
-    assert "display: none" in idle.group(1) or "height: 0" in idle.group(1)
+def test_the_loading_bar_starts_hidden_and_indeterminate():
+    """No `value` makes daisyUI sweep it; `historic.js` shows it while working."""
+    source = (WIDGET / "templates" / "historic" / "index.html").read_text()
+    assert '<progress class="historic-progress progress progress-primary" hidden>' in source
 
 
 def test_the_tooltip_is_this_widget_s_own_and_not_daisy_ui_s(stylesheet):
@@ -355,9 +330,9 @@ def _classes_in_templates():
 def test_every_class_in_the_templates_is_styled_or_declared(stylesheet):
     """The general form of both faults above.
 
-    The widget links one stylesheet and may not name framework classes, so a
-    class in a template either has a rule here, or is listed as deliberately
-    unstyled with a reason. Anything else is markup asking for a presentation
+    The widget links one stylesheet and names framework classes only where
+    declared, so a class in a template either has a rule here, or is listed as
+    deliberately unstyled with a reason. Anything else is markup asking for a presentation
     nothing provides -- which is how the consolidated row, the progress bars,
     the NFT thumbnail's size constraint and the screen-reader label were all
     lost in the same conversion, none of them failing a test.

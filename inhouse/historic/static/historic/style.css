@@ -501,20 +501,8 @@
 }
 
 /* ---- progress ------------------------------------------------------------
-   Three phases per address, each a label beside a bar, plus the page-level
-   loading bar under the form.
-
-   None of it rendered. `.phase-label` and `.phase-address` survived the
-   conversion and the rest did not: `.phase-rows` and `.phase-bar` had no rule,
-   so the label and its bar stacked instead of sitting side by side, and
-   `.progress`, `.determinate` and `.indeterminate` had no rule either -- which
-   means the bars were empty divs of zero height. The template sets
-   `style="width: N%"` on `.determinate` and `historic.js` puts `.progress` on
-   the loading bar's parent, so both were driving something with no appearance
-   at all: the reader watched an address process with nothing on screen moving.
-
-   `.progress` is the track and needs `position: relative`, because both fills
-   are positioned inside it. */
+   The bars are daisyUI's `<progress class="progress">` from the host's
+   style.tw.css; this lays out the label/bar rows only. See docs/logbook.md. */
 .phase-rows {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
@@ -526,58 +514,7 @@
 .phase-address { text-align: center; }
 .phase-bar { min-width: 0; }
 
-.progress {
-  position: relative;
-  height: 4px;
-  width: 100%;
-  overflow: hidden;
-  background: var(--color-base-300, #ababab);
-  border-radius: 2px;
-}
-
-/* `.progress` is a state, not a description. `historic.js` puts it on this
-   element while there is work in flight and takes it off when there is not, so
-   the loading bar is only a bar while it is saying something -- without the
-   `:not()` it sweeps for as long as the page is open, which is what happened
-   the first time these rules went in. The phase bars in `processing.html` carry
-   `.progress` in the markup instead, because those are always on screen. */
-.historic-progress:not(.progress) { display: none; }
-.historic-progress.progress { margin: 1rem 0; }
-
-.progress > .determinate {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  background: var(--color-primary, #00c896);
-  transition: width 0.3s linear;
-}
-
-/* The page-level bar has no percentage to show -- it means "working", not
-   "this far" -- so it sweeps. `historic.js` adds `.progress` to this element's
-   parent when work starts, which is what makes the track appear around it. */
-.historic-progress > .indeterminate {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 40%;
-  background: var(--color-primary, #00c896);
-  animation: historic-sweep 1.4s ease-in-out infinite;
-}
-
-@keyframes historic-sweep {
-  0% { left: -40%; }
-  100% { left: 100%; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .historic-progress > .indeterminate {
-    animation: none;
-    left: 0;
-    width: 100%;
-    opacity: 0.5;
-  }
-}
+.historic-progress { margin: 1rem 0; }
 
 .asaicon,
 .nfticon {
@@ -647,9 +584,8 @@
   to { transform: rotate(360deg); }
 }
 
-/* Matching `.historic-progress > .indeterminate` above: a spinner that cannot
-   move still has to say "working", so it holds its shape at reduced contrast
-   rather than disappearing. */
+/* A spinner that cannot move still has to say "working", so it holds its
+   shape at reduced contrast rather than disappearing. */
 @media (prefers-reduced-motion: reduce) {
   .assets-spinner {
     animation: none;

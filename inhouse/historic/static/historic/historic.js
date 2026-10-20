@@ -56,7 +56,7 @@ window.onload = initHistoric;
  *
  */
 function mainHistoric() {
-  $(".indeterminate").parent().addClass("progress");
+  $(".historic-progress").prop("hidden", false);
   // Nothing to construct: the disclosures are native <details>, the
   // confirmation is a native <dialog>, and the tabs follow the same shape as
   // the login dialog's (static/js/authmodal.js) -- anchors carrying
@@ -298,7 +298,7 @@ function clearAssetsPending() {
   // in and stop -- so nothing took it down and it swept for as long as the page
   // stayed open. It was invisible until the rules for it were written, which is
   // why it went unnoticed.
-  $(".historic-progress").removeClass("progress");
+  $(".historic-progress").prop("hidden", true);
   if (pendingMarker) {
     var chart = pendingMarker.chart;
     pendingMarker = null;
@@ -466,12 +466,12 @@ function handleCandleClick(evt, xValue, chart, button) {
  */
 function setUILocked(locked) {
   if (locked) {
-    $(".indeterminate").parent().addClass("progress");
+    $(".historic-progress").prop("hidden", false);
     $("body").css("cursor", "progress");
     $(".process").hide();
     // $('.reset').hide();
   } else {
-    $(".indeterminate").parent().removeClass("progress");
+    $(".historic-progress").prop("hidden", true);
     $("body").css("cursor", "default");
     $(".process").show();
     // $('.reset').show();

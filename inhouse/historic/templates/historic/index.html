@@ -124,7 +124,8 @@
       <input type="hidden" name="label" id="show-label">
     </form>
 
-    <div class="historic-progress"><div class="indeterminate"></div></div>
+    {# No `value`: daisyUI animates it as indeterminate. historic.js toggles `hidden`. #}
+    <progress class="historic-progress progress progress-primary" hidden></progress>
 
     <div id="id-assets"></div>
 

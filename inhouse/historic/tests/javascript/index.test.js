@@ -1508,20 +1508,16 @@ describe("currency tooltips", () => {
  * SECTION: The loading bar
  * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
- * `.progress` is a state rather than a description: `historic.js` puts it on
- * `.historic-progress` while there is work in flight, and the stylesheet shows
- * the bar only while it is there.
+ * daisyUI's indeterminate `<progress>`: `historic.js` clears `hidden` while
+ * there is work in flight and sets it again when the work is done.
  *
- * The fixture had no such element, so none of this was exercised -- and while
- * the bar had no rules at all it was invisible, so nobody noticed that a bundle
- * whose data is already computed never takes it down again. Those assets simply
- * stream in and stop; no unlock message is ever sent. It swept for as long as
- * the page stayed open.
+ * A bundle whose data is already computed never gets an unlock message -- its
+ * assets simply stream in and stop -- so `assets_end` has to take it down.
  */
 describe("the loading bar", () => {
   function mountBar() {
     document.body.innerHTML +=
-      '<div class="historic-progress"><div class="indeterminate"></div></div>';
+      '<progress class="historic-progress progress progress-primary" hidden></progress>';
     return document.querySelector(".historic-progress");
   }
 
@@ -1530,7 +1526,7 @@ describe("the loading bar", () => {
 
     historic.mainHistoric();
 
-    expect(bar.classList.contains("progress")).toBe(true);
+    expect(bar.hidden).toBe(false);
   });
 
   it("comes down once the assets have arrived", () => {
@@ -1539,7 +1535,7 @@ describe("the loading bar", () => {
 
     historic.clearAssetsPending();
 
-    expect(bar.classList.contains("progress")).toBe(false);
+    expect(bar.hidden).toBe(true);
   });
 
   it("comes down on assets_end, which is the message that ends the wait", () => {
@@ -1552,7 +1548,7 @@ describe("the loading bar", () => {
       detail: { message: { data: JSON.stringify({ type: "assets_end" }) } },
     });
 
-    expect(bar.classList.contains("progress")).toBe(false);
+    expect(bar.hidden).toBe(true);
   });
 
   it("says nothing when the page has no loading bar", () => {

@@ -5,9 +5,7 @@
     <span title="{{ label }}" class="truncate">{{ label }}</span>
   </div>
   <div class="phase-bar">
-    <div class="progress">
-      <div id="id-{{ address }}-{{ phase }}" class="determinate" style="width: {{ value }}%"></div>
-    </div>
+    <progress id="id-{{ address }}-{{ phase }}" class="progress progress-primary" max="100" value="{{ value }}"></progress>
   </div>
 {% endpartialdef phaseprogress %}
 

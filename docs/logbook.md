@@ -2794,3 +2794,26 @@ the connect element. Checked in headless Chrome: a hidden tab closed the
 socket without the attribute and left it open with it. The periodic redraw
 reported the same day was a server-side close (frontend logbook,
 `CHANNEL_LAYERS`); this one only bit on switching tabs.
+
+## inhouse/historic/templates/historic/processing.html, update_status.html, index.html; static/historic/style.css — daisyUI progress bars (2026-10-20)
+
+The bars were a copy of Materialize's: a `div.progress` track with an absolutely
+positioned `div.determinate` fill (`style="width: N%"`), and a sweeping
+`div.indeterminate` for the loading bar, drawn by this widget's own rules (from
+`9b22ee5`, 2026-08-31, which brought back bars the Materialize removal had left
+with no height). The compiled `style.tw.css` also carries daisyUI's `.progress`
+(Tailwind scans `widgets/`), which landed on the same `div` and was partly
+overridden: a Materialize-shaped bar with some daisyUI properties. The user's
+direction: widgets render with the frontend's CSS and use daisyUI.
+
+The phase bars are now `<progress class="progress progress-primary" max="100"
+value="N">`, and the update frame replaces one by id as before
+(`hx-swap-oob="true"`). The loading bar is the same element without `value`,
+which daisyUI animates as indeterminate. `historic.js` toggles its `hidden`
+where it used to add and remove `.progress` on the parent. Removed from
+`style.css`: `.progress`, `.determinate`, `.indeterminate`, the
+`.historic-progress` state rules and `historic-sweep`. Kept: the `.phase-rows`
+grid and the loading bar's margin. `tests/test_stylesheet.py` declares
+`progress` and `progress-primary` as daisyUI's. Its premise that the widget
+names no framework class held until this entry; the module docstring now says
+so. `progress-primary` needed a Tailwind rebuild (frontend `style.tw.css`).
