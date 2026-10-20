@@ -505,7 +505,8 @@
    style.tw.css; this lays out the label/bar rows only. See docs/logbook.md. */
 .phase-rows {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  /* Labels as wide as their text; every address has the same three, so bars match. */
+  grid-template-columns: max-content minmax(0, 1fr);
   gap: 0.5rem 1rem;
   align-items: center;
 }

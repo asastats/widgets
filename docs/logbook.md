@@ -2817,3 +2817,13 @@ grid and the loading bar's margin. `tests/test_stylesheet.py` declares
 `progress` and `progress-primary` as daisyUI's. Its premise that the widget
 names no framework class held until this entry; the module docstring now says
 so. `progress-primary` needed a Tailwind rebuild (frontend `style.tw.css`).
+
+## inhouse/historic/static/historic/style.css:.phase-rows — bars across the whole Update tab (2026-10-20)
+
+The user asked for the Update tab to use the full width; the bars sat in its
+right three quarters. `.phase-rows` split each row `1fr 2fr`, so a third of
+the width went to right-aligned labels ("Fetch", "Analysis", "Process"). The
+label column is now `max-content` and the bar takes the rest (`minmax(0, 1fr)`).
+Each address is its own grid, but all of them carry the same three labels, so
+the column comes out equally wide everywhere and every bar has the same width.
+Measured in headless Chrome at 1100px: six bars, each 941px from the same x.
