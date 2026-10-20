@@ -2729,3 +2729,26 @@ input, and re-renders the section; the table re-evaluates when next shown
 because the request's key changes. Drill-down labels: "To your other wallet",
 "From your other wallet". Wallets that matched no transfer count in the
 table's "not used" note. Migration 0017 only changes the kind's choices.
+
+## inhouse/historic/templates/historic/processing.html, update_status.html, address_locked.html, assets.html#scaffold — `hx-swap-oob` on every WebSocket frame (2026-10-20)
+
+Reported 2026-10-20: the historic page showed its tabs for a second, then only
+the Fetch/Analysis/Process bars at 100%, with no charts, tabs or settings. The
+user suspected the P&L work; it was the htmx 4 port (`b1dd78e`, 2026-09-21),
+which left `consumers.py` "untouched". htmx 2's ws extension swapped each HTML
+frame by its id. htmx 4's `hx-ws` swaps a frame into the `hx-ws:connect`
+element (`hx-target`/`hx-swap`, default `innerHTML`) unless the frame carries
+`hx-swap-oob`. So the processing frame `_load_statuses` sends on every connect
+(the engine keeps `events.json` after a run) replaced the whole widget, and
+`update_charts` then had no canvases to draw on. The live update bars, the
+"locked" note and the assets scaffold had the same fault. Only the three
+`*_batch` partials already had `hx-swap-oob`.
+
+Each frame's root now carries `hx-swap-oob="true"` (outer swap by id). The
+`hx-ws` extension adds `swapEmpty:false`, so the empty remainder of an all-OOB
+frame leaves the widget alone. Checked in headless Chrome with the vendored
+`htmx.min.js` and `hx-ws.min.js`: the rendered frames now swap in place and
+leave the title, canvas and Process button intact; without the attribute,
+the content of `hx-ws:connect` becomes the frame. Tests:
+`TestHistoricConsumersFramesSwapOutOfBand`. Any new HTML frame needs the
+attribute on its root.

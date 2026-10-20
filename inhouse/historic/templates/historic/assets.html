@@ -218,7 +218,7 @@
 
 {% comment %} ---- SCAFFOLD (replaces #id-assets; carries charts + empty section lists) ---- {% endcomment %}
 {% partialdef scaffold %}{% autoescape off %}
-<div id="id-assets" data-timestamp={{ timestamp }} data-label="{{ label }}">
+<div id="id-assets" hx-swap-oob="true" data-timestamp={{ timestamp }} data-label="{{ label }}">
 
   {{ asachart|json_script:"asachart" }}{{ nftchart|json_script:"nftchart" }}{{ ratiochart|json_script:"ratiochart" }}{{ distchart|json_script:"distchart" }}{{ consolidated|json_script:"consolidated" }}
 

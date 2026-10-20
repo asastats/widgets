@@ -11,7 +11,8 @@
   </div>
 {% endpartialdef phaseprogress %}
 
-<div id="id-process-content">
+{# hx-swap-oob: without it htmx 4 swaps this frame over the whole widget. #}
+<div id="id-process-content" hx-swap-oob="true">
   <input type="hidden" name="bundle" value="{{ bundle }}">
   <input type="hidden" name="addresses" value="{{ addresses|slice:":-1"|join:" " }}">
   {% for address in addresses %}

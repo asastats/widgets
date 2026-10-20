@@ -4,6 +4,7 @@ import json
 
 from asgiref.sync import async_to_sync
 from django.conf import settings
+from django.template.loader import get_template
 
 from widgets.inhouse.historic.consumers import (
     HistoricConsumer,
@@ -467,3 +468,34 @@ class TestHistoricConsumersRenderingHandlers:
         context = template.return_value.render.call_args.kwargs["context"]
         assert context == {"address": "A1", "phase": 2, "value": 50}
         consumer.send.assert_awaited_once_with(text_data="<div></div>")
+
+
+class TestHistoricConsumersFramesSwapOutOfBand:
+    """Every HTML frame must swap by id: htmx 4 puts any other over the widget."""
+
+    def test_historic_consumers_processing_frame_is_out_of_band(self):
+        html = get_template("historic/processing.html").render(
+            context={
+                "bundle": "B",
+                "addresses": ["A1", "B"],
+                "labels": ["Fetch", "Analysis", "Process"],
+                "statuses": [[100, 100, 100], [100, 100, 100]],
+            }
+        )
+        assert '<div id="id-process-content" hx-swap-oob="true">' in html
+
+    def test_historic_consumers_update_frame_is_out_of_band(self):
+        html = get_template("historic/update_status.html").render(
+            context={"address": "A1", "phase": 2, "value": 50}
+        )
+        assert html.startswith('<div id="id-A1-2" hx-swap-oob="true"')
+
+    def test_historic_consumers_locked_frame_is_out_of_band(self):
+        html = get_template("historic/address_locked.html").render(
+            context={"address": "A1"}
+        )
+        assert '<div id="id-A1-content" hx-swap-oob="true">' in html
+
+    def test_historic_consumers_scaffold_frame_is_out_of_band(self):
+        source = get_template("historic/assets.html").template.source
+        assert '<div id="id-assets" hx-swap-oob="true"' in source
