@@ -80,6 +80,16 @@ def _restore_event_phase_keys(events):
     }
 
 
+def _trigger_id(message):
+    """Return the id of the form htmx 4's ``hx-ws:send`` sent `message` from.
+
+    :param message: decoded message; ``headers["HX-Source"]`` is ``"tag#id"``
+    :type message: dict
+    :return: str
+    """
+    return (message.get("headers") or {}).get("HX-Source", "").partition("#")[2]
+
+
 class HistoricConsumer(AsyncWebsocketConsumer):
     """Websocket consumer for processing bundle/address historic data.
 
@@ -128,30 +138,17 @@ class HistoricConsumer(AsyncWebsocketConsumer):
         :type message: dict
         """
         message = json.loads(text_data)
-        if (
-            message.get("HEADERS")
-            and message["HEADERS"].get("HX-Trigger") == "id-process"
-        ):
+        trigger = _trigger_id(message)
+        if trigger == "id-process":
             await self._initiate_update(message)
 
-        elif (
-            message.get("HEADERS")
-            and message["HEADERS"].get("HX-Trigger") == "id-view"
-            and message.get("type") == "zoom"
-        ):
+        elif trigger == "id-view" and message.get("type") == "zoom":
             await self._change_period(message)
 
-        elif message.get("HEADERS") and message["HEADERS"].get("HX-Trigger") in (
-            "id-reset-bars",
-            "id-reset-candles",
-        ):
+        elif trigger in ("id-reset-bars", "id-reset-candles"):
             await self._process_for_period(None)
 
-        elif (
-            message.get("HEADERS")
-            and message["HEADERS"].get("HX-Trigger") == "id-show"
-            and message.get("type") == "show"
-        ):
+        elif trigger == "id-show" and message.get("type") == "show":
             await self._process_for_timestamp(message)
 
     # # PROCESSING

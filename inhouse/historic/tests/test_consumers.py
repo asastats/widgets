@@ -11,6 +11,7 @@ from widgets.inhouse.historic.consumers import (
     _preferred_explorer_for_user,
     _restore_event_phase_keys,
     _snapshot_fiat,
+    _trigger_id,
 )
 
 
@@ -69,35 +70,31 @@ class TestHistoricConsumersRestoreEventPhaseKeys:
 class TestHistoricConsumersReceive:
     """Testing class for :py:meth:`...consumers.HistoricConsumer.receive`."""
 
-    def _route(self, mocker, headers, method, extra=None):
+    def _route(self, mocker, form_id, method, extra=None):
         consumer = _consumer(mocker)
         target = mocker.patch.object(HistoricConsumer, method)
-        message = {"HEADERS": headers}
+        message = {"headers": {"HX-Request": "true", "HX-Source": f"form#{form_id}"}}
         if extra:
             message.update(extra)
         async_to_sync(consumer.receive)(json.dumps(message))
         return target
 
     def test_historic_consumers_receive_routes_process(self, mocker):
-        target = self._route(mocker, {"HX-Trigger": "id-process"}, "_initiate_update")
+        target = self._route(mocker, "id-process", "_initiate_update")
         assert target.called
 
     def test_historic_consumers_receive_routes_zoom(self, mocker):
-        target = self._route(
-            mocker, {"HX-Trigger": "id-view"}, "_change_period", {"type": "zoom"}
-        )
+        target = self._route(mocker, "id-view", "_change_period", {"type": "zoom"})
         assert target.called
 
     def test_historic_consumers_receive_routes_reset(self, mocker):
-        target = self._route(
-            mocker, {"HX-Trigger": "id-reset-bars"}, "_process_for_period"
-        )
+        target = self._route(mocker, "id-reset-bars", "_process_for_period")
         target.assert_called_once_with(None)
 
     def test_historic_consumers_receive_routes_show(self, mocker):
         target = self._route(
             mocker,
-            {"HX-Trigger": "id-show"},
+            "id-show",
             "_process_for_timestamp",
             {"type": "show"},
         )
@@ -115,11 +112,17 @@ class TestHistoricConsumersReceive:
                 "_process_for_timestamp",
             )
         ]
-        message = {"HEADERS": {"HX-Trigger": "id-nothing-here"}}
+        message = {"headers": {"HX-Source": "form#id-nothing-here"}}
 
         async_to_sync(consumer.receive)(json.dumps(message))
 
         assert not any(target.called for target in targets)
+
+    def test_historic_consumers_receive_ignores_the_htmx_2_shape(self, mocker):
+        target = mocker.patch.object(HistoricConsumer, "_initiate_update")
+        message = {"HEADERS": {"HX-Trigger": "id-process"}}
+        async_to_sync(_consumer(mocker).receive)(json.dumps(message))
+        assert not target.called
 
 
 class TestHistoricConsumersProcessForPeriod:
@@ -499,3 +502,16 @@ class TestHistoricConsumersFramesSwapOutOfBand:
     def test_historic_consumers_scaffold_frame_is_out_of_band(self):
         source = get_template("historic/assets.html").template.source
         assert '<div id="id-assets" hx-swap-oob="true"' in source
+
+
+class TestHistoricConsumersTriggerId:
+    """Testing class for :py:func:`...consumers._trigger_id`."""
+
+    def test_historic_consumers_trigger_id_from_source(self):
+        assert _trigger_id({"headers": {"HX-Source": "form#id-process"}}) == "id-process"
+
+    def test_historic_consumers_trigger_id_without_headers(self):
+        assert _trigger_id({"type": "zoom"}) == ""
+
+    def test_historic_consumers_trigger_id_without_element_id(self):
+        assert _trigger_id({"headers": {"HX-Source": "form"}}) == ""

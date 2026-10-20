@@ -2752,3 +2752,33 @@ leave the title, canvas and Process button intact; without the attribute,
 the content of `hx-ws:connect` becomes the frame. Tests:
 `TestHistoricConsumersFramesSwapOutOfBand`. Any new HTML frame needs the
 attribute on its root.
+
+## inhouse/historic/consumers.py:_trigger_id, HistoricConsumer.receive — htmx 4's outgoing frame (2026-10-20)
+
+Reported 2026-10-20: Process did nothing. htmx 2's ws extension sent
+`{...values, "HEADERS": {"HX-Trigger": "<id>"}}`; htmx 4's `hx-ws:send` sends
+`{...values, "headers": {"HX-Source": "form#<id>", "HX-Target": …}}` (captured
+from the vendored `hx-ws.min.js` in headless Chrome). `receive` still read
+`HEADERS`/`HX-Trigger`, so since `b1dd78e` (2026-09-21) it ignored every frame:
+Process, zoom (`id-view`), Reset chart and loading a timestamp (`id-show`).
+`_trigger_id` takes the id after `#` in `HX-Source`. The engine's process
+endpoint receives the whole message as before; it reads no headers.
+
+## inhouse/historic/static/historic/historic.js:setUILockedBlur — unlocking switched to Bars (2026-10-20)
+
+Reported 2026-10-20: Settings opened, then Bars took over without a click.
+`setUILocked(false)` called `showBars()` unless `$(".active")` was the Candles
+tab, a Materialize leftover: no tab has had `.active` since the tabs moved to
+`aria-selected`, so every unlock switched to Bars, including the one after the
+first charts arrive. The switch exists to show the charts when a processing
+run ends with the reader on Update. It now lives in `setUILockedBlur` (the
+`lock_interaction` unlock that ends a run, a zoom or a reset) and fires only
+while Update is showing. `lock_no_blur`'s unlock follows `show_update`, which
+reveals Update on purpose, so `setUILocked` no longer switches tabs at all.
+
+## inhouse/historic/templates/historic/index.html, style.css — Settings toggles aligned (2026-10-20)
+
+The currency switch carried `.toolbar` (1rem padding, meant for the Update
+form), its neighbour did not, so the two sat at different heights. The switch
+drops `.toolbar`; `.historic-settings-toggles` centres its items and each
+label is an inline flex row, so the checkboxes line up with their text.

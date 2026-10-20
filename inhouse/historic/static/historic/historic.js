@@ -486,10 +486,6 @@ function setUILocked(locked) {
     chart.options.plugins.zoom.pan.enabled = !locked;
     chart.update();
   });
-
-  if (!locked && $(".active").attr("href") != "#tcandles") {
-    showBars();
-  }
 }
 
 /**
@@ -501,8 +497,13 @@ function setUILocked(locked) {
  */
 function setUILockedBlur(locked) {
   var canvas;
+  var update = document.getElementById("tupdate");
 
   setUILocked(locked);
+  // Charts after a processing run; never away from a tab the reader chose.
+  if (!locked && update && !update.hidden) {
+    showBars();
+  }
 
   ["id-bars", "id-candles"].forEach(function (canvasId) {
     canvas = document.getElementById(canvasId);

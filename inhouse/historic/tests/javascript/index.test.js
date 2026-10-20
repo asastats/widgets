@@ -157,13 +157,30 @@ describe("SECTION: Websocket communication", () => {
     expect(
       document.getElementById("id-bars").classList.contains("chart-blurred"),
     ).toBeTruthy();
-    // Unlock when active tab is not #tcandles → showBars called
-    $('a[href="#tbars"]').addClass("active");
+    // Unlock with Update showing (a processing run ended) → the bars
+    historic.tabShow("tupdate");
     historic.setUILockedBlur(false);
     expect(
       document.getElementById("id-bars").classList.contains("chart-blurred"),
     ).toBeFalsy();
     expect(document.getElementById("tbars").hidden).toBe(false);
+  });
+  it("an unlock leaves a tab the reader chose", () => {
+    document.body.innerHTML += `
+    <input id="view-x-min" />
+    <input id="view-x-max" />
+  `;
+    historic.populateBarsChart({ data: { datasets: [] }, xmin: 0, xmax: 100 });
+    historic.populateCandlesChart({ data: { datasets: [] }, xmin: 0, xmax: 100 });
+    ["tsettings", "tcandles"].forEach(function (panelId) {
+      historic.tabShow(panelId);
+      historic.setUILockedBlur(false);
+      expect(document.getElementById(panelId).hidden).toBe(false);
+    });
+    // lock_no_blur's unlock follows show_update: Update has to stay
+    historic.tabShow("tupdate");
+    historic.setUILocked(false);
+    expect(document.getElementById("tupdate").hidden).toBe(false);
   });
   it("handles lock_no_blur message", () => {
     historic.messageReceived({

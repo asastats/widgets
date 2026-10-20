@@ -858,6 +858,13 @@
 .historic-settings-toggles {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 1rem 1.5rem;
   margin-top: 1.5rem;
+}
+
+.historic-settings-toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
 }
