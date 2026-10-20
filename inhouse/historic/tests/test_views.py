@@ -2,6 +2,7 @@
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
+from django.template.loader import get_template
 
 from widgets.inhouse.historic.views import HistoricResetView, HistoricView
 
@@ -132,3 +133,11 @@ class TestHistoricViewsHistoricResetView:
         )
         assert view.get_redirect_url("BUNDLE") == "/url/"
         parent.assert_called_once_with("BUNDLE")
+
+
+class TestHistoricViewsIndexTemplate:
+    """Testing class for the ``historic/index.html`` template."""
+
+    def test_historic_views_index_keeps_the_socket_open_in_the_background(self):
+        source = get_template("historic/index.html").template.source
+        assert """hx-config='{"ws": {"pauseOnBackground": false}}'""" in source

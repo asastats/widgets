@@ -2782,3 +2782,15 @@ The currency switch carried `.toolbar` (1rem padding, meant for the Update
 form), its neighbour did not, so the two sat at different heights. The switch
 drops `.toolbar`; `.historic-settings-toggles` centres its items and each
 label is an inline flex row, so the checkboxes line up with their text.
+
+## inhouse/historic/templates/historic/index.html — `pauseOnBackground: false` (2026-10-20)
+
+htmx 4's `hx-ws` closes the socket when the tab is hidden and reconnects when
+it is shown (`pauseOnBackground`, default on). htmx 2's extension kept it
+open. Here a reconnect runs the consumer's `connect()` again, which redraws
+both charts at full range and resets the reader's zoom, the consumer's range
+and any lock state. So `hx-config='{"ws": {"pauseOnBackground": false}}'` on
+the connect element. Checked in headless Chrome: a hidden tab closed the
+socket without the attribute and left it open with it. The periodic redraw
+reported the same day was a server-side close (frontend logbook,
+`CHANNEL_LAYERS`); this one only bit on switching tabs.

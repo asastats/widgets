@@ -7,7 +7,8 @@
 {% block content %}
 {# The reader's fiat for fiat.js; a snapshot's own rate is on its `.pricetip`. #}
 <span hidden data-fiat="{{ fiat.code|default:'USD' }}" data-fiat-rate="{{ fiat.rate|default:1|unlocalize }}"></span>
-<div hx-ws:connect="/widgets/historic/{{ bundle }}/">
+{# Kept open in the background: a reconnect redraws the charts at full range. #}
+<div hx-ws:connect="/widgets/historic/{{ bundle }}/" hx-config='{"ws": {"pauseOnBackground": false}}'>
   <h1>Historic data</h1>
 
   <div class="historic-body">
