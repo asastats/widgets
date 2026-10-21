@@ -384,7 +384,10 @@ class TestPnlViewsValuation:
         view = _view(PnlStatusView, ASASTATSER)
         content = view.get(view.request).content
         assert b"What changed when the history was processed again: 1 asset" in content
-        assert b"Transactions from before 9 Oct 2025, 08:53 UTC" in content
+        assert (
+            b'Transactions from before <time datetime="2025-10-09T08:53:20Z" '
+            b"data-local-time>9 Oct 2025, 08:53 UTC</time>," in content
+        )
 
     @pytest.mark.parametrize(
         "permission,winners,concentration",
@@ -1283,7 +1286,10 @@ class TestPnlViewsUpdating:
     def test_pnl_views_status_offers_the_update(self, mocker):
         results = {**_engine_results(), "processed_at": 1_760_000_000}
         response = self._status(mocker, results)
-        assert b"Transactions processed 9 Oct 2025, 08:53 UTC." in response.content
+        assert (
+            b'Transactions processed <time datetime="2025-10-09T08:53:20Z" '
+            b"data-local-time>9 Oct 2025, 08:53 UTC</time>." in response.content
+        )
         assert b">Update</button>" in response.content
         assert b"update=1" in response.content
         assert b'class="pnl-updating"' not in response.content

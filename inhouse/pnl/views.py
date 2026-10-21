@@ -35,6 +35,7 @@ from .display import (
     event_row,
     issues,
     period_summary,
+    processed_iso,
     processed_time,
     reprocess_changes,
     summary,
@@ -586,6 +587,7 @@ class PnlStatusView(PnlAccessMixin, View):
             data.get("changes"), data["assets"], currency
         )
         context["processed_at"] = processed_time(data.get("processed_at"))
+        context["processed_iso"] = processed_iso(data.get("processed_at"))
         context["unapplied"] = sum(
             len(data["totals"].get(key, []))
             for key in ("unapplied_basis", "unapplied_values", "unapplied_own")

@@ -681,6 +681,7 @@ def reprocess_changes(changes, assets, currency):
     known = {row["asset"]: row for row in assets}
     return {
         "since": processed_time(changes["since"]),
+        "since_iso": processed_iso(changes["since"]),
         "count": changes["assets_changed"],
         "more": changes["assets_changed"] - len(changes["assets"]),
         **{
@@ -727,6 +728,19 @@ def processed_time(timestamp):
         return ""
 
     return datetime.fromtimestamp(int(timestamp), UTC).strftime("%-d %b %Y, %H:%M UTC")
+
+
+def processed_iso(timestamp):
+    """Return `timestamp` as an ISO 8601 UTC string for the page's local time.
+
+    :param timestamp: seconds since epoch, or None from an older evaluation
+    :type timestamp: int
+    :return: str
+    """
+    if not timestamp:
+        return ""
+
+    return datetime.fromtimestamp(int(timestamp), UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _chart_date(timestamp):

@@ -13,6 +13,7 @@ from widgets.inhouse.pnl.display import (
     money,
     percent,
     period_summary,
+    processed_iso,
     processed_time,
     quantity,
     reprocess_changes,
@@ -422,6 +423,17 @@ class TestPnlDisplayProcessedTime:
         assert processed_time(timestamp) == expected
 
 
+class TestPnlDisplayProcessedIso:
+    """Testing class for :py:func:`...pnl.display.processed_iso`."""
+
+    @pytest.mark.parametrize(
+        "timestamp,expected",
+        [(None, ""), (0, ""), (1_760_000_000, "2025-10-09T08:53:20Z")],
+    )
+    def test_pnl_display_processed_iso(self, timestamp, expected):
+        assert processed_iso(timestamp) == expected
+
+
 class TestPnlDisplayReprocessChanges:
     """Testing class for :py:func:`...pnl.display.reprocess_changes`."""
 
@@ -457,6 +469,7 @@ class TestPnlDisplayReprocessChanges:
         }
         returned = reprocess_changes(changes, [_engine_row()], "usd")
         assert returned["since"] == "9 Oct 2025, 08:53 UTC"
+        assert returned["since_iso"] == "2025-10-09T08:53:20Z"
         assert (returned["count"], returned["more"]) == (3, 1)
         assert (returned["cost"], returned["realized"]) == ("-$2.00", "+$0.50")
         first, gone = returned["rows"]

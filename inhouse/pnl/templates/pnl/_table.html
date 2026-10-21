@@ -1,6 +1,6 @@
 {% if updating %}{% include "pnl/_updating.html" %}{% endif %}
 <div class="pnl-muted pnl-processed">
-  {% if processed_at %}{% if updating %}The figures below are from transactions processed {{ processed_at }}.{% else %}Transactions processed {{ processed_at }}.{% endif %}{% endif %}
+  {% if processed_at %}{% if updating %}The figures below are from transactions processed <time datetime="{{ processed_iso }}" data-local-time>{{ processed_at }}</time>.{% else %}Transactions processed <time datetime="{{ processed_iso }}" data-local-time>{{ processed_at }}</time>.{% endif %}{% endif %}
   {% if not updating %}<button type="button" id="id-pnl-updating" class="pnl-link" hx-post="{% url 'pnl_process' path %}?{{ query }}&amp;update=1" hx-target="#id-pnl-updating" hx-swap="outerHTML" title="Process new transactions; these figures stay until the new ones are ready">Update</button>{% endif %}
 </div>
 <section class="pnl-summary">
@@ -66,7 +66,7 @@
   {% if changes %}
     <details class="pnl-issues">
       <summary>What changed when the history was processed again: {{ changes.count }} asset{{ changes.count|pluralize }}, realized {{ changes.realized }}, cost basis {{ changes.cost }}</summary>
-      <p class="pnl-muted">Transactions from before {{ changes.since }}, classified or priced differently this time. Market moves and new transactions are not counted here.</p>
+      <p class="pnl-muted">Transactions from before <time datetime="{{ changes.since_iso }}" data-local-time>{{ changes.since }}</time>, classified or priced differently this time. Market moves and new transactions are not counted here.</p>
       <table class="pnl-table">
         <thead><tr><th>Asset</th><th>Quantity</th><th>Cost basis</th><th>Realized</th><th>Income</th><th>Costs and fees</th></tr></thead>
         <tbody>

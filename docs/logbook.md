@@ -2827,3 +2827,25 @@ label column is now `max-content` and the bar takes the rest (`minmax(0, 1fr)`).
 Each address is its own grid, but all of them carry the same three labels, so
 the column comes out equally wide everywhere and every bar has the same width.
 Measured in headless Chrome at 1100px: six bars, each 941px from the same x.
+
+## inhouse/pnl/static/pnl/local-time.js — "Transactions processed" in the reader's timezone (2026-10-21)
+
+The user: the line showed "21 Oct 2026, 07:04 UTC"; it should use the reader's
+timezone and format. The server cannot know either, so `processed_time` still
+renders the UTC text (the no-JavaScript fallback) inside
+`<time datetime="<ISO UTC>" data-local-time>`, and `local-time.js` rewrites it
+with `toLocaleString(undefined, …)`, which takes the browser's locale and zone
+(en-US gives "Oct 21, 2026, 9:04 AM GMT+2"). It runs on load and after every
+`htmx:after:swap`, since the table arrives as a fragment. The "Transactions
+from before …" date of the What changed block is the same element. The widget
+had no `static/` directory; `test_pnl_widget_ships_no_stylesheet` asserted that
+there was none, and now asserts no `*.css` there, which is what its name says.
+The block is loaded from `index.html`'s `otherfooter`. The PDF report keeps UTC.
+Functional test: `test_the_processed_time_follows_the_readers_timezone`
+(Chrome's timezone overridden to Asia/Tokyo through the DevTools protocol).
+
+**Addition (2026-10-21):** `local-time.js` has a Jest suite like the other
+widgets': `inhouse/pnl/package.json` (the same config, 100% thresholds) and
+`tests/javascript/local-time.test.js`, run with `npx jest` from `inhouse/pnl/`.
+`Date.prototype.toLocaleString` is mocked, since its output depends on the
+machine's ICU data; the real timezone is the functional test's job.

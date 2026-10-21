@@ -18,4 +18,4 @@ def test_pnl_templates_use_only_pnl_classes(template):
 
 
 def test_pnl_widget_ships_no_stylesheet():
-    assert not (Path(__file__).parents[1] / "static").exists()
+    assert not list((Path(__file__).parents[1] / "static").rglob("*.css"))

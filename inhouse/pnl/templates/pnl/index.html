@@ -1,4 +1,4 @@
-{% extends 'base.html' %}{% load core_extras %}
+{% extends 'base.html' %}{% load core_extras static %}
 {% block title %}Profit and loss - {{ website_name }}{% endblock %}
 {% block content %}
 <div class="pnl" hx-headers:inherited='{"X-CSRFToken": "{{ csrf_token }}"}'>
@@ -50,3 +50,4 @@
   {% endif %}
 </div>
 {% endblock %}
+{% block otherfooter %}<script src="{% static 'pnl/local-time.js' %}"></script>{% endblock %}
