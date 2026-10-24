@@ -330,3 +330,26 @@ class TestAlertRuleNeedsCurrency:
         rule = AlertRule(user=reader, subject=subject)
 
         assert rule.needs_currency is expected
+
+
+@pytest.mark.django_db
+class TestAlertsDropPushSubscriptionsOnDeactivation:
+    """Closing an account stops alert delivery at once (F6)."""
+
+    def test_alerts_models_user_deactivated_drops_push_subscriptions(self):
+        from django.contrib.auth import get_user_model
+
+        from core.signals import user_deactivated
+        from widgets.inhouse.alerts.models import PushSubscription
+
+        closing = get_user_model().objects.create(username="closing")
+        other = get_user_model().objects.create(username="other")
+        for user in (closing, other):
+            PushSubscription.objects.create(
+                user=user, endpoint=f"https://push.example/{user.username}", p256dh="k", auth="a"
+            )
+
+        user_deactivated.send(sender=get_user_model(), user=closing)
+
+        assert not PushSubscription.objects.filter(user=closing).exists()
+        assert PushSubscription.objects.filter(user=other).exists()

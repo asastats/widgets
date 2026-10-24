@@ -2885,3 +2885,13 @@ frontend's `APP_HIDE_PURCHASE` turns it off per platform without a new app
 build. Tests: `alerts/tests/test_templates_app.py`,
 `alerts/tests/test_forms.py::TestAlertRuleFormInApp`, and the
 `*LimitMessageInApp` classes in historic and pnl `tests/test_views.py`.
+
+## inhouse/alerts/models.py:drop_push_subscriptions (F6, 2026-10-24)
+
+Closing an account only deactivates it. The weekly `deletedeactivated` cron
+deletes it, within 7 days. Alerts must stop at once, so the receiver of
+`core.signals.user_deactivated` deletes the user's `PushSubscription` rows
+when the account is closed. It lives in `models.py` because that module is
+imported at startup (through `widgets/models.py`); a receiver anywhere else
+might never be connected. F8's `NativePushDevice` gets the same treatment.
+Test: `tests/test_models.py::TestAlertsDropPushSubscriptionsOnDeactivation`.

@@ -20,6 +20,9 @@ case where it crosses back and forth faster than anyone wants telling.
 
 from django.conf import settings
 from django.db import models
+from django.dispatch import receiver
+
+from core.signals import user_deactivated
 
 
 class Subject(models.TextChoices):
@@ -344,3 +347,13 @@ class PushSubscription(models.Model):
             "endpoint": self.endpoint,
             "keys": {"p256dh": self.p256dh, "auth": self.auth},
         }
+
+
+@receiver(user_deactivated)
+def drop_push_subscriptions(sender, user, **kwargs):
+    """Stop alerts reaching a closed account now, not when it is deleted.
+
+    :param sender: the user model
+    :param user: the account being closed
+    """
+    PushSubscription.objects.filter(user=user).delete()
