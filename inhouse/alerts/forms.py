@@ -89,17 +89,21 @@ class AlertRuleForm(forms.Form):
     collection_id = forms.CharField(required=False, max_length=64)
     collection_name = forms.CharField(required=False, max_length=100)
 
-    def __init__(self, *args, user=None, address="", instance=None, **kwargs):
+    def __init__(
+        self, *args, user=None, address="", instance=None, purchase_hidden=False, **kwargs
+    ):
         """Bind the reader, the page, and the rule being edited if any.
 
         :param user: the authenticated reader
         :param address: the bundle or address the modal was opened on
         :param instance: the rule being edited, or None when creating
+        :param purchase_hidden: the ASA Stats app, where no message says upgrade
         """
         super().__init__(*args, **kwargs)
         self.user = user
         self.address = address
         self.instance = instance
+        self.purchase_hidden = purchase_hidden
 
     def clean_threshold(self):
         """Reject a threshold that cannot mean anything.
@@ -205,7 +209,12 @@ class AlertRuleForm(forms.Form):
             None,
             f"Portfolio alerts cover {allowed} "
             f"{'page' if allowed == 1 else 'pages'} on your plan, and you are "
-            "watching that many. Remove one, or upgrade to watch more.",
+            "watching that many. "
+            + (
+                "Remove one to watch another."
+                if self.purchase_hidden
+                else "Remove one, or upgrade to watch more."
+            ),
         )
 
     def _settle_unit(self, cleaned):
@@ -271,7 +280,11 @@ class AlertRuleForm(forms.Form):
         if kept >= allowed:
             raise forms.ValidationError(
                 f"That is all {allowed} of your alerts. "
-                "Remove one, or upgrade for more."
+                + (
+                    "Remove one to make room for another."
+                    if self.purchase_hidden
+                    else "Remove one, or upgrade for more."
+                )
             )
         return subject
 

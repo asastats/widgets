@@ -87,7 +87,7 @@
     {% if not portfolio_alerts_available %}
     <p class="alerts-tiernote">
       Portfolio alerts &mdash; your total, a holding, what a holding is worth
-      &mdash; come with <a href="{% url 'subscriptions' %}" class="link">Asastatser</a>.
+      &mdash; come with {% if PURCHASE_HIDDEN %}Asastatser{% else %}<a href="{% url 'subscriptions' %}" class="link">Asastatser</a>{% endif %}.
     </p>
     {% endif %}
 
@@ -251,7 +251,7 @@
   {% else %}
   <p class="alerts-full">
     That is all {{ rules_allowed }} of your alerts.
-    {% if more_rules_available %}
+    {% if more_rules_available and not PURCHASE_HIDDEN %}
     <a href="{% url 'subscriptions' %}" class="link">Upgrade for more</a>.
     {% else %}
     Remove one to make room for another.
@@ -274,7 +274,9 @@
        The top tier gets the same sentence without the link: see
        `tiers.more_rules_available`.
     {% endcomment %}&nbsp;&mdash;
-    {% if more_rules_available %}
+    {% if more_rules_available and PURCHASE_HIDDEN %}
+    the limit of your current plan.
+    {% elif more_rules_available %}
     <a href="{% url 'subscriptions' %}" class="link">a larger plan</a> keeps more.
     {% else %}
     the most any plan keeps.

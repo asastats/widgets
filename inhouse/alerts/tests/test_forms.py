@@ -567,3 +567,58 @@ def test_alert_rule_form_other_subjects_drop_the_collection(django_user_model):
     )
     assert form.is_valid(), form.errors
     assert form.cleaned_data["collection_id"] == ""
+
+
+@pytest.mark.django_db
+class TestAlertRuleFormInApp:
+    """In the ASA Stats app no message tells the reader to upgrade (F10)."""
+
+    def _capped(self, purchase_hidden):
+        reader = _reader(tier="Asastatser", email=f"app{purchase_hidden}@example.com")
+        for index in range(5):
+            AlertRule.objects.create(
+                user=reader,
+                subject=Subject.ASA_PRICE,
+                direction=Direction.DOWN,
+                threshold="1",
+                asset_id=index,
+            )
+        form = AlertRuleForm(_post(), user=reader, purchase_hidden=purchase_hidden)
+        assert form.is_valid() is False
+        return str(form.errors)
+
+    def test_alerts_forms_rule_cap_without_upgrade_in_app(self):
+        errors = self._capped(True)
+
+        assert "upgrade" not in errors
+        assert "Remove one to make room for another." in errors
+
+    def test_alerts_forms_rule_cap_says_upgrade_in_a_browser(self):
+        assert "upgrade for more" in self._capped(False)
+
+    def _page_capped(self, purchase_hidden):
+        reader = _reader(tier="Asastatser", email=f"page{purchase_hidden}@example.com")
+        AlertRule.objects.create(
+            user=reader,
+            subject=Subject.TOTAL_VALUE,
+            direction=Direction.DOWN,
+            threshold="1",
+            address="FIRST",
+        )
+        form = AlertRuleForm(
+            _post(subject=Subject.TOTAL_VALUE),
+            user=reader,
+            address="SECOND",
+            purchase_hidden=purchase_hidden,
+        )
+        assert form.is_valid() is False
+        return str(form.errors)
+
+    def test_alerts_forms_page_cap_without_upgrade_in_app(self):
+        errors = self._page_capped(True)
+
+        assert "upgrade" not in errors
+        assert "Remove one to watch another." in errors
+
+    def test_alerts_forms_page_cap_says_upgrade_in_a_browser(self):
+        assert "upgrade to watch more" in self._page_capped(False)

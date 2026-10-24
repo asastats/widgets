@@ -141,3 +141,30 @@ class TestHistoricViewsIndexTemplate:
     def test_historic_views_index_keeps_the_socket_open_in_the_background(self):
         source = get_template("historic/index.html").template.source
         assert """hx-config='{"ws": {"pauseOnBackground": false}}'""" in source
+
+
+
+class TestHistoricViewsLimitMessageInApp:
+    """The address limit message without its subscriptions link in the app (F10)."""
+
+    def test_historic_views_limit_message_without_link_in_app(self, mocker):
+        from core.appclient import AppClient
+        from widgets.inhouse.historic.views import ADDRESSES_LIMIT_ERROR_APP
+
+        assert "<a" not in ADDRESSES_LIMIT_ERROR_APP
+        view = HistoricView()
+        view.manifest = mocker.MagicMock()
+        view.request = mocker.MagicMock()
+        view.request.app_client = AppClient("android", (1, 1, 0))
+        mocker.patch(
+            "django.contrib.auth.mixins.AccessMixin.handle_no_permission",
+            side_effect=PermissionDenied,
+        )
+        mocker.patch(
+            "widgets.inhouse.historic.views.addresses_limit_for_permission",
+            return_value=5,
+        )
+        messages = mocker.patch("widgets.inhouse.historic.views.messages")
+        mocker.patch("widgets.inhouse.historic.views.redirect", return_value="home")
+        view.handle_no_permission()
+        messages.error.assert_called_once_with(view.request, ADDRESSES_LIMIT_ERROR_APP % (5,))

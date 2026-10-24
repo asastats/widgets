@@ -9,6 +9,7 @@ from django.views.generic.base import RedirectView, TemplateView
 
 from api.client import engine_request
 from api.widgets import bundle_and_addresses_from_path
+from core.appclient import purchase_hidden
 from utils.fiat import fiat_for_user
 from widgethost.enforcement import WidgetAccessMixin
 from widgethost.manifest import addresses_limit_for_permission
@@ -18,6 +19,10 @@ from .manifest import MANIFEST
 ADDRESSES_LIMIT_ERROR = (
     "Your <a href='/subscriptions/' target='_blank' rel='noopener'>subscription tier"
     "</a> allows you to evaluate historic data for up to %s address(es)."
+)
+#: The app's variant: no link towards buying (core.appclient.purchase_hidden).
+ADDRESSES_LIMIT_ERROR_APP = (
+    "Your subscription tier allows you to evaluate historic data for up to %s address(es)."
 )
 
 
@@ -70,7 +75,10 @@ class HistoricView(WidgetAccessMixin, TemplateView):
                 self.request.user.profile.permission,
             )
             if limit:
-                messages.error(self.request, mark_safe(ADDRESSES_LIMIT_ERROR % (limit,)))
+                if purchase_hidden(self.request):
+                    messages.error(self.request, ADDRESSES_LIMIT_ERROR_APP % (limit,))
+                else:
+                    messages.error(self.request, mark_safe(ADDRESSES_LIMIT_ERROR % (limit,)))
                 return redirect("home")
 
             return redirect("subscriptions")

@@ -27,6 +27,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import TemplateView, View
 
 from api.widgets import bundle_and_addresses_from_path, page_key_from_addresses
+from core.appclient import purchase_hidden
 from utils.fiat import fiat_for_user
 from widgethost.enforcement import WidgetAccessMixin
 
@@ -278,7 +279,12 @@ class AlertsRulesView(WidgetAccessMixin, AlertsContextMixin, View):
 
         :return: :class:`django.http.HttpResponse`
         """
-        form = AlertRuleForm(request.POST, user=request.user, address=self.page)
+        form = AlertRuleForm(
+            request.POST,
+            user=request.user,
+            address=self.page,
+            purchase_hidden=purchase_hidden(request),
+        )
         if form.is_valid():
             form.save()
             status = 200
@@ -384,7 +390,11 @@ class AlertsRuleEditView(WidgetAccessMixin, AlertsContextMixin, View):
         rule = self._rule(request)
         was_price_rule = rule.subject in PRICED_SUBJECTS
         form = AlertRuleForm(
-            request.POST, user=request.user, address=self.page, instance=rule
+            request.POST,
+            user=request.user,
+            address=self.page,
+            instance=rule,
+            purchase_hidden=purchase_hidden(request),
         )
         if form.is_valid():
             form.save()

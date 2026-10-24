@@ -18,6 +18,7 @@ from django.views.generic import TemplateView, View
 
 from api.client import BackendError, engine_request
 from api.widgets import bundle_and_addresses_from_path
+from core.appclient import purchase_hidden
 from utils.explorers import normalized_explorer
 from utils.fiat import fiat_for_user
 from walletauth.gating import is_linked_to_user
@@ -51,6 +52,10 @@ from .tiers import features_for
 ADDRESSES_LIMIT_ERROR = (
     "Your <a href='/subscriptions/' target='_blank' rel='noopener'>subscription tier"
     "</a> allows profit and loss for up to %s address(es)."
+)
+#: The app's variant: no link towards buying (core.appclient.purchase_hidden).
+ADDRESSES_LIMIT_ERROR_APP = (
+    "Your subscription tier allows profit and loss for up to %s address(es)."
 )
 PERIOD_LABELS = {
     "all": "All time",
@@ -265,7 +270,10 @@ class PnlAccessMixin(WidgetAccessMixin):
                 self.manifest.required_permission, _permission(self.request.user)
             )
             if limit:
-                messages.error(self.request, mark_safe(ADDRESSES_LIMIT_ERROR % (limit,)))
+                if purchase_hidden(self.request):
+                    messages.error(self.request, ADDRESSES_LIMIT_ERROR_APP % (limit,))
+                else:
+                    messages.error(self.request, mark_safe(ADDRESSES_LIMIT_ERROR % (limit,)))
                 return redirect("home")
 
             return redirect("subscriptions")

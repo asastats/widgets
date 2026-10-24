@@ -2861,3 +2861,27 @@ app's `js/app.js` (`frontend/wallet/src/app/downloads.ts`) fetches a marked
 link with the session cookie, writes the file to the app's cache and opens
 the share sheet. In a browser the attribute does nothing. Keep it on any new
 link that answers with a file. Test: `tests/test_views.py::test_pnl_views_report_ready`.
+
+## inhouse/alerts (forms.py, views.py, templates), inhouse/historic/views.py, inhouse/pnl/views.py — no upgrade calls in the ASA Stats app (F10, 2026-10-24)
+
+The app must not show links or calls to action towards buying a tier (Apple
+3.1.1/3.1.3, Play payments policy; the app sells nothing). Where a browser
+gets "Upgrade for more", "See the plans", or a link to `/subscriptions/`,
+the app gets the same sentence without the link, or a neutral one:
+
+- `_toolbar.html`: the locked Alerts control is a `<span>`, not a link.
+- `_panel.html`: "come with Asastatser" loses its link. At the rule cap it
+  says "Remove one to make room for another." Beside the count it says "the
+  limit of your current plan." instead of "a larger plan keeps more".
+- `modal.html`: "See the plans" is not rendered.
+- `AlertRuleForm(purchase_hidden=...)`: the two cap errors drop "or upgrade".
+  Only the two bound forms (create, edit) pass it; unbound forms never
+  validate.
+- historic and pnl `ADDRESSES_LIMIT_ERROR_APP`: the limit message without its
+  link.
+
+All of it is keyed on `core.appclient.purchase_hidden(request)`, so the
+frontend's `APP_HIDE_PURCHASE` turns it off per platform without a new app
+build. Tests: `alerts/tests/test_templates_app.py`,
+`alerts/tests/test_forms.py::TestAlertRuleFormInApp`, and the
+`*LimitMessageInApp` classes in historic and pnl `tests/test_views.py`.

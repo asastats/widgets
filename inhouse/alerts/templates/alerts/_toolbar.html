@@ -15,10 +15,17 @@
 </div>
 {% elif user.is_authenticated %}
 <div id="id-alerts" class="alerts-toolbar">
+  {% if PURCHASE_HIDDEN %}
+  <span class="alerts-upgrade" title="Alerts are available from the Asastatser tier">
+    Alerts
+    <span class="badge badge-outline badge-xs ml-2">Asastatser</span>
+  </span>
+  {% else %}
   <a href="{% url 'subscriptions' %}" class="alerts-upgrade"
      title="Alerts are available from the Asastatser tier">
     Alerts
     <span class="badge badge-outline badge-xs ml-2">Asastatser</span>
   </a>
+  {% endif %}
 </div>
 {% endif %}

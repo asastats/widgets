@@ -1766,3 +1766,28 @@ class TestPnlViewsWallets:
         view.args = (BUNDLE,)
         context = view.get_context_data()
         assert [wallet.event for wallet in context["wallets"]] == [WALLET]
+
+
+
+class TestPnlViewsLimitMessageInApp:
+    """The address limit message without its subscriptions link in the app (F10)."""
+
+    def test_pnl_views_limit_message_without_link_in_app(self, mocker):
+        from core.appclient import AppClient
+        from widgets.inhouse.pnl.views import ADDRESSES_LIMIT_ERROR_APP
+
+        assert "<a" not in ADDRESSES_LIMIT_ERROR_APP
+        view = _view(PnlView, ASASTATSER)
+        view.request.app_client = AppClient("android", (1, 1, 0))
+        mocker.patch(
+            "django.contrib.auth.mixins.AccessMixin.handle_no_permission",
+            side_effect=PermissionDenied,
+        )
+        mocker.patch(
+            "widgets.inhouse.pnl.views.addresses_limit_for_permission",
+            return_value=5,
+        )
+        messages = mocker.patch("widgets.inhouse.pnl.views.messages")
+        mocker.patch("widgets.inhouse.pnl.views.redirect", return_value="home")
+        view.handle_no_permission()
+        messages.error.assert_called_once_with(view.request, ADDRESSES_LIMIT_ERROR_APP % (5,))

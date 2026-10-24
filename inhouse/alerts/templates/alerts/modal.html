@@ -27,7 +27,7 @@
     {% else %}
     <div class="alerts-panel">
       <p>Alerts are available from the <span class="text-primary">Asastatser</span> tier.</p>
-      <p><a href="{% url 'subscriptions' %}" class="link">See the plans</a></p>
+      {% if not PURCHASE_HIDDEN %}<p><a href="{% url 'subscriptions' %}" class="link">See the plans</a></p>{% endif %}
     </div>
     {% endif %}
 
