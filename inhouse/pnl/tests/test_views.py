@@ -1434,6 +1434,7 @@ class TestPnlViewsReport:
         )
         response = view.get(view.request)
         assert b"Download PDF report" in response.content
+        assert b"data-app-download>Download PDF report" in response.content
         assert b"key=k_a4" in response.content
         assert b"load delay" not in response.content
 

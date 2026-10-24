@@ -1,7 +1,7 @@
 {# id-pnl-report: the form and every state below replace this block (outerHTML). #}
 <div id="id-pnl-report" class="pnl-report"{% if report == "preparing" %} hx-get="{% url 'pnl_report' path %}?{{ query }}{% if full %}&amp;full=1{% endif %}" hx-trigger="load delay:4s" hx-swap="outerHTML"{% endif %}>
   {% if report == "ready" %}
-    <a class="pnl-button pnl-button-primary" href="{% url 'pnl_report_download' path %}?{{ query }}&amp;key={{ key }}">Download PDF report</a>
+    <a class="pnl-button pnl-button-primary" href="{% url 'pnl_report_download' path %}?{{ query }}&amp;key={{ key }}" data-app-download>Download PDF report</a>
     <span class="pnl-muted">Ready{% if full %}, with every asset in full{% endif %}.</span>
   {% elif report == "preparing" %}
     <span class="pnl-muted" role="status">Preparing the PDF report{% if full %} with every asset in full{% endif %}. A large bundle can take a few minutes; you can leave this page and prepare it again later.</span>

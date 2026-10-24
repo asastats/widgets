@@ -2849,3 +2849,15 @@ widgets': `inhouse/pnl/package.json` (the same config, 100% thresholds) and
 `tests/javascript/local-time.test.js`, run with `npx jest` from `inhouse/pnl/`.
 `Date.prototype.toLocaleString` is mocked, since its output depends on the
 machine's ICU data; the real timezone is the functional test's job.
+
+---
+
+## inhouse/pnl/templates/pnl/_report.html, _table.html — `data-app-download` (2026-10-24)
+
+The PDF report link and the two CSV links carry `data-app-download`. Inside
+the ASA Stats app (Capacitor), the WebView ignores
+`Content-Disposition: attachment`, so a plain tap on them did nothing. The
+app's `js/app.js` (`frontend/wallet/src/app/downloads.ts`) fetches a marked
+link with the session cookie, writes the file to the app's cache and opens
+the share sheet. In a browser the attribute does nothing. Keep it on any new
+link that answers with a file. Test: `tests/test_views.py::test_pnl_views_report_ready`.
