@@ -76,7 +76,8 @@
          data-device-register-url="{% url 'alerts_device_register' %}"
          data-device-unregister-url="{% url 'alerts_device_unregister' %}"
          data-worker-url="{% url 'alerts_service_worker' %}">
-      {% if push_configured or native_push_configured %}
+      {# The app sends through FCM, a browser through Web Push: each needs its own keys. #}
+      {% if APP_CLIENT and native_push_configured or not APP_CLIENT and push_configured %}
       {% comment %} **Rules with nowhere to go, said out loud.**
 
          A reader who never presses the button still gets a modal that looks
@@ -93,21 +94,21 @@
          have something to lose - a reader with no rules yet is being invited,
          not warned.
       {% endcomment %}
-      {% if rules_kept and not subscribed_browsers %}
+      {% if rules_kept and not subscribed_browsers and not subscribed_phones %}
       <p class="alerts-warning">
-        <strong>No browser is set to receive these.</strong>
+        <strong>No {% if APP_CLIENT %}device{% else %}browser{% endif %} is set to receive these.</strong>
         {{ rules_kept }} alert{{ rules_kept|pluralize }} saved, and nothing to
         send {{ rules_kept|pluralize:"it,them" }} to. They are held until a
-        browser is on, so nothing is lost - but nothing arrives either.
+        {% if APP_CLIENT %}device{% else %}browser{% endif %} is on, so nothing is lost - but nothing arrives either.
       </p>
       {% endif %}
       {# Never "on" from here: the server cannot tell which browser is asking. #}
       {# `checkBrowser` in alerts.js relabels it when this one is subscribed.  #}
       <button type="button" class="alerts-enable-btn id-alerts-enable">{% if APP_CLIENT %}Notify this device{% else %}Notify this browser{% endif %}</button>
       <span class="alerts-enable-state" role="status"></span>
-      {% if subscribed_browsers %}
+      {% if subscribed_browsers or subscribed_phones %}
       <p class="alerts-enable-count">
-        {% if APP_CLIENT %}Alerts go to {{ subscribed_browsers }} device{{ subscribed_browsers|pluralize }} on your account.{% else %}Alerts go to {{ subscribed_browsers }} browser{{ subscribed_browsers|pluralize }} on your account.{% endif %}
+        Alerts go to {% if subscribed_browsers %}{{ subscribed_browsers }} browser{{ subscribed_browsers|pluralize }}{% if subscribed_phones %} and {% endif %}{% endif %}{% if subscribed_phones %}{{ subscribed_phones }} phone{{ subscribed_phones|pluralize }}{% endif %} on your account.
       </p>
       {% endif %}
       {% else %}

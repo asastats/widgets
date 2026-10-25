@@ -3,7 +3,8 @@ Alerts
 ======
 
 Rules a reader writes about prices and portfolio totals, evaluated against
-numbers the engine's own loops already compute, delivered by web push.
+numbers the engine's own loops already compute, delivered by web push and, to
+the ASA Stats app, by Firebase Cloud Messaging.
 
 State
 =====
@@ -186,8 +187,25 @@ harmless.
    crossed yet. And ``AlertRule.subject`` had to widen from 16 characters to 32:
    ``asa_price_percent`` is 17. That is migration ``widgets/0003``.
 
+10. **Native push to the ASA Stats app** (F8). Done on this side:
+    ``NativePushDevice``, ``alerts_device_register`` / ``alerts_device_unregister``,
+    ``push.send_native_push`` over FCM HTTP v1, and ``notify`` fanning out to
+    browsers and phones. Off until ``FCM_PROJECT_ID`` and
+    ``FCM_CREDENTIALS_FILE`` are both set in the host's ``.env`` and
+    ``google-auth`` is installed. The app half is the frontend's ``app.js``
+    (``window.ASAStatsApp.enablePush`` / ``checkPush``). Reasons:
+    ``docs/logbook.md``, "native push to the ASA Stats app".
+
 Traps waiting in the later steps
 ================================
+
+**Web Push and FCM are configured separately.** The modal offers the button to
+a browser only with VAPID keys and to the app only with FCM; one without the
+other is a valid deployment, not a broken one.
+
+**Only a 404 or** ``UNREGISTERED`` **from FCM deletes a phone.** Widening that
+to other errors would drop every reader's phone the first time the credentials
+or FCM misbehave.
 
 **The service worker must be served from** ``/``, not ``/static/``, or its scope
 is limited to the static path. ``core_views.index_file`` already serves

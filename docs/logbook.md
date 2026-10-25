@@ -2895,3 +2895,92 @@ when the account is closed. It lives in `models.py` because that module is
 imported at startup (through `widgets/models.py`); a receiver anywhere else
 might never be connected. F8's `NativePushDevice` gets the same treatment.
 Test: `tests/test_models.py::TestAlertsDropPushSubscriptionsOnDeactivation`.
+
+## inhouse/alerts — native push to the ASA Stats app (F8, 2026-10-25)
+
+The app is a Capacitor shell around the live site. Its WebView has no
+`PushManager` (neither WKWebView nor Android WebView offers Web Push), so
+alerts reach a phone through Firebase Cloud Messaging instead, beside the
+existing Web Push. The plan is `capacitor/HANDOFF.md` §7 F8 in the workspace.
+
+### inhouse/alerts/models.py:NativePushDevice
+
+- One row per app install, keyed on the FCM registration token, which is
+  `unique`. The token is a credential: whoever holds it can be sent to, so it
+  is only written by the app and read by the sender.
+- **Re-homed, not duplicated.** `AlertsDeviceRegisterView` uses
+  `update_or_create(token=...)`. A phone handed to someone else (or one person
+  signing out and another signing in) moves to whoever registered it last, so
+  the previous account's alerts stop reaching a phone it no longer holds. The
+  app also unregisters on logout; the re-home is the safety net when it could
+  not (no network, app killed).
+- `drop_native_push_devices` on `user_deactivated` deletes the rows at once,
+  for the same reason as `drop_push_subscriptions` (the F6 entry above).
+- `platform` and `app_version` are not used to send. They are there to tell
+  which builds still register when an old one has to be retired.
+
+### inhouse/alerts/push.py
+
+- **FCM HTTP v1 with a service-account OAuth token.** Google shut down the legacy
+  server-key API in 2024. The token comes from `google-auth`'s
+  `service_account.Credentials`, imported lazily like `pywebpush`, so a
+  deployment without the package still starts and only the phone sends fail
+  (logged as "native push failed").
+- **One credentials object per process (`_credentials`), refreshed only when
+  `valid` is false.** Minting a token is a round trip to Google's OAuth
+  endpoint and a token lasts an hour; loading the file and refreshing per
+  message would double every send. Each worker process keeps its own, which
+  is fine: they expire independently.
+- **`requests.post`, not `google-auth`'s `AuthorizedSession`.** The session
+  would refresh on a 401 by itself, but it ties the request to `google-auth`'s
+  transport and makes every test patch two libraries. `requests` is already a
+  host dependency, the refresh is three lines, and the tests mock one call.
+- **Only 404 or `UNREGISTERED` deletes the row.** FCM says these mean the
+  token will never work again (app uninstalled, token rotated). Everything
+  else, including 400 `INVALID_ARGUMENT`, 401/403 (our credentials) and 429/5xx
+  (FCM's load), says nothing reliable about the phone: deleting on them would
+  silently drop every reader's phone the first time our key or FCM misbehaves.
+  The cost: a malformed token (which the register view's checks make unlikely)
+  stays until it is re-homed or the account is deleted.
+- Any exception per phone is caught, so one phone cannot stop the rest of the
+  fan-out, the same rule as for browsers.
+- `notify()` counts browsers and phones together: its caller only needs
+  "how many were reached".
+- Payload: `notification{title, body}` and `data{url}` (FCM data values must be
+  strings). The app opens `url` on a tap, same-origin only. `tag` becomes the
+  Android notification tag and the APNs collapse id, so a rule that fires
+  again replaces its previous notification, as `tag` does for Web Push.
+
+### inhouse/alerts/evaluate.py:_with_delivery
+
+A rule is deliverable when its reader has a browser **or** a phone. Counting
+browsers only would hold every rule of a reader who uses the app alone, for
+ever: held rules keep `last_value`, so they never fire.
+
+### inhouse/alerts/templates/alerts/modal.html and views.py — the enable block in the app
+
+- **The button follows the client.** In the app it is offered when FCM is
+  configured (`native_push_configured`); in a browser when VAPID is
+  (`push_configured`). Gating both on "either" would offer a browser a button
+  with no VAPID key behind it (subscribe fails with a confusing error), or the
+  app a button that registers a phone nothing will ever send to.
+- **Counted apart.** `subscribed_browsers` and `subscribed_phones` are separate
+  context values, so a browser does not read "2 browsers" when one of the two
+  is a phone. The "nothing to send them to" warning appears only when both are
+  zero, matching `_with_delivery`.
+- In the app the wording says "device" ("Notify this device", "No device is
+  set"); the browser wording is unchanged, as the functional tests assert it.
+- `alerts.js` hands the two `data-device-*-url` values to
+  `window.ASAStatsApp.enablePush` / `checkPush` (the frontend's `app.js`), and
+  catches a rejection from either: a failure there is reported like the
+  browser path's failures, never left as an unhandled rejection.
+  Tests: `tests/javascript/alerts.test.js` ("inside the ASA Stats app"),
+  `tests/test_views.py::TestInhouseAlertsEnableLabel`.
+
+### requirements.txt
+
+`requests` and `google-auth` declared, pinned to the host's
+`website/requirements/base.txt`, for the reason given at the top of that
+block: a direct import is a direct dependency. `TestAlertsAccessToken` fakes
+the `google` modules through `sys.modules`, so it passes whether or not
+`google-auth` is installed in the test venv.

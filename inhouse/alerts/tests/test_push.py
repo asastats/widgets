@@ -1,5 +1,7 @@
 """Testing module for :py:mod:`widgets.inhouse.alerts.push` module."""
 
+import sys
+
 import pytest
 from django.contrib.auth import get_user_model
 
@@ -281,7 +283,9 @@ class TestAlertsSendNativePush:
         assert send_native_push(_device(reader), {"title": "t"}) is False
         assert post.called is False
 
-    def test_alerts_push_native_does_not_send_unconfigured(self, reader, mocker, settings):
+    def test_alerts_push_native_does_not_send_unconfigured(
+        self, reader, mocker, settings
+    ):
         settings.FCM_PROJECT_ID = ""
         post = mocker.patch("requests.post")
 
@@ -298,12 +302,22 @@ class TestAlertsAccessToken:
         mocker.patch.object(push, "_credentials", None)
 
     def test_alerts_push_token_loads_once_and_refreshes_only_when_invalid(self, mocker):
+        # Faked through `sys.modules`, so it runs without `google-auth` installed.
         credentials = mocker.MagicMock(valid=False, token="abc")
-        load = mocker.patch(
-            "google.oauth2.service_account.Credentials.from_service_account_file",
-            return_value=credentials,
+        oauth2 = mocker.MagicMock()
+        load = oauth2.service_account.Credentials.from_service_account_file
+        load.return_value = credentials
+        mocker.patch.dict(
+            sys.modules,
+            {
+                "google": mocker.MagicMock(),
+                "google.auth": mocker.MagicMock(),
+                "google.auth.transport": mocker.MagicMock(),
+                "google.auth.transport.requests": mocker.MagicMock(),
+                "google.oauth2": oauth2,
+                "google.oauth2.service_account": oauth2.service_account,
+            },
         )
-        mocker.patch("google.auth.transport.requests.Request")
 
         assert push._access_token() == "abc"
         credentials.valid = True

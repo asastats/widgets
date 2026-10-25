@@ -20,6 +20,9 @@ django-template-partials>=25.3
 msgpack>=1.2
 # `pywebpush` sends the alerts, and brings `py_vapid` with it.
 pywebpush>=2.0.0
+# `requests` and `google-auth` send to the app through FCM (`alerts/push.py`).
+requests>=2.34.2
+google-auth>=2.62.0
 # `py-algorand-sdk` builds the Dust Sweep corpus fixtures.
 py-algorand-sdk>=2.12.0
 ## tests requirements

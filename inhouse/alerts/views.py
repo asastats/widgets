@@ -156,8 +156,8 @@ class AlertsContextMixin:
             # Without the shared secret both receiving endpoints refuse every
             # call, so no rule can fire however complete the code is.
             "alerts_live": bool(getattr(settings, "ALERTS_WEBHOOK_SECRET", "")),
-            "subscribed_browsers": PushSubscription.objects.filter(user=user).count()
-            + NativePushDevice.objects.filter(user=user).count(),
+            "subscribed_browsers": PushSubscription.objects.filter(user=user).count(),
+            "subscribed_phones": NativePushDevice.objects.filter(user=user).count(),
             # Both in ALGO, as every threshold is stored.
             "current_total": published.get("total"),
             # **ALGO per USD, not ALGO's price in USD.** `priceusdc` is how

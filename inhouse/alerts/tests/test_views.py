@@ -1290,6 +1290,16 @@ class TestInhouseAlertsViewsUndeliverableRules:
 
         assert context["subscribed_browsers"] == 1
 
+    def test_inhouse_alerts_views_a_registered_phone_is_counted_apart(self, mocker):
+        from widgets.inhouse.alerts.models import NativePushDevice
+
+        reader = _reader(email="withphone@example.com")
+        NativePushDevice.objects.create(user=reader, token="fcm-c", platform="android")
+
+        context = self._context(mocker, reader)
+
+        assert (context["subscribed_browsers"], context["subscribed_phones"]) == (0, 1)
+
     def test_inhouse_alerts_views_a_rule_is_held_without_a_browser(self, mocker):
         """**Held, not spent.** Firing it would advance `last_value` past the
         threshold and the crossing would be gone - and the modal promises three
@@ -1761,7 +1771,7 @@ class TestInhouseAlertsPanelDom:
 class TestInhouseAlertsEnableLabel:
     """The server never says "this browser is on": it cannot tell which is asking."""
 
-    def _modal(self, subscribed_browsers, rules_kept=0):
+    def _modal(self, subscribed_browsers, rules_kept=0, **extra):
         from django.template.loader import render_to_string
 
         from widgets.inhouse.alerts.models import Direction, Subject
@@ -1771,6 +1781,7 @@ class TestInhouseAlertsEnableLabel:
             {
                 "alerts_entitled": True,
                 "push_configured": True,
+                **extra,
                 "alerts_live": True,
                 "vapid_public_key": "key",
                 "subscribed_browsers": subscribed_browsers,
@@ -1799,6 +1810,40 @@ class TestInhouseAlertsEnableLabel:
         assert "Alerts go to 2 browsers on your account." in self._modal(2)
         assert "alerts-enable-count" not in self._modal(0)
 
+    def test_inhouse_alerts_the_count_names_browsers_and_phones(self):
+        assert "Alerts go to 1 browser and 2 phones on your account." in self._modal(
+            1, subscribed_phones=2
+        )
+        assert "Alerts go to 1 phone on your account." in self._modal(
+            0, subscribed_phones=1
+        )
+
+    def test_inhouse_alerts_a_phone_alone_silences_the_no_browser_warning(self):
+        html = self._modal(0, rules_kept=2, subscribed_phones=1)
+
+        assert "is set to receive these" not in html
+
+    def test_inhouse_alerts_the_app_says_device(self):
+        html = self._modal(
+            0, rules_kept=1, APP_CLIENT=object(), native_push_configured=True
+        )
+
+        assert "Notify this device" in html
+        assert "No device is set to receive these." in html
+        assert "Notify this browser" not in html
+
+    def test_inhouse_alerts_the_app_needs_fcm_not_vapid(self):
+        html = self._modal(0, APP_CLIENT=object(), native_push_configured=False)
+
+        assert "id-alerts-enable" not in html
+        assert "This deployment cannot send notifications." in html
+
+    def test_inhouse_alerts_a_browser_needs_vapid_not_fcm(self):
+        html = self._modal(0, push_configured=False, native_push_configured=True)
+
+        assert "id-alerts-enable" not in html
+        assert "This deployment cannot send notifications." in html
+
 
 @pytest.mark.django_db
 class TestInhouseAlertsViewsDevice:
@@ -1815,7 +1860,9 @@ class TestInhouseAlertsViewsDevice:
     def _body(self, token="fcm-1", platform="ios"):
         return {"token": token, "platform": platform, "app_version": "1.1.0"}
 
-    def test_inhouse_alerts_views_device_register_stores_the_phone(self, reader_pro, mocker):
+    def test_inhouse_alerts_views_device_register_stores_the_phone(
+        self, reader_pro, mocker
+    ):
         from widgets.inhouse.alerts.models import NativePushDevice
 
         view = self._view(AlertsDeviceRegisterView, mocker, reader_pro, self._body())
@@ -1873,11 +1920,15 @@ class TestInhouseAlertsViewsDevice:
 
         assert view.post(view.request).status_code == 400
 
-    def test_inhouse_alerts_views_device_unregister_removes_the_row(self, reader_pro, mocker):
+    def test_inhouse_alerts_views_device_unregister_removes_the_row(
+        self, reader_pro, mocker
+    ):
         from widgets.inhouse.alerts.models import NativePushDevice
 
         NativePushDevice.objects.create(user=reader_pro, token="fcm-1", platform="ios")
-        view = self._view(AlertsDeviceUnregisterView, mocker, reader_pro, {"token": "fcm-1"})
+        view = self._view(
+            AlertsDeviceUnregisterView, mocker, reader_pro, {"token": "fcm-1"}
+        )
 
         assert view.post(view.request).status_code == 200
         assert NativePushDevice.objects.count() == 0
@@ -1891,18 +1942,26 @@ class TestInhouseAlertsViewsDevice:
             username="phone3@example.com", email="phone3@example.com", password="x"
         )
         NativePushDevice.objects.create(user=other, token="fcm-9", platform="ios")
-        view = self._view(AlertsDeviceUnregisterView, mocker, reader_pro, {"token": "fcm-9"})
+        view = self._view(
+            AlertsDeviceUnregisterView, mocker, reader_pro, {"token": "fcm-9"}
+        )
 
         view.post(view.request)
 
         assert NativePushDevice.objects.count() == 1
 
-    def test_inhouse_alerts_views_device_unregister_is_idempotent(self, reader_pro, mocker):
-        view = self._view(AlertsDeviceUnregisterView, mocker, reader_pro, {"token": "gone"})
+    def test_inhouse_alerts_views_device_unregister_is_idempotent(
+        self, reader_pro, mocker
+    ):
+        view = self._view(
+            AlertsDeviceUnregisterView, mocker, reader_pro, {"token": "gone"}
+        )
 
         assert view.post(view.request).status_code == 200
 
-    @pytest.mark.parametrize("view_class", [AlertsDeviceRegisterView, AlertsDeviceUnregisterView])
+    @pytest.mark.parametrize(
+        "view_class", [AlertsDeviceRegisterView, AlertsDeviceUnregisterView]
+    )
     def test_inhouse_alerts_views_device_gates_on_the_manifest(self, mocker, view_class):
         view = view_class()
         gate = mocker.patch.object(view, "manifest_test_func", return_value=True)

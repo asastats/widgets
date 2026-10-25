@@ -38,7 +38,9 @@ urlpatterns = [
     re_path(r"^subscribe$", AlertsSubscribeView.as_view(), name="alerts_subscribe"),
     re_path(r"^unsubscribe$", AlertsUnsubscribeView.as_view(), name="alerts_unsubscribe"),
     re_path(
-        r"^device/register$", AlertsDeviceRegisterView.as_view(), name="alerts_device_register"
+        r"^device/register$",
+        AlertsDeviceRegisterView.as_view(),
+        name="alerts_device_register",
     ),
     re_path(
         r"^device/unregister$",
