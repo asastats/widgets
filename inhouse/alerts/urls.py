@@ -3,6 +3,8 @@
 from django.urls import re_path
 
 from .views import (
+    AlertsDeviceRegisterView,
+    AlertsDeviceUnregisterView,
     AlertsPricedView,
     AlertsRepricedView,
     AlertsRuleDeleteView,
@@ -35,6 +37,14 @@ urlpatterns = [
     # once for the whole site, not per address.
     re_path(r"^subscribe$", AlertsSubscribeView.as_view(), name="alerts_subscribe"),
     re_path(r"^unsubscribe$", AlertsUnsubscribeView.as_view(), name="alerts_unsubscribe"),
+    re_path(
+        r"^device/register$", AlertsDeviceRegisterView.as_view(), name="alerts_device_register"
+    ),
+    re_path(
+        r"^device/unregister$",
+        AlertsDeviceUnregisterView.as_view(),
+        name="alerts_device_unregister",
+    ),
     re_path(rf"^{PAGE}/count$", AlertsCountView.as_view(), name="alerts_count"),
     # **Longest first.** The bare page pattern below would otherwise swallow
     # these, the way the Dust Sweep urls note about its own JSON endpoint.

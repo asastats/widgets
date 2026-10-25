@@ -44,6 +44,7 @@ from .models import (
     CURRENCY_SUBJECTS,
     PRICED_SUBJECTS,
     AlertRule,
+    NativePushDevice,
     PushSubscription,
     Subject,
 )
@@ -95,6 +96,7 @@ def _with_delivery(queryset):
     """
     return queryset.annotate(
         deliverable=Exists(PushSubscription.objects.filter(user=OuterRef("user")))
+        | Exists(NativePushDevice.objects.filter(user=OuterRef("user")))
     )
 
 

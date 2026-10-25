@@ -40,11 +40,13 @@ from .models import (
     PRICED_SUBJECTS,
     AlertRule,
     Direction,
+    NativePlatform,
+    NativePushDevice,
     PushSubscription,
     Subject,
 )
 from .population import publish_assets, publish_page
-from .push import notify, push_configured
+from .push import native_push_configured, notify, push_configured
 from .tiers import (
     more_rules_available,
     pages_allowed,
@@ -150,10 +152,12 @@ class AlertsContextMixin:
             # still stores rules, and the modal says so rather than offering a
             # button that cannot work.
             "push_configured": push_configured(),
+            "native_push_configured": native_push_configured(),
             # Without the shared secret both receiving endpoints refuse every
             # call, so no rule can fire however complete the code is.
             "alerts_live": bool(getattr(settings, "ALERTS_WEBHOOK_SECRET", "")),
-            "subscribed_browsers": PushSubscription.objects.filter(user=user).count(),
+            "subscribed_browsers": PushSubscription.objects.filter(user=user).count()
+            + NativePushDevice.objects.filter(user=user).count(),
             # Both in ALGO, as every threshold is stored.
             "current_total": published.get("total"),
             # **ALGO per USD, not ALGO's price in USD.** `priceusdc` is how
@@ -578,6 +582,77 @@ class AlertsUnsubscribeView(WidgetAccessMixin, View):
 
     def test_func(self):
         """Any authenticated profile may remove their own browser.
+
+        :return: Boolean
+        """
+        return self.manifest_test_func(1)
+
+
+@method_decorator(never_cache, name="dispatch")
+class AlertsDeviceRegisterView(WidgetAccessMixin, View):
+    """Record the phone running the app that a reader wants notified.
+
+    `update_or_create` on the token re-homes it to whoever is signed in now.
+    """
+
+    manifest = MANIFEST
+
+    def post(self, request, *args, **kwargs):
+        """Store or refresh this phone's FCM token.
+
+        :return: :class:`django.http.JsonResponse`
+        """
+        try:
+            body = json.loads(request.body or "{}")
+        except ValueError:
+            return JsonResponse({"error": "Malformed device."}, status=400)
+
+        token = body.get("token") or ""
+        platform = body.get("platform") or ""
+        if not token or len(token) > 500 or platform not in NativePlatform.values:
+            return JsonResponse({"error": "Incomplete device."}, status=400)
+
+        NativePushDevice.objects.update_or_create(
+            token=token,
+            defaults={
+                "user": request.user,
+                "platform": platform,
+                "app_version": str(body.get("app_version") or "")[:30],
+            },
+        )
+        return JsonResponse({"ok": True})
+
+    def test_func(self):
+        """Any authenticated profile may register their phone.
+
+        :return: Boolean
+        """
+        return self.manifest_test_func(1)
+
+
+@method_decorator(never_cache, name="dispatch")
+class AlertsDeviceUnregisterView(WidgetAccessMixin, View):
+    """Remove this phone's FCM token from the signed-in reader."""
+
+    manifest = MANIFEST
+
+    def post(self, request, *args, **kwargs):
+        """Delete the token, if it is this reader's.
+
+        :return: :class:`django.http.JsonResponse`
+        """
+        try:
+            body = json.loads(request.body or "{}")
+        except ValueError:
+            return JsonResponse({"error": "Malformed request."}, status=400)
+
+        NativePushDevice.objects.filter(
+            user=request.user, token=body.get("token") or ""
+        ).delete()
+        return JsonResponse({"ok": True})
+
+    def test_func(self):
+        """Any authenticated profile may remove their own phone.
 
         :return: Boolean
         """

@@ -349,6 +349,57 @@ class PushSubscription(models.Model):
         }
 
 
+class NativePlatform(models.TextChoices):
+    """The app platforms a device token can come from."""
+
+    IOS = "ios", "iOS"
+    ANDROID = "android", "Android"
+
+
+class NativePushDevice(models.Model):
+    """One phone running the ASA Stats app, reached through FCM.
+
+    `token` is the FCM registration token: a credential, written by the app and
+    read only by the sender. Unique, and re-homed to whoever registers it.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="native_push_devices",
+    )
+    token = models.CharField(max_length=500, unique=True)
+    platform = models.CharField(max_length=10, choices=NativePlatform.choices)
+    app_version = models.CharField(max_length=30, blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        """Model metadata."""
+
+        indexes = [
+            models.Index(fields=["user"], name="native_push_user_idx"),
+        ]
+
+    def __str__(self):
+        """Return a short description of the device.
+
+        :return: str
+        """
+        return f"{self.user} on {self.platform}"
+
+
+@receiver(user_deactivated)
+def drop_native_push_devices(sender, user, **kwargs):
+    """Stop alerts reaching a closed account's phones now, not when deleted.
+
+    :param sender: the user model
+    :param user: the account being closed
+    """
+    NativePushDevice.objects.filter(user=user).delete()
+
+
 @receiver(user_deactivated)
 def drop_push_subscriptions(sender, user, **kwargs):
     """Stop alerts reaching a closed account now, not when it is deleted.

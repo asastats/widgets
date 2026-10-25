@@ -1105,3 +1105,22 @@ class TestAlertsEvaluateNftFloor:
         self._rule(reader)
         fired, _ = evaluate_page(PAGE, {"total": 1.0, "events": self.EVENTS})
         assert [rule.collection_id for rule in fired] == ["pigs"]
+
+
+@pytest.mark.django_db
+class TestAlertsDeliverableWithAPhone:
+    """A reader with only the app installed has somewhere to be notified."""
+
+    def test_alerts_evaluate_a_phone_alone_makes_a_rule_deliverable(self):
+        from widgets.inhouse.alerts.evaluate import _with_delivery
+        from widgets.inhouse.alerts.models import NativePushDevice
+
+        user = get_user_model().objects.create_user(
+            username="phone@example.com", email="phone@example.com", password="x"
+        )
+        _rule(user)
+        assert _with_delivery(AlertRule.objects.all()).get().deliverable is False
+
+        NativePushDevice.objects.create(user=user, token="t", platform="android")
+
+        assert _with_delivery(AlertRule.objects.all()).get().deliverable is True

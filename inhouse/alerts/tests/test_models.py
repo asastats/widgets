@@ -353,3 +353,26 @@ class TestAlertsDropPushSubscriptionsOnDeactivation:
 
         assert not PushSubscription.objects.filter(user=closing).exists()
         assert PushSubscription.objects.filter(user=other).exists()
+
+
+@pytest.mark.django_db
+class TestAlertsDropNativePushDevicesOnDeactivation:
+    """Closing an account stops alerts reaching its phones at once (F8)."""
+
+    def test_alerts_models_user_deactivated_drops_native_push_devices(self):
+        from django.contrib.auth import get_user_model
+
+        from core.signals import user_deactivated
+        from widgets.inhouse.alerts.models import NativePushDevice
+
+        closing = get_user_model().objects.create(username="closing")
+        other = get_user_model().objects.create(username="other")
+        for user in (closing, other):
+            NativePushDevice.objects.create(
+                user=user, token=f"token-{user.username}", platform="ios"
+            )
+
+        user_deactivated.send(sender=get_user_model(), user=closing)
+
+        assert not NativePushDevice.objects.filter(user=closing).exists()
+        assert NativePushDevice.objects.filter(user=other).exists()

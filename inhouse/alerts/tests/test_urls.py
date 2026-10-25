@@ -25,7 +25,7 @@ class TestInhouseAlertsUrls:
     """
 
     def test_inhouse_alerts_urls_patterns_count(self):
-        assert len(urls.urlpatterns) == 9
+        assert len(urls.urlpatterns) == 11
 
     def test_inhouse_alerts_urls_are_named(self):
         assert [pattern.name for pattern in urls.urlpatterns] == [
@@ -33,6 +33,8 @@ class TestInhouseAlertsUrls:
             "alerts_priced",
             "alerts_subscribe",
             "alerts_unsubscribe",
+            "alerts_device_register",
+            "alerts_device_unregister",
             "alerts_count",
             "alerts_rule_delete",
             "alerts_rule_edit",
@@ -48,6 +50,8 @@ class TestInhouseAlertsUrls:
             "AlertsPricedView",
             "AlertsSubscribeView",
             "AlertsUnsubscribeView",
+            "AlertsDeviceRegisterView",
+            "AlertsDeviceUnregisterView",
             "AlertsCountView",
             "AlertsRuleDeleteView",
             "AlertsRuleEditView",

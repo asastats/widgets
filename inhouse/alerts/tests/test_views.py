@@ -22,6 +22,8 @@ from widgets.inhouse.alerts.models import (
     Subject,
 )
 from widgets.inhouse.alerts.views import (
+    AlertsDeviceRegisterView,
+    AlertsDeviceUnregisterView,
     SIGNATURE_HEADER,
     AlertsPricedView,
     AlertsRepricedView,
@@ -1796,3 +1798,114 @@ class TestInhouseAlertsEnableLabel:
     def test_inhouse_alerts_the_count_is_plural_and_absent_at_zero(self):
         assert "Alerts go to 2 browsers on your account." in self._modal(2)
         assert "alerts-enable-count" not in self._modal(0)
+
+
+@pytest.mark.django_db
+class TestInhouseAlertsViewsDevice:
+    """Testing class for registering and removing a phone's FCM token."""
+
+    def _view(self, view_class, mocker, reader, body):
+        view = view_class()
+        view.request = mocker.MagicMock(
+            user=reader,
+            body=json.dumps(body).encode() if body is not None else b"",
+        )
+        return view
+
+    def _body(self, token="fcm-1", platform="ios"):
+        return {"token": token, "platform": platform, "app_version": "1.1.0"}
+
+    def test_inhouse_alerts_views_device_register_stores_the_phone(self, reader_pro, mocker):
+        from widgets.inhouse.alerts.models import NativePushDevice
+
+        view = self._view(AlertsDeviceRegisterView, mocker, reader_pro, self._body())
+
+        assert view.post(view.request).status_code == 200
+        device = NativePushDevice.objects.get(user=reader_pro)
+        assert (device.token, device.platform, device.app_version) == (
+            "fcm-1",
+            "ios",
+            "1.1.0",
+        )
+
+    def test_inhouse_alerts_views_device_register_is_idempotent(self, reader_pro, mocker):
+        from widgets.inhouse.alerts.models import NativePushDevice
+
+        for _ in range(2):
+            view = self._view(AlertsDeviceRegisterView, mocker, reader_pro, self._body())
+            view.post(view.request)
+
+        assert NativePushDevice.objects.count() == 1
+
+    def test_inhouse_alerts_views_device_register_rehomes_a_shared_phone(
+        self, reader_pro, mocker
+    ):
+        """The token follows whoever is signed in now, so the previous
+        account's alerts stop reaching a phone it no longer holds."""
+        from widgets.inhouse.alerts.models import NativePushDevice
+
+        other = get_user_model().objects.create_user(
+            username="phone2@example.com", email="phone2@example.com", password="x"
+        )
+        NativePushDevice.objects.create(user=other, token="fcm-1", platform="ios")
+        view = self._view(AlertsDeviceRegisterView, mocker, reader_pro, self._body())
+
+        view.post(view.request)
+
+        assert NativePushDevice.objects.get(token="fcm-1").user == reader_pro
+
+    @pytest.mark.parametrize(
+        "body",
+        [{}, {"token": "t"}, {"token": "t", "platform": "windows"}, {"platform": "ios"}],
+    )
+    def test_inhouse_alerts_views_device_register_refuses_an_incomplete_one(
+        self, reader_pro, mocker, body
+    ):
+        view = self._view(AlertsDeviceRegisterView, mocker, reader_pro, body)
+
+        assert view.post(view.request).status_code == 400
+
+    def test_inhouse_alerts_views_device_register_refuses_malformed_json(
+        self, reader_pro, mocker
+    ):
+        view = AlertsDeviceRegisterView()
+        view.request = mocker.MagicMock(user=reader_pro, body=b"{not json")
+
+        assert view.post(view.request).status_code == 400
+
+    def test_inhouse_alerts_views_device_unregister_removes_the_row(self, reader_pro, mocker):
+        from widgets.inhouse.alerts.models import NativePushDevice
+
+        NativePushDevice.objects.create(user=reader_pro, token="fcm-1", platform="ios")
+        view = self._view(AlertsDeviceUnregisterView, mocker, reader_pro, {"token": "fcm-1"})
+
+        assert view.post(view.request).status_code == 200
+        assert NativePushDevice.objects.count() == 0
+
+    def test_inhouse_alerts_views_device_unregister_leaves_another_readers_row(
+        self, reader_pro, mocker
+    ):
+        from widgets.inhouse.alerts.models import NativePushDevice
+
+        other = get_user_model().objects.create_user(
+            username="phone3@example.com", email="phone3@example.com", password="x"
+        )
+        NativePushDevice.objects.create(user=other, token="fcm-9", platform="ios")
+        view = self._view(AlertsDeviceUnregisterView, mocker, reader_pro, {"token": "fcm-9"})
+
+        view.post(view.request)
+
+        assert NativePushDevice.objects.count() == 1
+
+    def test_inhouse_alerts_views_device_unregister_is_idempotent(self, reader_pro, mocker):
+        view = self._view(AlertsDeviceUnregisterView, mocker, reader_pro, {"token": "gone"})
+
+        assert view.post(view.request).status_code == 200
+
+    @pytest.mark.parametrize("view_class", [AlertsDeviceRegisterView, AlertsDeviceUnregisterView])
+    def test_inhouse_alerts_views_device_gates_on_the_manifest(self, mocker, view_class):
+        view = view_class()
+        gate = mocker.patch.object(view, "manifest_test_func", return_value=True)
+
+        assert view.test_func() is True
+        gate.assert_called_once_with(1)

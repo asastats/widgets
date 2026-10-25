@@ -123,11 +123,32 @@
   }
 
   /**
+   * Whether the page runs inside the ASA Stats app, whose shell has no Web Push.
+   * @returns {boolean} true when `app.js` has put `window.ASAStatsApp` there.
+   */
+  function inApp() {
+    return !!(window.ASAStatsApp && window.ASAStatsApp.isApp);
+  }
+
+  /**
+   * The urls the app's push module posts to, from the `.alerts-enable` element.
+   * @param {Element} root - the `.alerts-enable` element.
+   * @returns {{register: string, unregister: string}} the two endpoints.
+   */
+  function deviceUrls(root) {
+    return {
+      register: root.dataset.deviceRegisterUrl,
+      unregister: root.dataset.deviceUnregisterUrl,
+    };
+  }
+
+  /**
    * What to tell the reader about whether alerts can reach them.
    * Feature detection first; user agent only for wording.
-   * @returns {string} one of "ok", "ios-install", "ios-old", "unsupported".
+   * @returns {string} one of "app", "ok", "ios-install", "ios-old", "unsupported".
    */
   function supportState() {
+    if (inApp()) return "app";
     if ("PushManager" in window && "serviceWorker" in navigator) return "ok";
     if (!isApplePortable()) return "unsupported";
     // Installed and still no PushManager means the iOS is older than 16.4,
@@ -193,7 +214,7 @@
       warning.parentNode.removeChild(warning);
     }
     var button = root.querySelector(".alerts-enable-btn");
-    if (button) button.textContent = "This browser is on";
+    if (button) button.textContent = inApp() ? "This device is on" : "This browser is on";
   }
 
   /**
@@ -228,6 +249,17 @@
       if (state) state.textContent = message;
       return message;
     };
+
+    if (inApp()) {
+      return window.ASAStatsApp.enablePush(deviceUrls(root))
+        .then(function (result) {
+          if (result.ok) markEnabled(root);
+          return say(result.message);
+        })
+        .catch(function (error) {
+          return say(error.message || "Could not enable notifications.");
+        });
+    }
 
     if (supportState() !== "ok") {
       // The notice above the button already explains which case this is.
@@ -279,6 +311,16 @@
    * @returns {Promise<boolean>} whether this browser is on.
    */
   function checkBrowser(root) {
+    if (root && inApp()) {
+      return window.ASAStatsApp.checkPush(deviceUrls(root))
+        .then(function (on) {
+          if (on) markEnabled(root);
+          return on;
+        })
+        .catch(function () {
+          return false;
+        });
+    }
     if (!root || supportState() !== "ok") return Promise.resolve(false);
     if (typeof Notification === "undefined" || Notification.permission !== "granted") {
       return Promise.resolve(false);

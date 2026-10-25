@@ -2177,3 +2177,173 @@ describe("a reader whose fiat is EUR", () => {
     expect(document.querySelector(".alerts-now").textContent).toBe("Now 125.00 EUR");
   });
 });
+
+describe("inside the ASA Stats app", () => {
+  /** The `.alerts-enable` block as the modal renders it for the app. */
+  function appBlock() {
+    document.body.innerHTML = `
+      <p data-support="ios-install" class="alerts-warning" hidden>Add to Home Screen</p>
+      <p data-support="unsupported" class="alerts-warning" hidden>Unsupported</p>
+      <div class="alerts-enable"
+           data-subscribe-url="/widgets/alerts/subscribe"
+           data-device-register-url="/widgets/alerts/device/register"
+           data-device-unregister-url="/widgets/alerts/device/unregister"
+           data-worker-url="/alerts-service-worker.js">
+        <p class="alerts-warning">No browser is set to receive these.</p>
+        <button type="button" class="alerts-enable-btn id-alerts-enable">Notify this device</button>
+        <span class="alerts-enable-state"></span>
+      </div>`;
+    return document.querySelector(".alerts-enable");
+  }
+
+  /** `window.ASAStatsApp` as `app.js` exposes it, answering as told. */
+  function app({ enabled = { ok: true, message: "This device is on." }, on = true } = {}) {
+    window.ASAStatsApp = {
+      isApp: true,
+      enablePush: jest.fn(() =>
+        enabled instanceof Error ? Promise.reject(enabled) : Promise.resolve(enabled)
+      ),
+      checkPush: jest.fn(() =>
+        on instanceof Error ? Promise.reject(on) : Promise.resolve(on)
+      ),
+    };
+    return window.ASAStatsApp;
+  }
+
+  const URLS = {
+    register: "/widgets/alerts/device/register",
+    unregister: "/widgets/alerts/device/unregister",
+  };
+  const label = () => document.querySelector(".alerts-enable-btn").textContent;
+  const state = () => document.querySelector(".alerts-enable-state").textContent;
+
+  afterEach(() => {
+    delete window.ASAStatsApp;
+    delete window.PushManager;
+    delete global.Notification;
+  });
+
+  test("the app is its own state, ahead of any Web Push detection", () => {
+    // The shell's WebView may grow a `PushManager` one day; the app still
+    // delivers through FCM, so "app" must win.
+    app();
+    window.PushManager = function () {};
+
+    expect(alerts.supportState()).toBe("app");
+  });
+
+  test("a global without isApp is not the app", () => {
+    window.ASAStatsApp = {};
+    delete window.PushManager;
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: undefined });
+
+    expect(alerts.supportState()).not.toBe("app");
+  });
+
+  test("no browser notice is shown in the app, Home Screen one included", () => {
+    app();
+    const root = appBlock();
+
+    expect(alerts.showSupport(document)).toBe("app");
+    expect(root).toBeTruthy();
+    document.querySelectorAll("[data-support]").forEach((note) => {
+      expect(note.hidden).toBe(true);
+    });
+  });
+
+  test("enabling hands the device urls to the app and marks the device on", async () => {
+    const native = app();
+    global.Notification = { requestPermission: jest.fn() };
+    const root = appBlock();
+
+    await expect(alerts.enablePush(root)).resolves.toBe("This device is on.");
+
+    expect(native.enablePush).toHaveBeenCalledWith(URLS);
+    expect(global.Notification.requestPermission).not.toHaveBeenCalled();
+    expect(state()).toBe("This device is on.");
+    expect(label()).toBe("This device is on");
+    expect(root.querySelector(".alerts-warning")).toBeNull();
+  });
+
+  test("a refusal from the app is said, and the device stays off", async () => {
+    app({ enabled: { ok: false, message: "Notifications are off for ASA Stats." } });
+    const root = appBlock();
+
+    await alerts.enablePush(root);
+
+    expect(state()).toBe("Notifications are off for ASA Stats.");
+    expect(label()).toBe("Notify this device");
+    expect(root.querySelector(".alerts-warning")).not.toBeNull();
+  });
+
+  test("an app call that throws is reported, not left unhandled", async () => {
+    app({ enabled: new Error("No token.") });
+
+    await expect(alerts.enablePush(appBlock())).resolves.toBe("No token.");
+    expect(state()).toBe("No token.");
+  });
+
+  test("an error with no message still says something", async () => {
+    app({ enabled: new Error("") });
+
+    await alerts.enablePush(appBlock());
+
+    expect(state()).toBe("Could not enable notifications.");
+  });
+
+  test("the button reaches the app, not the browser", async () => {
+    const native = app();
+    appBlock();
+
+    document.querySelector(".id-alerts-enable").click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(native.enablePush).toHaveBeenCalledWith(URLS);
+  });
+
+  test("a device the app says is on is marked on", async () => {
+    const native = app({ on: true });
+    const root = appBlock();
+
+    await expect(alerts.checkBrowser(root)).resolves.toBe(true);
+
+    expect(native.checkPush).toHaveBeenCalledWith(URLS);
+    expect(label()).toBe("This device is on");
+  });
+
+  test("a device the app says is off keeps the button", async () => {
+    app({ on: false });
+
+    await expect(alerts.checkBrowser(appBlock())).resolves.toBe(false);
+    expect(label()).toBe("Notify this device");
+  });
+
+  test("a failing check is off rather than an error", async () => {
+    app({ on: new Error("bridge gone") });
+
+    await expect(alerts.checkBrowser(appBlock())).resolves.toBe(false);
+    expect(label()).toBe("Notify this device");
+  });
+
+  test("no block in the app is off without asking the app", async () => {
+    const native = app();
+
+    await expect(alerts.checkBrowser(null)).resolves.toBe(false);
+    expect(native.checkPush).not.toHaveBeenCalled();
+  });
+
+  test("opening the modal asks the app", async () => {
+    const native = app();
+    const enable = appBlock();
+    document.body.innerHTML = '<dialog id="alerts-modal"></dialog>';
+    const dialog = document.getElementById("alerts-modal");
+    dialog.showModal = jest.fn();
+    dialog.appendChild(enable);
+
+    alerts.openModal(document);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(native.checkPush).toHaveBeenCalledWith(URLS);
+    expect(label()).toBe("This device is on");
+  });
+});
