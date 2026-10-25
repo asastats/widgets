@@ -75,7 +75,7 @@ MORE_ROWS = {
 #: Seconds a requested update may stay queued before the banner gives up waiting.
 UPDATE_QUEUED_LIMIT = 1800
 REPORT_EXPIRED_MESSAGE = (
-    "That PDF report is no longer available; prepare it again below the table."
+    "That PDF report is no longer available; prepare it again below."
 )
 EXPORT_WAIT_MESSAGE = (
     "Profit and loss is still being worked out; download the CSV once the table shows."
@@ -393,6 +393,13 @@ class PnlAccessMixin(WidgetAccessMixin):
         """
         return f"{reverse('pnl', args=[self.args[0]])}?{self.base_context()['query']}"
 
+    def download_url(self):
+        """Return the page's address on the Download tab, with the reader's switches.
+
+        :return: str
+        """
+        return f"{self.table_url()}&tab=download"
+
     def evaluation(self):
         """Return the engine's P&L results for the reader's switches.
 
@@ -496,7 +503,10 @@ class PnlView(PnlAccessMixin, TemplateView):
         context = super().get_context_data(*args, **kwargs)
         context.update(self.base_context())
         context["website_name"] = settings.WEBSITE_NAME
-        if self.request.GET.get("tab") == "settings":
+        tab = self.request.GET.get("tab")
+        if tab == "download" and (self.features["export"] or self.features["report"]):
+            context["tab"] = "download"
+        elif tab == "settings":
             context["tab"] = "settings"
             context["pnl_settings"] = self.reader_settings()
             context["wallets"] = self.saved_overrides("own")
@@ -1027,7 +1037,7 @@ class PnlExportView(PnlAccessMixin, View):
 
         if not data or "assets" not in data:
             messages.info(request, EXPORT_WAIT_MESSAGE)
-            return redirect(self.table_url())
+            return redirect(self.download_url())
 
         response = HttpResponse(
             table_csv(data, self.reader_settings().separator),
@@ -1048,7 +1058,7 @@ class PnlEventsExportView(PnlAccessMixin, View):
     """Every event of the bundle as a CSV download, for tiers with the export."""
 
     def get(self, request, *args, **kwargs):
-        """Return the engine's events as CSV, or back to the table while they are made.
+        """Return the engine's events as CSV, or to the Download tab while they are made.
 
         :param request: Django request object
         :type request: :class:`django.http.HttpRequest`
@@ -1076,7 +1086,7 @@ class PnlEventsExportView(PnlAccessMixin, View):
 
         if not data or "events" not in data:
             messages.info(request, EVENTS_WAIT_MESSAGE)
-            return redirect(self.table_url())
+            return redirect(self.download_url())
 
         response = HttpResponse(
             events_csv(data, self.reader_settings().separator),
@@ -1269,7 +1279,7 @@ class PnlReportDownloadView(PnlAccessMixin, View):
     """The prepared PDF report as a download, for tiers with the report."""
 
     def get(self, request, *args, **kwargs):
-        """Return the engine's saved report, or back to the table once it expired.
+        """Return the engine's saved report, or to the Download tab once it expired.
 
         :param request: Django request object
         :type request: :class:`django.http.HttpRequest`
@@ -1292,7 +1302,7 @@ class PnlReportDownloadView(PnlAccessMixin, View):
             )
         except BackendError:
             messages.info(request, REPORT_EXPIRED_MESSAGE)
-            return redirect(self.table_url())
+            return redirect(self.download_url())
 
         response = HttpResponse(engine_response.content, content_type="application/pdf")
         filename = "pnl-{}-{}-{}-{}-{}.pdf".format(

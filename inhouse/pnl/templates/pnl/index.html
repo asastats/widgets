@@ -7,31 +7,37 @@
     {% for addr in addresses|split_by_space %}<span title="{{ addr }}">{{ addr|short_address }}</span>{% endfor %}
   </p>
   <nav class="pnl-currency pnl-tabs" aria-label="Tabs">
-    <a href="?{{ query }}"{% if tab != "settings" %} aria-current="true"{% endif %}>Profit and loss</a>
+    <a href="?{{ query }}"{% if not tab %} aria-current="true"{% endif %}>Profit and loss</a>
+    {% if features.export or features.report %}<a href="?{{ query }}&amp;tab=download"{% if tab == "download" %} aria-current="true"{% endif %}>Download</a>{% endif %}
     <a href="?{{ query }}&amp;tab=settings"{% if tab == "settings" %} aria-current="true"{% endif %}>Settings</a>
   </nav>
   {% if tab != "settings" %}{% if features.currencies|length > 1 or features.periods|length > 1 %}
   <div class="pnl-switches">
     <nav class="pnl-currency" aria-label="Currency">
       {% for option in features.currencies %}
-        <a href="?currency={{ option }}&amp;period={{ period }}&amp;valuation={{ valuation }}"{% if option == currency %} aria-current="true"{% endif %}>{{ option|upper }}</a>
+        <a href="?currency={{ option }}&amp;period={{ period }}&amp;valuation={{ valuation }}{% if tab %}&amp;tab={{ tab }}{% endif %}"{% if option == currency %} aria-current="true"{% endif %}>{{ option|upper }}</a>
       {% endfor %}
     </nav>
     <nav class="pnl-currency" aria-label="Period">
       {% for option in features.periods %}
-        <a href="?currency={{ currency }}&amp;period={{ option }}&amp;valuation={{ valuation }}"{% if option == period %} aria-current="true"{% endif %}>{% for key, label in period_labels.items %}{% if key == option %}{{ label }}{% endif %}{% endfor %}</a>
+        <a href="?currency={{ currency }}&amp;period={{ option }}&amp;valuation={{ valuation }}{% if tab %}&amp;tab={{ tab }}{% endif %}"{% if option == period %} aria-current="true"{% endif %}>{% for key, label in period_labels.items %}{% if key == option %}{{ label }}{% endif %}{% endfor %}</a>
       {% endfor %}
     </nav>
     {% if features.valuations|length > 1 %}
     <nav class="pnl-currency" aria-label="Valuation">
       {% for option in features.valuations %}
-        <a href="?currency={{ currency }}&amp;period={{ period }}&amp;valuation={{ option }}"{% if option == valuation %} aria-current="true"{% endif %} title="{% if option == 'mve' %}What selling each holding would fetch from its pools now{% else %}Current market price{% endif %}">{{ option|upper }}</a>
+        <a href="?currency={{ currency }}&amp;period={{ period }}&amp;valuation={{ option }}{% if tab %}&amp;tab={{ tab }}{% endif %}"{% if option == valuation %} aria-current="true"{% endif %} title="{% if option == 'mve' %}What selling each holding would fetch from its pools now{% else %}Current market price{% endif %}">{{ option|upper }}</a>
       {% endfor %}
     </nav>
     {% endif %}
   </div>
   {% endif %}{% endif %}
-  {% if tab == "settings" %}
+  {% if tab == "download" %}
+  <div class="pnl-download" id="id-pnl-download">
+    {% if features.export %}<p><a class="pnl-button" href="{% url 'pnl_export' path %}?{{ query }}" data-app-download>Download CSV</a> <a class="pnl-button" href="{% url 'pnl_events_export' path %}?{{ query }}" data-app-download>Download events CSV</a></p>{% endif %}
+    {% if features.report %}{% include "pnl/_report.html" %}{% endif %}
+  </div>
+  {% elif tab == "settings" %}
   <div class="pnl-settings">
     {% if features.export or features.report or features.nft_choice or features.cost_methods|length > 1 %}{% include "pnl/_settings_form.html" %}{% endif %}
     {% if features.overrides %}{% include "pnl/_wallets.html" %}{% endif %}

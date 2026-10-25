@@ -1920,6 +1920,21 @@ class TestInhouseAlertsViewsDevice:
 
         assert view.post(view.request).status_code == 400
 
+    def test_inhouse_alerts_views_device_unregister_refuses_malformed_json(
+        self, reader_pro, mocker
+    ):
+        from widgets.inhouse.alerts.models import NativePushDevice
+
+        NativePushDevice.objects.create(user=reader_pro, token="fcm-1", platform="ios")
+        view = AlertsDeviceUnregisterView()
+        view.request = mocker.MagicMock(user=reader_pro, body=b"{not json")
+
+        response = view.post(view.request)
+
+        assert response.status_code == 400
+        assert json.loads(response.content) == {"error": "Malformed request."}
+        assert NativePushDevice.objects.count() == 1
+
     def test_inhouse_alerts_views_device_unregister_removes_the_row(
         self, reader_pro, mocker
     ):

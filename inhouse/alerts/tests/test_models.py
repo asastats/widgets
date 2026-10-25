@@ -376,3 +376,18 @@ class TestAlertsDropNativePushDevicesOnDeactivation:
 
         assert not NativePushDevice.objects.filter(user=closing).exists()
         assert NativePushDevice.objects.filter(user=other).exists()
+
+
+@pytest.mark.django_db
+class TestNativePushDeviceShape:
+    """Testing class for the stored phone."""
+
+    def test_alerts_models_a_native_device_describes_itself(self, reader):
+        from widgets.inhouse.alerts.models import NativePushDevice
+
+        device = NativePushDevice(user=reader, token="fcm-secret", platform="android")
+
+        text = str(device)
+
+        assert text == f"{reader} on android"
+        assert "fcm-secret" not in text

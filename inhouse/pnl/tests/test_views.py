@@ -711,6 +711,32 @@ class TestPnlViewsSettings:
         assert context["pnl_settings"].pk is None
         assert "tab" not in _view(PnlView, CLUSTER, user=user).get_context_data()
 
+    @pytest.mark.parametrize("permission,tab", [(CLUSTER, "download"), (ASASTATSER, None)])
+    def test_pnl_views_download_tab_context(
+        self, mocker, django_user_model, permission, tab
+    ):
+        mocker.patch(
+            "django.views.generic.base.ContextMixin.get_context_data",
+            side_effect=lambda *args, **kwargs: {},
+        )
+        user = _user(permission, django_user_model.objects.create(username="reader"))
+        view = _view(PnlView, permission, query="?tab=download", user=user)
+        assert view.get_context_data().get("tab") == tab
+
+    @pytest.mark.parametrize("permission,shown", [(CLUSTER, True), (ASASTATSER, False)])
+    def test_pnl_views_download_tab_offers_the_files_to_cluster(
+        self, django_user_model, permission, shown
+    ):
+        user = _user(permission, django_user_model.objects.create(username="reader"))
+        view = _view(PnlView, permission, query="?tab=download", user=user)
+        response = view.get(view.request)
+        response.render()
+        assert (b">Download</a>" in response.content) is shown
+        assert (b"/export?" in response.content) is shown
+        assert (b"/events.csv?" in response.content) is shown
+        assert (b'id="id-pnl-report"' in response.content) is shown
+        assert (b'id="id-pnl-body"' in response.content) is not shown
+
     @pytest.mark.parametrize(
         "permission,shown", [(PROFESSIONAL, True), (ASASTATSER, False)]
     )
@@ -921,7 +947,9 @@ class TestPnlViewsExport:
         view = _view(PnlExportView, CLUSTER, user=user)
         response = view.get(view.request, BUNDLE)
         assert response.status_code == 302
-        assert response.url == f"/widgets/pnl/{BUNDLE}?currency=usd&period=all&valuation=spot"
+        assert response.url == (
+            f"/widgets/pnl/{BUNDLE}?currency=usd&period=all&valuation=spot&tab=download"
+        )
         info.assert_called_once()
 
     def test_pnl_views_events_export_needs_cluster(self, django_user_model):
@@ -979,10 +1007,11 @@ class TestPnlViewsExport:
         view = _view(PnlEventsExportView, CLUSTER, user=user)
         response = view.get(view.request, BUNDLE)
         assert response.status_code == 302
+        assert response.url.endswith("&tab=download")
         info.assert_called_once()
 
-    @pytest.mark.parametrize("permission,shown", [(CLUSTER, True), (ASASTATSER, False)])
-    def test_pnl_views_table_offers_the_csv_to_cluster(self, mocker, permission, shown):
+    @pytest.mark.parametrize("permission", [CLUSTER, ASASTATSER])
+    def test_pnl_views_table_leaves_the_csv_to_the_download_tab(self, mocker, permission):
         events = {BUNDLE: {"-1": {"state": "finished"}}}
         mocker.patch(
             "widgets.inhouse.pnl.views._engine",
@@ -990,8 +1019,8 @@ class TestPnlViewsExport:
         )
         view = _view(PnlStatusView, permission)
         response = view.get(view.request)
-        assert (b"/export?" in response.content) is shown
-        assert (b"/events.csv?" in response.content) is shown
+        assert b"/export?" not in response.content
+        assert b"/events.csv?" not in response.content
         assert b"Start from scratch" not in response.content
 
 
@@ -1451,15 +1480,15 @@ class TestPnlViewsReport:
         response = view.post(view.request)
         assert expected in response.content
 
-    def test_pnl_views_table_offers_the_report(self, mocker):
+    def test_pnl_views_table_leaves_the_report_to_the_download_tab(self, mocker):
         events = {BUNDLE: {"-1": {"state": "finished"}}}
         mocker.patch(
             "widgets.inhouse.pnl.views._engine", side_effect=[events, _engine_results()]
         )
         view = _view(PnlStatusView, CLUSTER)
         content = view.get(view.request).content
-        assert b'id="id-pnl-report"' in content
-        assert b"Prepare PDF report" in content
+        assert b'id="id-pnl-report"' not in content
+        assert b"Prepare PDF report" not in content
 
     def _download(self, mocker, permission=CLUSTER, **engine):
         call = mocker.patch("widgets.inhouse.pnl.views.engine_request", **engine)
@@ -1496,6 +1525,7 @@ class TestPnlViewsReport:
         response = view.get(view.request)
         assert response.status_code == 302
         assert response.url.startswith(f"/widgets/pnl/{BUNDLE}?")
+        assert response.url.endswith("&tab=download")
 
 
 def _override(user, kind="value", asset="8", event="", amount="2.5", currency="usd"):

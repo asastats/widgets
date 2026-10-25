@@ -2984,3 +2984,19 @@ ever: held rules keep `last_value`, so they never fire.
 block: a direct import is a direct dependency. `TestAlertsAccessToken` fakes
 the `google` modules through `sys.modules`, so it passes whether or not
 `google-auth` is installed in the test venv.
+
+## inhouse/pnl/templates/pnl/index.html, _table.html; inhouse/pnl/views.py:PnlView, download_url — the Download tab (2026-10-25)
+
+The CSV links and the PDF report form moved from under the table to their own
+tab, between "Profit and loss" and "Settings", at the user's request: at the
+bottom of a long table they were easy to miss.
+
+- The tab exists only for tiers with `export` or `report` (both Cluster
+  today). `?tab=download` from any other tier falls back to the table.
+- The currency/period/valuation switches stay on the tab and keep
+  `tab=download`, because every file follows them.
+- The CSV views' "not ready yet" redirects and the expired PDF redirect now
+  land on the Download tab (`download_url()`), where the reader started.
+- Tests: `tests/test_views.py` (`download_tab_*`, `table_leaves_*`) and the
+  frontend's `functional_tests/test_pnl_download_tab.py`, which took over the
+  two CSV tests from `test_pnl_widget.py`.
