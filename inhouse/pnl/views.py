@@ -74,9 +74,10 @@ MORE_ROWS = {
 }
 #: Seconds a requested update may stay queued before the banner gives up waiting.
 UPDATE_QUEUED_LIMIT = 1800
-REPORT_EXPIRED_MESSAGE = (
-    "That PDF report is no longer available; prepare it again below."
-)
+#: Session key: per bundle, the report the reader last asked for, so the
+#: Download tab shows its state on return instead of the form.
+REPORT_SESSION_KEY = "pnl_reports"
+REPORT_EXPIRED_MESSAGE = "That PDF report is no longer available; prepare it again below."
 EXPORT_WAIT_MESSAGE = (
     "Profit and loss is still being worked out; download the CSV once the table shows."
 )
@@ -273,7 +274,9 @@ class PnlAccessMixin(WidgetAccessMixin):
                 if purchase_hidden(self.request):
                     messages.error(self.request, ADDRESSES_LIMIT_ERROR_APP % (limit,))
                 else:
-                    messages.error(self.request, mark_safe(ADDRESSES_LIMIT_ERROR % (limit,)))
+                    messages.error(
+                        self.request, mark_safe(ADDRESSES_LIMIT_ERROR % (limit,))
+                    )
                 return redirect("home")
 
             return redirect("subscriptions")
@@ -486,6 +489,38 @@ class PnlAccessMixin(WidgetAccessMixin):
         }
 
 
+def _remember_report(request, bundle, query, full):
+    """Note in the session that the reader asked for this bundle's report.
+
+    :param request: Django request object
+    :type request: :class:`django.http.HttpRequest`
+    :param bundle: the bundle's hash
+    :type bundle: str
+    :param query: the switches the report was asked with (`base_context`)
+    :type query: str
+    :param full: whether every asset is in full
+    :type full: Boolean
+    """
+    reports = dict(request.session.get(REPORT_SESSION_KEY, {}))
+    reports[bundle] = {"query": query, "full": full}
+    request.session[REPORT_SESSION_KEY] = reports
+
+
+def _remembered_report(request, bundle, query):
+    """Return the report the reader asked for with these switches, or None.
+
+    :param request: Django request object
+    :type request: :class:`django.http.HttpRequest`
+    :param bundle: the bundle's hash
+    :type bundle: str
+    :param query: the switches the page shows now (`base_context`)
+    :type query: str
+    :return: dict or None
+    """
+    asked = request.session.get(REPORT_SESSION_KEY, {}).get(bundle)
+    return asked if asked and asked.get("query") == query else None
+
+
 class PnlView(PnlAccessMixin, TemplateView):
     """Page holding the P&L widget; its body loads from :class:`PnlStatusView`.
 
@@ -506,6 +541,10 @@ class PnlView(PnlAccessMixin, TemplateView):
         tab = self.request.GET.get("tab")
         if tab == "download" and (self.features["export"] or self.features["report"]):
             context["tab"] = "download"
+            asked = _remembered_report(self.request, self.bundle, context["query"])
+            if self.features["report"] and asked:
+                context["report"] = "checking"
+                context["full"] = asked["full"]
         elif tab == "settings":
             context["tab"] = "settings"
             context["pnl_settings"] = self.reader_settings()
@@ -1270,6 +1309,8 @@ class PnlReportView(PnlAccessMixin, View):
 
         context["report"] = data.get("type")
         context["key"] = data.get("key", "")
+        if request.method == "POST":
+            _remember_report(request, self.bundle, context["query"], full)
         return render(request, "pnl/_report.html", context)
 
     post = get

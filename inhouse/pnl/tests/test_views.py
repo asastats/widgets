@@ -36,6 +36,7 @@ from widgets.inhouse.pnl.views import (
     PnlStatusView,
     PnlUpdatingView,
     PnlView,
+    REPORT_SESSION_KEY,
     PnlWalletsView,
     _engine,
     addresses_in_use,
@@ -66,6 +67,7 @@ def _view(view_class, permission=0, query="", user=None, path=BUNDLE):
     view = view_class()
     view.request = RequestFactory().get(f"/pnl/{path}{query}")
     view.request.user = _user(permission, user)
+    view.request.session = {}
     view.args = (path,)
     view.kwargs = {}
     view.bundle, view.addresses = BUNDLE, ADDRESSES
@@ -678,7 +680,6 @@ class TestPnlViewsReset:
         response = view.post(view.request, BUNDLE)
         assert b"could not be loaded" in response.content
 
-
     def test_pnl_views_reset_from_settings_reloads_the_table(self, mocker):
         mocker.patch("widgets.inhouse.pnl.views._engine")
         view = _view(PnlResetView, ASASTATSER, query="?tab=settings")
@@ -705,13 +706,17 @@ class TestPnlViewsSettings:
             side_effect=lambda *args, **kwargs: {},
         )
         user = _user(CLUSTER, django_user_model.objects.create(username="reader"))
-        context = _view(PnlView, CLUSTER, query="?tab=settings", user=user).get_context_data()
+        context = _view(
+            PnlView, CLUSTER, query="?tab=settings", user=user
+        ).get_context_data()
         assert context["tab"] == "settings"
         assert context["pnl_settings"].csv_separator == "comma"
         assert context["pnl_settings"].pk is None
         assert "tab" not in _view(PnlView, CLUSTER, user=user).get_context_data()
 
-    @pytest.mark.parametrize("permission,tab", [(CLUSTER, "download"), (ASASTATSER, None)])
+    @pytest.mark.parametrize(
+        "permission,tab", [(CLUSTER, "download"), (ASASTATSER, None)]
+    )
     def test_pnl_views_download_tab_context(
         self, mocker, django_user_model, permission, tab
     ):
@@ -935,8 +940,11 @@ class TestPnlViewsExport:
 
     @pytest.mark.parametrize(
         "engine",
-        [{"return_value": {"type": "evaluating"}}, {"return_value": None},
-         {"side_effect": BackendError("down")}],
+        [
+            {"return_value": {"type": "evaluating"}},
+            {"return_value": None},
+            {"side_effect": BackendError("down")},
+        ],
     )
     def test_pnl_views_export_back_to_the_page_until_ready(
         self, mocker, django_user_model, engine
@@ -1224,9 +1232,7 @@ class TestPnlViewsRowGroups:
         assert b">Hide</button>" in response.content
 
     def test_pnl_views_rows_renders_the_unvalued_group(self, mocker):
-        mocker.patch(
-            "widgets.inhouse.pnl.views._engine", return_value=_grouped_results()
-        )
+        mocker.patch("widgets.inhouse.pnl.views._engine", return_value=_grouped_results())
         view = _view(PnlRowsView, query="?group=unvalued")
         response = view.get(view.request)
         assert b"NOPR" in response.content
@@ -1306,9 +1312,7 @@ class TestPnlViewsUpdating:
 
     def _status(self, mocker, results, finished=True):
         events = {BUNDLE: {"-1": {"state": "finished" if finished else 5}}}
-        mocker.patch(
-            "widgets.inhouse.pnl.views._engine", side_effect=[events, results]
-        )
+        mocker.patch("widgets.inhouse.pnl.views._engine", side_effect=[events, results])
         view = _view(PnlStatusView, ASASTATSER)
         return view.get(view.request)
 
@@ -1371,9 +1375,17 @@ class TestPnlViewsUpdating:
     @pytest.mark.parametrize(
         "query,engine,expected",
         [
-            ("?since=9000", {"updating": None, "rows_at": 8_000}, b"waiting for its turn"),
+            (
+                "?since=9000",
+                {"updating": None, "rows_at": 8_000},
+                b"waiting for its turn",
+            ),
             ("?since=5000", {"updating": None, "rows_at": 4_000}, b"has not started yet"),
-            ("?since=9000", {"updating": None, "rows_at": 9_500}, b"New figures are ready"),
+            (
+                "?since=9000",
+                {"updating": None, "rows_at": 9_500},
+                b"New figures are ready",
+            ),
             ("?since=soon", {"updating": None, "rows_at": 1}, b"New figures are ready"),
             ("", None, b"New figures are ready"),
         ],
@@ -1432,6 +1444,7 @@ class TestPnlViewsReport:
         view = _view(PnlReportView, permission, user=user)
         view.request = RequestFactory().post(f"/pnl/{BUNDLE}/report", {"full": "1"})
         view.request.user = user
+        view.request.session = {}
         return view, call
 
     def test_pnl_views_report_needs_cluster(self, mocker, django_user_model):
@@ -1479,6 +1492,71 @@ class TestPnlViewsReport:
         view, _ = self._report(mocker, django_user_model, **engine)
         response = view.post(view.request)
         assert expected in response.content
+
+    def test_pnl_views_report_asked_for_is_remembered(self, mocker, django_user_model):
+        view, _ = self._report(
+            mocker, django_user_model, return_value={"type": "preparing", "key": "k"}
+        )
+        view.post(view.request)
+        assert view.request.session[REPORT_SESSION_KEY] == {
+            BUNDLE: {"query": "currency=usd&period=all&valuation=spot", "full": True}
+        }
+
+    def test_pnl_views_report_poll_is_not_a_request(self, mocker, django_user_model):
+        view, _ = self._report(
+            mocker, django_user_model, return_value={"type": "preparing", "key": "k"}
+        )
+        view.request.method = "GET"
+        view.get(view.request)
+        assert REPORT_SESSION_KEY not in view.request.session
+
+    def _download_tab(self, mocker, django_user_model, permission=CLUSTER, **asked):
+        mocker.patch(
+            "django.views.generic.base.ContextMixin.get_context_data",
+            side_effect=lambda *args, **kwargs: {},
+        )
+        user = _user(permission, django_user_model.objects.create(username="reader"))
+        view = _view(PnlView, permission, query="?tab=download", user=user)
+        view.request.session[REPORT_SESSION_KEY] = {
+            BUNDLE: {
+                "query": "currency=usd&period=all&valuation=spot",
+                "full": True,
+                **asked,
+            }
+        }
+        return view
+
+    def test_pnl_views_download_tab_checks_a_report_asked_for(
+        self, mocker, django_user_model
+    ):
+        context = self._download_tab(mocker, django_user_model).get_context_data()
+        assert context["report"] == "checking"
+        assert context["full"] is True
+
+    def test_pnl_views_download_tab_offers_the_form_for_other_switches(
+        self, mocker, django_user_model
+    ):
+        view = self._download_tab(mocker, django_user_model, query="currency=eur")
+        assert "report" not in view.get_context_data()
+
+    def test_pnl_views_download_tab_without_report_feature_checks_nothing(
+        self, mocker, django_user_model
+    ):
+        view = self._download_tab(mocker, django_user_model, PROFESSIONAL)
+        assert "report" not in view.get_context_data()
+
+    def test_pnl_views_download_tab_renders_the_check(self, django_user_model):
+        user = _user(CLUSTER, django_user_model.objects.create(username="reader"))
+        view = _view(PnlView, CLUSTER, query="?tab=download", user=user)
+        view.request.session[REPORT_SESSION_KEY] = {
+            BUNDLE: {"query": "currency=usd&period=all&valuation=spot", "full": False}
+        }
+        response = view.get(view.request)
+        response.render()
+        assert b"Checking the PDF report" in response.content
+        assert b'hx-trigger="load"' in response.content
+        assert b"Prepare PDF report" not in response.content
+        assert b"full=1" not in response.content
 
     def test_pnl_views_table_leaves_the_report_to_the_download_tab(self, mocker):
         events = {BUNDLE: {"-1": {"state": "finished"}}}
@@ -1583,11 +1661,11 @@ class TestPnlViewsOverrides:
         view.request.user = user
         return view.post(view.request, BUNDLE, asset)
 
-    def test_pnl_views_override_value_saved_changed_and_removed(
-        self, django_user_model
-    ):
+    def test_pnl_views_override_value_saved_changed_and_removed(self, django_user_model):
         user = self._reader(django_user_model)
-        response = self._post(user, {"kind": "value", "amount": "2.50", "currency": "usd"})
+        response = self._post(
+            user, {"kind": "value", "amount": "2.50", "currency": "usd"}
+        )
         assert response.status_code == 204
         assert f"/pnl/{BUNDLE}?currency=usd" in response["HX-Redirect"]
         self._post(user, {"kind": "value", "amount": "3", "currency": "algo"})
@@ -1685,9 +1763,7 @@ class TestPnlViewsOverrides:
 
     def test_pnl_views_override_forms_in_the_drilldown(self, django_user_model, mocker):
         user = self._reader(django_user_model)
-        mocker.patch(
-            "widgets.inhouse.pnl.views._engine", return_value=_deposit_events()
-        )
+        mocker.patch("widgets.inhouse.pnl.views._engine", return_value=_deposit_events())
         view = _view(PnlAssetView, ASASTATSER, user=user)
         content = view.get(view.request, BUNDLE, "8").content
         assert content.count(b">Set cost</summary>") == 1
@@ -1798,7 +1874,6 @@ class TestPnlViewsWallets:
         assert [wallet.event for wallet in context["wallets"]] == [WALLET]
 
 
-
 class TestPnlViewsLimitMessageInApp:
     """The address limit message without its subscriptions link in the app (F10)."""
 
@@ -1820,4 +1895,6 @@ class TestPnlViewsLimitMessageInApp:
         messages = mocker.patch("widgets.inhouse.pnl.views.messages")
         mocker.patch("widgets.inhouse.pnl.views.redirect", return_value="home")
         view.handle_no_permission()
-        messages.error.assert_called_once_with(view.request, ADDRESSES_LIMIT_ERROR_APP % (5,))
+        messages.error.assert_called_once_with(
+            view.request, ADDRESSES_LIMIT_ERROR_APP % (5,)
+        )

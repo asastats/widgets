@@ -3000,3 +3000,21 @@ bottom of a long table they were easy to miss.
 - Tests: `tests/test_views.py` (`download_tab_*`, `table_leaves_*`) and the
   frontend's `functional_tests/test_pnl_download_tab.py`, which took over the
   two CSV tests from `test_pnl_widget.py`.
+
+## inhouse/pnl/views.py (REPORT_SESSION_KEY, PnlView, PnlReportView), templates/pnl/_report.html — the Download tab remembers a report (2026-10-26)
+
+Reported by the user: on the Download tab, "Prepare PDF report" worked, but
+after a visit to the Profit and loss tab and back, the tab offered the form
+again. The tab is a full page render, and nothing in it asked the engine,
+because asking *is* preparing: the engine's `POST report/` answers "ready"
+when the PDF is cached and otherwise queues it. Asking on every render would
+start a PDF for every reader who only opens the tab.
+
+So the widget remembers, per bundle in the session, the switches (`query`)
+and the `full` choice a reader last prepared a report with (on the form's
+POST only, not the poll). Reopening the tab with the same switches renders a
+"checking" state that asks the engine once on load, which costs nothing for a
+cached or queued report. Other switches show the form. Settings changed on
+the Settings tab (cost method, page format, hidden assets) are not in
+`query`; with those changed, the check starts the report under the new
+settings, which is what the reader would get by pressing the button.
