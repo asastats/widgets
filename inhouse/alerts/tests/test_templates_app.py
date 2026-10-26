@@ -37,7 +37,9 @@ class TestAlertsTemplatesInApp:
         assert "available from the" in html
 
     def test_alerts_modal_links_in_a_browser(self):
-        assert "See the plans" in _render("alerts/modal.html", False, alerts_entitled=False)
+        assert "See the plans" in _render(
+            "alerts/modal.html", False, alerts_entitled=False
+        )
 
     def _panel(self, purchase_hidden):
         return _render(
@@ -64,3 +66,15 @@ class TestAlertsTemplatesInApp:
 
         assert "Upgrade for more" in html
         assert "a larger plan" in html
+
+    def test_alerts_save_button_carries_the_app_haptic(self):
+        html = _render(
+            "alerts/_panel.html",
+            True,
+            address="A" * 58,
+            form=AlertRuleForm(),
+            rules_left=1,
+            rules_allowed=5,
+        )
+
+        assert '<button type="submit" class="alerts-save" data-app-haptic>' in html

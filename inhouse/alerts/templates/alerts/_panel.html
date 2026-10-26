@@ -236,7 +236,8 @@
       </small>
     </label>
 
-    <button type="submit" class="alerts-save">
+    {# data-app-haptic: app.js taps on click (wallet/src/app/haptics.ts). #}
+    <button type="submit" class="alerts-save" data-app-haptic>
       {% if editing %}Save changes{% else %}Add alert{% endif %}
     </button>
     {% if editing %}
