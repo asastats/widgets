@@ -8,7 +8,7 @@
   </p>
   <nav class="pnl-currency pnl-tabs" aria-label="Tabs">
     <a href="?{{ query }}"{% if not tab %} aria-current="true"{% endif %}>Profit and loss</a>
-    {% if features.export or features.report %}<a href="?{{ query }}&amp;tab=download"{% if tab == "download" %} aria-current="true"{% endif %}>Download</a>{% endif %}
+    {% if features.export or features.report %}<a href="?{{ query }}&amp;tab=download"{% if tab == "download" %} aria-current="true"{% endif %}>Download{% if report_badge %}{% include "pnl/_report_badge.html" with report="checking" full=report_badge.full %}{% endif %}</a>{% endif %}
     <a href="?{{ query }}&amp;tab=settings"{% if tab == "settings" %} aria-current="true"{% endif %}>Settings</a>
   </nav>
   {% if tab != "settings" %}{% if features.currencies|length > 1 or features.periods|length > 1 %}

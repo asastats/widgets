@@ -549,6 +549,10 @@ class PnlView(PnlAccessMixin, TemplateView):
             context["tab"] = "settings"
             context["pnl_settings"] = self.reader_settings()
             context["wallets"] = self.saved_overrides("own")
+        if context.get("tab") != "download" and self.features["report"]:
+            context["report_badge"] = _remembered_report(
+                self.request, self.bundle, context["query"]
+            )
         return context
 
 
@@ -1311,6 +1315,8 @@ class PnlReportView(PnlAccessMixin, View):
         context["key"] = data.get("key", "")
         if request.method == "POST":
             _remember_report(request, self.bundle, context["query"], full)
+        if request.GET.get("badge"):
+            return render(request, "pnl/_report_badge.html", context)
         return render(request, "pnl/_report.html", context)
 
     post = get

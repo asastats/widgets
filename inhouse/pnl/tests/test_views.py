@@ -1558,6 +1558,87 @@ class TestPnlViewsReport:
         assert b"Prepare PDF report" not in response.content
         assert b"full=1" not in response.content
 
+    @pytest.mark.parametrize("query", ["", "?tab=settings"])
+    def test_pnl_views_other_tabs_badge_a_report_asked_for(
+        self, mocker, django_user_model, query
+    ):
+        mocker.patch(
+            "django.views.generic.base.ContextMixin.get_context_data",
+            side_effect=lambda *args, **kwargs: {},
+        )
+        mocker.patch.object(PnlView, "reader_settings")
+        mocker.patch.object(PnlView, "saved_overrides")
+        user = _user(CLUSTER, django_user_model.objects.create(username="reader"))
+        view = _view(PnlView, CLUSTER, query=query, user=user)
+        view.request.session[REPORT_SESSION_KEY] = {
+            BUNDLE: {"query": "currency=usd&period=all&valuation=spot", "full": True}
+        }
+        context = view.get_context_data()
+        assert context["report_badge"] == {
+            "query": "currency=usd&period=all&valuation=spot",
+            "full": True,
+        }
+        assert "report" not in context
+
+    def test_pnl_views_download_tab_has_no_badge(self, mocker, django_user_model):
+        assert "report_badge" not in self._download_tab(
+            mocker, django_user_model
+        ).get_context_data()
+
+    def test_pnl_views_badge_without_report_feature(self, mocker, django_user_model):
+        mocker.patch(
+            "django.views.generic.base.ContextMixin.get_context_data",
+            side_effect=lambda *args, **kwargs: {},
+        )
+        user = _user(PROFESSIONAL, django_user_model.objects.create(username="reader"))
+        view = _view(PnlView, PROFESSIONAL, user=user)
+        view.request.session[REPORT_SESSION_KEY] = {
+            BUNDLE: {"query": "currency=usd&period=all&valuation=spot", "full": True}
+        }
+        assert "report_badge" not in view.get_context_data()
+
+    def test_pnl_views_table_tab_renders_the_badge(self, django_user_model):
+        user = _user(CLUSTER, django_user_model.objects.create(username="reader"))
+        view = _view(PnlView, CLUSTER, user=user)
+        view.request.session[REPORT_SESSION_KEY] = {
+            BUNDLE: {"query": "currency=usd&period=all&valuation=spot", "full": True}
+        }
+        response = view.get(view.request)
+        response.render()
+        assert b'id="id-pnl-report-badge"' in response.content
+        assert b"full=1&amp;badge=1" in response.content
+        assert b">Preparing PDF</span>" in response.content
+
+    def test_pnl_views_table_tab_without_a_report_has_no_badge(self, django_user_model):
+        user = _user(CLUSTER, django_user_model.objects.create(username="reader"))
+        view = _view(PnlView, CLUSTER, user=user)
+        response = view.get(view.request)
+        response.render()
+        assert b"id-pnl-report-badge" not in response.content
+
+    @pytest.mark.parametrize(
+        "engine,expected,polls",
+        [
+            ({"return_value": {"type": "ready", "key": "k"}}, b"PDF ready", False),
+            ({"return_value": {"type": "preparing", "key": "k"}}, b"Preparing PDF", True),
+            ({"return_value": {"type": "pricing"}}, b"", False),
+            ({"side_effect": BackendError("down")}, b"", False),
+        ],
+    )
+    def test_pnl_views_report_badge_states(
+        self, mocker, django_user_model, engine, expected, polls
+    ):
+        view, _ = self._report(mocker, django_user_model, **engine)
+        user = view.request.user
+        view.request = RequestFactory().get(f"/pnl/{BUNDLE}/report", {"badge": "1"})
+        view.request.user = user
+        view.request.session = {}
+        content = view.get(view.request).content
+        assert expected in content
+        assert (b'hx-trigger="load delay:4s"' in content) is polls
+        assert b"Prepare PDF report" not in content
+        assert REPORT_SESSION_KEY not in view.request.session
+
     def test_pnl_views_table_leaves_the_report_to_the_download_tab(self, mocker):
         events = {BUNDLE: {"-1": {"state": "finished"}}}
         mocker.patch(

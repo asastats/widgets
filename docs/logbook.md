@@ -3018,3 +3018,22 @@ cached or queued report. Other switches show the form. Settings changed on
 the Settings tab (cost method, page format, hidden assets) are not in
 `query`; with those changed, the check starts the report under the new
 settings, which is what the reader would get by pressing the button.
+
+## inhouse/pnl/views.py (PnlView, PnlReportView), templates/pnl/_report_badge.html, index.html — the report's state on the other tabs (2026-10-27)
+
+The user asked for a sign on the Profit and loss and Settings tabs that the
+PDF report has finished, like the address page's CSV export ("Your tax report
+is being processed", then "Download processed CSV file"). When the session
+remembers a report for these switches (`_remembered_report`, the same rule the
+Download tab uses), the Download tab link carries `#id-pnl-report-badge`. It
+starts as "checking", asks `pnl_report` with `badge=1`, and polls every 4 s
+while the engine says `preparing`. "PDF ready" stops the polling, and any
+other state (failed, pricing, nothing) swaps the badge away. The badge poll is
+a GET, so it never marks a report as asked for, and it makes the same engine
+call the Download tab's own poll makes.
+
+Styled with the existing `pnl-badge pnl-badge-muted` (preparing) and
+`pnl-badge pnl-badge-illiquid` (ready, the info colour) because the templates
+may name only `pnl-*` classes and a new class needs a Tailwind rebuild of
+`style.tw.css`, which the user approves separately. A dedicated green
+`pnl-badge-ready` is the obvious follow-up if wanted.
