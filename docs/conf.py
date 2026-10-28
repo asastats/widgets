@@ -72,6 +72,8 @@ if not settings.configured:
         DATABASES={
             "default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}
         },
+        # Host settings the widgets read at import; mirrors config/settings/base.py.
+        FIAT_CURRENCIES=("USD", "EUR"),
     )
 django.setup()
 
