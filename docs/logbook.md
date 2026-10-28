@@ -3037,3 +3037,22 @@ Styled with the existing `pnl-badge pnl-badge-muted` (preparing) and
 may name only `pnl-*` classes and a new class needs a Tailwind rebuild of
 `style.tw.css`, which the user approves separately. A dedicated green
 `pnl-badge-ready` is the obvious follow-up if wanted.
+
+## docs/conf.py
+
+### `django.setup()` runs under the host mock (2026-10-28)
+
+Read the Docs build 35465187 failed in `conf.py` at `django.setup()` with
+`No module named 'core'`: installing `widgets` imports `widgets.models`, which
+imports `alerts.models`, which imports `core.signals`. `core` is the host's app
+and is not in this repository. Locally it resolves through `../..`, so the
+build passed on a developer's machine. `autodoc_mock_imports` only applies once
+autodoc runs, which is after the configuration file has been evaluated, so the
+list is now `HOST_MODULES` and `django.setup()` runs inside
+`sphinx.ext.autodoc.mock.mock(HOST_MODULES)`.
+
+The build before it (35291523) failed on `settings.FIAT_CURRENCIES`, which
+`alerts/forms.py` reads at import; `settings.configure` now sets it to the
+host's value (`("USD", "EUR")`, `config/settings/base.py`). Test the docs
+from a copy of this repository outside `frontend/`, as Read the Docs checks it
+out, or a host module on the path hides both failures.

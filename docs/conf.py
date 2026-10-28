@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 import django
 from django.conf import settings
 from django.views import View
+from sphinx.ext.autodoc.mock import mock
 
 
 def get_version():
@@ -57,6 +58,22 @@ os.symlink(_repo_root, _widgets_link)
 sys.path.insert(0, _temp_dir)
 
 
+# The host's apps; also mocked while Django loads our models (docs/logbook.md).
+HOST_MODULES = [
+    "api",
+    # The host's main app, in the same category as the four beside it and
+    # missing from this list until 2026-09-22. A widget importing
+    # `core.models.Profile` made Django reject the model - it is neither
+    # mocked nor in this build's INSTALLED_APPS - which took `widgets.urls`
+    # down with it.
+    "core",
+    "storage",
+    "utils",
+    "walletauth",
+    "widgethost",
+]
+
+
 if not settings.configured:
     settings.configure(
         INSTALLED_APPS=[
@@ -75,7 +92,8 @@ if not settings.configured:
         # Host settings the widgets read at import; mirrors config/settings/base.py.
         FIAT_CURRENCIES=("USD", "EUR"),
     )
-django.setup()
+with mock(HOST_MODULES):
+    django.setup()
 
 
 # --- MOCKING FIX FOR .as_view() AND MRO ---
@@ -115,19 +133,7 @@ master_doc = "index"
 extensions = ["sphinx.ext.autodoc"]
 
 # Use Sphinx's native mocking to handle the rest of the external dependencies.
-autodoc_mock_imports = [
-    "api",
-    # The host's main app, in the same category as the four beside it and
-    # missing from this list until 2026-09-22. A widget importing
-    # `core.models.Profile` made Django reject the model - it is neither
-    # mocked nor in this build's INSTALLED_APPS - which took `widgets.urls`
-    # down with it.
-    "core",
-    "storage",
-    "utils",
-    "walletauth",
-    "widgethost",
-]
+autodoc_mock_imports = HOST_MODULES
 
 # **Two host constants are computed with, not merely named.**
 #
