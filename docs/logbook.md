@@ -3056,3 +3056,16 @@ The build before it (35291523) failed on `settings.FIAT_CURRENCIES`, which
 host's value (`("USD", "EUR")`, `config/settings/base.py`). Test the docs
 from a copy of this repository outside `frontend/`, as Read the Docs checks it
 out, or a host module on the path hides both failures.
+
+### `inhouse/alerts/push.py` `send_push`: a 500 "permanent internal error" was transient (2026-10-28)
+
+A test alert from the production shell logged `push failed (500):
+WebPushException: Push failed: 500 Internal Server Error … permanent internal
+error encountered, do not retry the request.` One of the reader's two browser
+subscriptions answered it; minutes later both (`updates.push.services.mozilla.com`
+and `jmt17.google.com`) delivered with `send_push` returning True. So the
+wording does not mean the subscription is dead, and deleting on it would have
+removed a working Chrome subscription. Unchanged on purpose: only
+`GONE_STATUSES` (404, 410) delete; anything else logs and keeps it. If one
+subscription keeps failing for days, delete after several failures spread over
+more than a day (a failure count and a migration), not on the first.
