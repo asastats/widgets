@@ -116,7 +116,9 @@ entries, or asset paths (see below).
                        "historic:events", "historic:reset"]
    data          = ["portfolio:bundle", "profile:permission"]
    hosts         = []                    # external hosts a public widget may call
+   category      = "swap"                # optional UI grouping ("swap", "tools"); metadata only
 
+There is no ``limits`` key: per-widget limits live on the deployment token, not here.
 ``data`` is **enforced**: the host injects only declared keys; widgets do not access the
 ORM directly. ``engine_endpoints`` must be a subset of the deployment token's ``scopes``,
 and a ``public`` widget must declare none.

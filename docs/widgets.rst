@@ -7,13 +7,9 @@
   :show-inheritance:
 
 
-.. The alerts directives below are the only ones addressed as
-   ``widgets.inhouse.alerts.*`` rather than flat ``inhouse.*``, and they have to
-   be. This is the one widget that defines Django models, and the app registry
-   knows them by the path INSTALLED_APPS named - ``widgets``. Imported flat, the
-   same file is executed a second time under a second module name, and
-   ``ModelBase`` rejects the class: "doesn't declare an explicit app_label and
-   isn't in an application in INSTALLED_APPS".
+.. The alerts and pnl directives are addressed as ``widgets.inhouse.<widget>.*``,
+   not flat ``inhouse.*``, because they define Django models. Imported flat, the
+   models module runs twice and ``ModelBase`` rejects it. See ``docs/logbook.md``.
 
 :mod:`widgets.inhouse.alerts` -- Alerts widget package
 --------------------------------------------------------
@@ -514,6 +510,96 @@
 -------------------------------------------------------------------------------------------
 
 .. automodule:: inhouse.liverefresh.tests
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.pnl` -- Profit and loss widget package
+-------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.pnl
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.pnl.display` -- Profit and loss widget's presentation module
+------------------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.pnl.display
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.pnl.export` -- Profit and loss widget's export module
+-----------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.pnl.export
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.pnl.forms` -- Profit and loss widget's forms module
+---------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.pnl.forms
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.pnl.manifest` -- Profit and loss widget's manifest module
+---------------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.pnl.manifest
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.pnl.models` -- Profit and loss widget's models module
+-----------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.pnl.models
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.pnl.tiers` -- Profit and loss widget's per-tier allowance module
+----------------------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.pnl.tiers
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.pnl.urls` -- Profit and loss widget's URL configurations module
+---------------------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.pnl.urls
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.pnl.views` -- Profit and loss widget's views module
+---------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.pnl.views
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+:mod:`widgets.inhouse.pnl.tests` -- Profit and loss widget's unit-tests package
+---------------------------------------------------------------------------------
+
+.. automodule:: widgets.inhouse.pnl.tests
   :members:
   :undoc-members:
   :show-inheritance:

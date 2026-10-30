@@ -20,17 +20,20 @@ Structure
 
 This repository contains the base code that is common to all the user widgets, as well as two main directories/packages where the code for published widgets will reside.
 
-.. code-block:: bash
+.. code-block:: text
 
     widgets/
     ├── docs/
     ├── inhouse/
+    │   ├── alerts/       # alert rules, delivered as web push and app notifications
     │   ├── asastats/     # swap widget for our own router
     │   ├── dustsweep/    # empties an account of unwanted holdings
     │   ├── folks/        # swap widget for the Folks router
     │   ├── haystack/     # swap widget for the Haystack router
     │   ├── historic/     # historic portfolio data
     │   ├── hogswap/      # swap widget for the HOGSWAP router
+    │   ├── liverefresh/  # real-time refresh of open address pages
+    │   ├── pnl/          # profit and loss
     │   └── swapcore/     # the shared swap panel the four routers inherit
     ├── migrations/
     ├── static/

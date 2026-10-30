@@ -26,8 +26,8 @@ Adding an alias can be useful:
 .. code-block:: bash
   :caption: ~/.bashrc
 
-  alias 'widgets'='cd /home/ipaleka/dev/widgets; \
-    source /home/ipaleka/dev/venvs/widgets/bin/activate'
+  alias 'widgets'='cd /home/username/dev/widgets; \
+    source /home/username/dev/venvs/widgets/bin/activate'
 
 
 SonarQube
@@ -36,7 +36,7 @@ SonarQube
 `SonarQube <https://docs.sonarsource.com/sonarqube-community-build>`_
 is an automated code review and static analysis tool designed to detect coding issues.
 You can find the installation instructions
-`here <https://docs.sonarsource.com/sonarqube-community-build/try-out-sonarqube>`
+`here <https://docs.sonarsource.com/sonarqube-community-build/try-out-sonarqube>`_.
 
 
 Starting server
@@ -44,7 +44,7 @@ Starting server
 
 .. code-block:: bash
 
-  $ ~/opt/repos/sonarqube-9.4.0/bin/linux-x86-64/sonar.sh console
+  $ <sonarqube dir>/bin/linux-x86-64/sonar.sh console
 
 
 Starting scanner
@@ -55,7 +55,7 @@ line to your ``~/.bashrc``:
 
 .. code-block:: bash
 
-  export PATH=$PATH:~/opt/repos/sonar-scanner/bin
+  export PATH=$PATH:<sonar-scanner dir>/bin
 
 
 To start scanning, run the scanner from the root directory of the project with:
@@ -69,7 +69,7 @@ Newer versions require authentication:
 
 .. code-block:: bash
 
-  $ sonar-scanner -Dsonar.login=admin -Dsonar.password=password -Dsonar.projectKey=user-widgets
+  $ sonar-scanner -Dsonar.token=<token> -Dsonar.projectKey=user-widgets
 
 
 For additional information read the scanner `documentation`_.
@@ -150,8 +150,9 @@ naming an engine endpoint after the widget) means rework. The essentials:
   (``account:holdings``, ``assets:lookup``), never after the widget, so a scope is shared
   across widgets.
 - **Declare a limit, check a limit.** Any per-widget resource ceiling the widget relies
-  on (e.g. ``max_addresses``) must be both declared in ``limits`` and enforced by the
-  widget's own engine endpoints. Absence of a configured limit denies.
+  on (e.g. ``max_addresses``) must be set in the deployment token's ``limits`` (not in
+  the manifest) and enforced by the widget's own engine endpoints. Absence of a
+  configured limit denies.
 - **The widget owns its wiring.** A widget keeps its own ``urls.py`` and ``routing.py``;
   templates and static files are found through Django's normal app discovery. The
   manifest carries metadata and grants only: no routes, consumers, menu, or asset paths.
@@ -207,6 +208,7 @@ developer, expect these steps and supply what they need:
      INHOUSE_WIDGETS = [
          "historic", "folks", "haystack", "hogswap",
          "asastats", "swapcore", "dustsweep",
+         "liverefresh", "alerts", "pnl",
      ]
      THIRDPARTY_WIDGETS = []
 

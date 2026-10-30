@@ -3069,3 +3069,17 @@ removed a working Chrome subscription. Unchanged on purpose: only
 `GONE_STATUSES` (404, 410) delete; anything else logs and keeps it. If one
 subscription keeps failing for days, delete after several failures spread over
 more than a day (a failure count and a migration), not on the first.
+
+## docs/widgets.rst: why alerts and pnl are addressed as `widgets.inhouse.<widget>.*` (2026-10-30)
+
+These are the widgets that define Django models (`alerts`, and since it gained
+`PnlBundle` and friends, `pnl`). The app registry knows a model by the path
+`INSTALLED_APPS` named, which is `widgets`. Imported flat as `inhouse.alerts.*`,
+the same file is executed a second time under a second module name, and
+`ModelBase` rejects the class with "doesn't declare an explicit app_label and
+isn't in an application in INSTALLED_APPS". Any widget that adds a models module
+needs the prefixed form.
+
+The comment in `widgets.rst` used to say alerts was "the one widget that defines
+Django models". That stopped being true when `pnl` arrived; `pnl` was also
+missing from the page until 2026-10-30.
