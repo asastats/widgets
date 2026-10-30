@@ -87,7 +87,7 @@ The Python tests for this repository are executed directly by the parent "fronte
 repository's CI/CD workflow, where this code is included as a submodule.
 
 
-Javascript
+JavaScript
 ^^^^^^^^^^
 
 System-wide ``nodejs`` and ``npm``:
@@ -98,8 +98,8 @@ System-wide ``nodejs`` and ``npm``:
 
 **There is no package.json at the root of this repository, and jest is not run
 from here.** A widget that has JavaScript keeps its own ``package.json`` with
-its own jest configuration --- ``dustsweep``, ``historic`` and ``swapcore`` do
---- and can be run on its own:
+its own jest configuration (``dustsweep``, ``historic`` and ``swapcore`` do)
+and can be run on its own:
 
 .. code-block:: bash
 
@@ -115,7 +115,7 @@ vendor router SDK they load in the browser. They ship no suite of their own.
 
    **What CI actually runs is the frontend's jest, not these.** ``website``'s
    config names no ``roots``, so its rootDir is ``website`` and it collects
-   *every* ``*.test.js`` beneath it --- its own suites plus the ones in
+   *every* ``*.test.js`` beneath it: its own suites plus the ones in
    ``widgets/inhouse/*/tests/javascript/``. One invocation, one coverage
    report.
 
@@ -123,7 +123,7 @@ vendor router SDK they load in the browser. They ship no suite of their own.
 
    * **A package a widget suite requires must also be declared in
      ``website/package.json``.** Node resolves against ``website/node_modules``,
-     and that is the file the workflow installs --- a dependency declared only
+     and that is the file the workflow installs. A dependency declared only
      in the widget's own manifest resolves on a machine where somebody once ran
      ``npm install`` inside the widget, and nowhere else. The frontend's
      ``core/tests/test_jest_dependencies.py`` fails if the two drift.

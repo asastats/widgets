@@ -44,7 +44,7 @@ This repository contains the base code that is common to all the user widgets, a
 The first published widget was the historic data widget, and it remains the
 worked example for an engine-backed widget: a consumer, a wire format, and a
 golden-fixture test of the engine's JSON. The four swap widgets are a different
-shape --- one shared panel in ``swapcore`` and a thin adapter each --- and
+shape (one shared panel in ``swapcore`` and a thin adapter each), and
 ``dustsweep`` is neither, being a tool that uses a router rather than being one.
 
 
@@ -57,12 +57,12 @@ eventually end up in a form of user widgets, with the code that resides in this 
 Inhouse
 ^^^^^^^
 
-The `inhouse` directory contains the user widgets developed by the ASA Stats team.
+The ``inhouse`` directory contains the user widgets developed by the ASA Stats team.
 
 
 Thirdparty
 ^^^^^^^^^^
 
-The `thirdparty` directory contains the user widgets developed by other developers.
+The ``thirdparty`` directory contains the user widgets developed by other developers.
 All the widgets from this directory have to be approved by the ASA Stats team
 before they are published on the ASA Stats website.

@@ -3083,3 +3083,19 @@ needs the prefixed form.
 The comment in `widgets.rst` used to say alerts was "the one widget that defines
 Django models". That stopped being true when `pnl` arrived; `pnl` was also
 missing from the page until 2026-10-30.
+
+## docs/widget_contract.rst: discovery and mounting caused a live bug (2026-10-30, incident date not recorded)
+
+A widget left off `INHOUSE_WIDGETS` stopped its URLs being mounted but was still
+offered, because `swap_routers()` discovers by manifest. `swap_routers()` sorts by
+id, so the unmounted widget became the default router for every profile that had
+never chosen one, and its entry URL resolved to empty. A widget is hidden only
+when its manifest says so. The contract keeps the one-line rule; the runbook is
+`inhouse/asastats/runbook.rst`.
+
+## docs/runbooks.rst: why the toctree is a glob (2026-10-30, date of the change not recorded)
+
+The explicit list had drifted to five of seven: `alerts` and `liverefresh`
+shipped runbooks that were never published, and every build still succeeded,
+because an unlisted document is silent rather than an error. With a glob, adding
+`runbooks/<widget>.rst` is the whole step.

@@ -1,10 +1,8 @@
-.. ASA Stats user widgets documentation master file, created by
-   sphinx-quickstart on Tue Sep 23 20:16:55 2025.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+ASA Stats user widgets documentation
+====================================
 
-Welcome to ASA Stats user widgets documentation!
-================================================
+The Django app that holds every ASA Stats user widget. The website imports it as a Git
+submodule.
 
 .. toctree::
    :maxdepth: 2

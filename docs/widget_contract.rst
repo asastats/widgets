@@ -155,12 +155,9 @@ In-process lifecycle (host registry)
    the second puts its static and template directories on the search paths. The two
    must agree with each other (see :doc:`development`, *Deployment*).
 
-   **Discovery and mounting are not the same switch, and treating them as one caused
-   a live bug.** Leaving a widget off the lists stopped its URLs being mounted while
-   doing nothing to stop it being *offered* --- and since ``swap_routers()`` sorts by
-   id, the unmounted widget became the default router for every profile that had
-   never chosen one, whose entry URL then resolved to empty. A widget is hidden only
-   when its manifest says so. See ``inhouse/asastats/runbook.rst``.
+   **Discovery and mounting are separate switches.** Leaving a widget off the lists
+   stops its URLs being mounted but does not stop it being offered. A widget is hidden
+   only when its manifest says so. See ``inhouse/asastats/runbook.rst``.
 #. **Validate**: manifest schema; ``engine_endpoints <=`` token ``scopes``; ``public``
    declares no ``engine_endpoints``.
 #. **Wire (unchanged host includes)**: the widget's own ``urls.py``/``routing.py`` are
@@ -178,8 +175,8 @@ Realtime (engine-backed widgets)
 
 Shared Channels-Redis message bus between engine workers and the open consumer (transient
 pub/sub, not stored data). ``group_name_from_bundle`` is **vendored** into the widget
-(deterministic) so both sides resolve the identical group with no ``engine.*`` import. The
-engine and frontend must target the same Redis host, port and database.
+(deterministic) so both sides resolve the identical group with no ``engine.*`` import. The rules
+that keep it working are in :doc:`development`, *Realtime*.
 
 
 Historic mapped onto this contract
