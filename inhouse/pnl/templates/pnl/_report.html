@@ -2,7 +2,7 @@
 <div id="id-pnl-report" class="pnl-report"{% if report == "preparing" or report == "checking" %} hx-get="{% url 'pnl_report' path %}?{{ query }}{% if full %}&amp;full=1{% endif %}" hx-trigger="load{% if report == "preparing" %} delay:4s{% endif %}" hx-swap="outerHTML"{% endif %}>
   {% if report == "ready" %}
     <a class="pnl-button pnl-button-primary" href="{% url 'pnl_report_download' path %}?{{ query }}&amp;key={{ key }}" data-app-download>Download PDF report</a>
-    <span class="pnl-muted">Ready{% if full %}, with every asset in full{% endif %}.</span>
+    <span class="pnl-muted">&nbsp;Ready{% if full %}, with every asset in full{% endif %}.</span>
   {% elif report == "checking" %}
     {# The Download tab, reopened after this reader asked for the report. #}
     <span class="pnl-muted" role="status">Checking the PDF report…</span>

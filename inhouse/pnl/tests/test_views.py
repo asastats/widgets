@@ -193,6 +193,10 @@ class TestPnlViewsAccess:
         )
         mocker.patch("widgets.inhouse.pnl.views.messages")
         mocker.patch("widgets.inhouse.pnl.views.redirect", side_effect=lambda name: name)
+        mocker.patch(
+            "widgets.inhouse.pnl.views.subscriptions_redirect",
+            side_effect=lambda request: "subscriptions",
+        )
         assert view.handle_no_permission() == expected
 
     def test_pnl_views_currency_respects_tier(self):

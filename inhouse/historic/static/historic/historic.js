@@ -903,6 +903,17 @@ function resetData(event) {
 }
 
 /**
+ * Return true on a phone-width screen, where the charts get a taller shape.
+ * @function narrowScreen
+ *
+ * @returns {Boolean}
+ *
+ */
+function narrowScreen() {
+  return !!(window.matchMedia && window.matchMedia("(max-width: 600px)").matches);
+}
+
+/**
  * Create bars chart using retrieved data (labels and datasets) and scale boundaries
  * @function populateBarsChart
  *
@@ -913,6 +924,7 @@ function populateBarsChart(chartData) {
   var canvasBars = document.getElementById("id-bars");
   var ctxBars = canvasBars.getContext("2d");
 
+  var narrow = narrowScreen();
   chartBars = new Chart(ctxBars, {
     type: "bar",
     data: chartData.data,
@@ -920,6 +932,8 @@ function populateBarsChart(chartData) {
     options: {
       indexAxis: "x",
       responsive: true,
+      // A phone's 2:1 canvas left the plot ~30 px under a 12-entry legend.
+      aspectRatio: narrow ? 0.9 : 2,
       animation: {
         duration: 300,
       },
@@ -928,18 +942,20 @@ function populateBarsChart(chartData) {
           stacked: true,
           min: chartData.xmin,
           max: chartData.xmax,
+          ticks: narrow ? { maxRotation: 45, autoSkip: true, maxTicksLimit: 6 } : {},
         },
         y: {
           stacked: true,
           title: axisTitle(),
           ticks: {
-            autoSkip: false,
+            autoSkip: narrow,
           },
         },
       },
       plugins: {
         legend: {
-          position: "top",
+          position: narrow ? "bottom" : "top",
+          labels: narrow ? { boxWidth: 10, font: { size: 10 } } : {},
         },
         zoom: {
           pan: {
@@ -995,6 +1011,7 @@ function populateCandlesChart(chartData) {
     plugins: [pendingMarkerPlugin],
     options: {
       responsive: true,
+      aspectRatio: narrowScreen() ? 1.2 : 2,
       animation: {
         duration: 300,
       },
@@ -1562,6 +1579,7 @@ if (typeof exports !== "undefined") {
     nftShowPreview,
     populateBarsChart,
     populateCandlesChart,
+    narrowScreen,
     populateCharts,
     showBars,
     showMatchedNodes,

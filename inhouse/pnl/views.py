@@ -18,7 +18,7 @@ from django.views.generic import TemplateView, View
 
 from api.client import BackendError, engine_request
 from api.widgets import bundle_and_addresses_from_path
-from core.appclient import purchase_hidden
+from core.appclient import purchase_hidden, subscriptions_redirect
 from utils.explorers import normalized_explorer
 from utils.fiat import fiat_for_user
 from walletauth.gating import is_linked_to_user
@@ -265,7 +265,7 @@ class PnlAccessMixin(WidgetAccessMixin):
         except PermissionDenied:
             if self.addresses and self.features["linked_only"]:
                 messages.error(self.request, LINKED_ONLY_ERROR)
-                return redirect("subscriptions")
+                return subscriptions_redirect(self.request)
 
             limit = addresses_limit_for_permission(
                 self.manifest.required_permission, _permission(self.request.user)
@@ -279,7 +279,7 @@ class PnlAccessMixin(WidgetAccessMixin):
                     )
                 return redirect("home")
 
-            return redirect("subscriptions")
+            return subscriptions_redirect(self.request)
 
     def cost_method(self):
         """Return the reader's saved cost basis method if the tier allows it.

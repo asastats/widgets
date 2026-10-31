@@ -9,7 +9,7 @@ from django.views.generic.base import RedirectView, TemplateView
 
 from api.client import engine_request
 from api.widgets import bundle_and_addresses_from_path
-from core.appclient import purchase_hidden
+from core.appclient import purchase_hidden, subscriptions_redirect
 from utils.fiat import fiat_for_user
 from widgethost.enforcement import WidgetAccessMixin
 from widgethost.manifest import addresses_limit_for_permission
@@ -81,7 +81,7 @@ class HistoricView(WidgetAccessMixin, TemplateView):
                     messages.error(self.request, mark_safe(ADDRESSES_LIMIT_ERROR % (limit,)))
                 return redirect("home")
 
-            return redirect("subscriptions")
+            return subscriptions_redirect(self.request)
 
     def test_func(self):
         """Return True if user has enough permission to access historic data widget.

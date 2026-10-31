@@ -3099,3 +3099,48 @@ The explicit list had drifted to five of seven: `alerts` and `liverefresh`
 shipped runbooks that were never published, and every build still succeeded,
 because an unlisted document is silent rather than an error. With a glob, adding
 `runbooks/<widget>.rst` is the whole step.
+
+## Fixes from the 2026-10-31 check round (workspace capacitor/checks/)
+
+### inhouse/historic/static/historic/historic.js: phone charts (B3, 2026-10-31)
+
+At 393 px the Bars chart's 2:1 canvas was ~172 px high and the 12-entry legend
+took most of it. The plot was a ~30 px strip, and the y labels "10,000" and "0"
+overlapped. Below 600 px (`narrowScreen()`, read when the chart is created)
+Bars now uses `aspectRatio: 0.9`, a bottom legend with 10 px boxes,
+`autoSkip` on y, and at most 6 x ticks at 45°. Candles use 1.2. Desktop is
+unchanged.
+
+### inhouse/historic: zoom and pan on touch (B4, 2026-10-31)
+
+The round reported that one-finger pan was impossible because of
+`modifierKey: "ctrl"`. chartjs-plugin-zoom 2.2.0 checks the modifier only for
+`pointerType === "mouse"` (the bundled `chartjs-plugin-zoom.min.js`, the pan
+recognizer's enable test), so touch pan was never blocked by it. The failed
+drag was most likely the synthetic CDP touches; not re-tested on the phone. The
+modifier stays: on desktop a plain drag on Candles would also fire the candle
+click on `mousedown`.
+
+What changed: a one-line hint under each chart (`.historic-chart-hint`).
+Whole-page pinch zoom in the app is now blocked by the host's viewport (frontend
+logbook, `base.html`).
+
+### inhouse/historic/templates/historic/index.html, processing.html: title (B9, 2026-10-31)
+
+A single address was titled with its 40-character bundle hash (`C38DC...10748`),
+which a reader never sees anywhere else. With one address the heading shows the
+address, with the hash in `title`. The Update tab labels the bundle's row
+"<address> total". Bundles keep the hash: the owner said that is the accepted
+behaviour.
+
+### inhouse/pnl/templates/pnl/index.html: bundle addresses (B5, 2026-10-31)
+
+The shortened addresses were adjacent `<span>`s with no text between them, so
+the line had no break opportunity (`scrollWidth` 606 at 393 px). A space now
+separates them; inside the `<p>` the minifier keeps one space.
+
+### Subscriptions redirects in historic/pnl views (A1, 2026-10-31)
+
+The refusals that sent readers to `/subscriptions/` go through
+`core.appclient.subscriptions_redirect`, because that page is a 404 in the app
+now (frontend logbook).

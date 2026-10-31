@@ -1866,3 +1866,40 @@ describe("a host without fiat.js", () => {
     expect(historic.currencyLabel("USD")).toBe("USD");
   });
 });
+
+describe("phone-width charts", () => {
+  afterEach(() => {
+    delete window.matchMedia;
+  });
+  it("narrowScreen is false without matchMedia", () => {
+    delete window.matchMedia;
+    expect(historic.narrowScreen()).toBe(false);
+  });
+  it("narrowScreen follows the media query", () => {
+    window.matchMedia = jest.fn(() => ({ matches: true }));
+    expect(historic.narrowScreen()).toBe(true);
+    expect(window.matchMedia).toHaveBeenCalledWith("(max-width: 600px)");
+  });
+  it("bars get a tall shape and a bottom legend on a phone", () => {
+    window.matchMedia = jest.fn(() => ({ matches: true }));
+    historic.populateBarsChart({ data: { datasets: [] }, xmin: 0, xmax: 100 });
+    historic.populateCandlesChart({ data: { datasets: [] }, xmin: 0, xmax: 100 });
+    const bars = global.Chart.mock.calls[0][1].options;
+    const candles = global.Chart.mock.calls[1][1].options;
+    expect(bars.aspectRatio).toBe(0.9);
+    expect(bars.plugins.legend.position).toBe("bottom");
+    expect(bars.scales.y.ticks.autoSkip).toBe(true);
+    expect(bars.scales.x.ticks.maxTicksLimit).toBe(6);
+    expect(candles.aspectRatio).toBe(1.2);
+  });
+  it("bars keep the desktop shape on a wide screen", () => {
+    window.matchMedia = jest.fn(() => ({ matches: false }));
+    historic.populateBarsChart({ data: { datasets: [] }, xmin: 0, xmax: 100 });
+    historic.populateCandlesChart({ data: { datasets: [] }, xmin: 0, xmax: 100 });
+    const bars = global.Chart.mock.calls[0][1].options;
+    expect(bars.aspectRatio).toBe(2);
+    expect(bars.plugins.legend.position).toBe("top");
+    expect(bars.scales.y.ticks.autoSkip).toBe(false);
+    expect(global.Chart.mock.calls[1][1].options.aspectRatio).toBe(2);
+  });
+});

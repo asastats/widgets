@@ -22,17 +22,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     
-    <script>
-      (function () {
-        "use strict";
-        var saved = localStorage.getItem("theme");
-        if (saved) document.documentElement.setAttribute("data-theme", saved);
-        // The typeface override is stamped here for the same reason: applied
-        // after paint it would swap the font under the reader's eyes.
-        var face = localStorage.getItem("typeface");
-        if (face) document.documentElement.setAttribute("data-typeface", face);
-      })();
-    </script>
+    <script src="/static/js/preferences.js"></script>
     <title>Historic data - ASA Stats</title>
     <meta name="description" content="ASA Stats evaluates and presents ASA and NFT price information on the Algorand blockchain. Portfolio Tracker, API and Feature-Driven Development. Check it out.">
     <meta name="keywords" content="asastats,Algorand,ASA,token,portfolio,coin,evaluate,calculate,value,price,NFT,API,balance,account,address,amount">
@@ -42,11 +32,14 @@
 
     
     <link href="/static/css/style.tw.css" type="text/css" rel="stylesheet" media="screen">
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-    <link rel="manifest" href="/site.webmanifest">
-    <link rel="mask-icon" href="/safari-pinned-tab.svg" color="#ababab">
+    
+    
+    
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=2">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=2">
+    <link rel="manifest" href="/site.webmanifest?v=2">
+    <link rel="mask-icon" href="/safari-pinned-tab.svg?v=2" color="#ababab">
     <meta name="msapplication-TileColor" content="#ababab">
     <meta name="theme-color" content="#ffffff">
 </head>
@@ -54,9 +47,7 @@
 <script src="/static/js/csp-safe-handlers.js"></script>
 
 
-
 <header class="border-b border-base-300 bg-base-100">
-  
   <div class="mx-auto flex h-14 w-full max-w-6xl items-center gap-3 px-4">
     
     <a href="/" class="flex-none" aria-label="ASA Stats home">
@@ -133,7 +124,17 @@
 <main class="flex-1">
   <div class="mx-auto w-full max-w-6xl px-4 py-8">
     
-<div hx-ws:connect="/widgets/historic/540A5D8CEC896E073F9170AF0A962503E69147CF/">
+    
+
+
+
+
+
+    
+
+<span hidden data-fiat="USD" data-fiat-rate="1"></span>
+
+<div hx-ws:connect="/widgets/historic/540A5D8CEC896E073F9170AF0A962503E69147CF/" hx-config='{"ws": {"pauseOnBackground": false}}'>
   <h1>Historic data</h1>
 
   <div class="historic-body">
@@ -142,7 +143,7 @@
     
     <details id="id-bundle" class="historic-bundle">
       <summary id="id-bundle-header" title="Click to show/hide bundle's addresses">
-        <h4>540A5...147CF</h4>
+        <h4 title="540A5D8CEC896E073F9170AF0A962503E69147CF">540A5...147CF</h4>
       </summary>
       <div id="id-bundle-body" class="historic-bundle-addresses">
         
@@ -170,6 +171,7 @@
         </form>
       </div>
       <canvas id="id-bars" width="500" height="250"></canvas>
+      <p class="historic-chart-hint">Zoom: pinch, or Ctrl + scroll. Move: drag with one finger, or Ctrl + drag.</p>
     </div>
     <div id="tcandles" class="historic-tab-panel canvas" hidden>
       <div class="historic-chart-actions">
@@ -178,6 +180,7 @@
         </form>
       </div>
       <canvas id="id-candles" width="500" height="250"></canvas>
+      <p class="historic-chart-hint">Zoom: pinch, or Ctrl + scroll. Move: drag with one finger, or Ctrl + drag.</p>
     </div>
     <div id="tupdate" class="historic-tab-panel" hidden>
       <form id="id-process" hx-ws:send data-bundle=540A5D8CEC896E073F9170AF0A962503E69147CF data-addresses="2EVGZ4BGOSL3J64UYDE2BUGTNTBZZZLI54VUQQNZZLYCDODLY33UGXNSIU VW55KZ3NF4GDOWI7IPWLGZDFWNXWKSRD5PETRLDABZVU5XPKRJJRK3CBSU">
@@ -212,7 +215,7 @@
             have been fixed, click below to start from scratch.
           </p>
           <form id="id-reset" method="get" action="/widgets/historic/540A5D8CEC896E073F9170AF0A962503E69147CF/reset">
-            <input type="hidden" name="csrfmiddlewaretoken" value="B2qLHluP8XgZhOBuHIVRc1XMeQtlcgP9jGFPjRvAQyeFrssbAodGNotL6NOPrJnt">
+            <input type="hidden" name="csrfmiddlewaretoken" value="iAno2mHX9ejo5ziU2cr5kjQzBx78E2AeyCvoSvtVEMURzi3fj2UIR4bcgenG3odk">
             <button class="danger" type="submit" name="reset">Reset</button>
           </form>
         </section>
@@ -246,6 +249,7 @@
       <input type="hidden" name="label" id="show-label">
     </form>
 
+    
     <progress class="historic-progress progress progress-primary" hidden></progress>
 
     <div id="id-assets"></div>
@@ -269,10 +273,8 @@
   </div>
 </main>
 <footer class="mt-16 border-t border-base-300 bg-base-100">
-  
   <div class="mx-auto w-full max-w-6xl px-4 py-10 text-center">
 
-    
     <p class="text-sm text-base-content/60">
       &copy;&nbsp;2026&nbsp;ASA Stats
       <span class="mx-1.5 opacity-40" aria-hidden="true">&middot;</span>
@@ -287,22 +289,26 @@
           <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/50">Product</h2>
           <ul class="mt-3 space-y-2 text-sm">
             <li><a class="link link-hover" href="/features/">Features</a></li>
+            <li><a class="link link-hover" href="/methodology/">P&L methodology</a></li>
             <li><a class="link link-hover" href="/subscriptions/">Subscriptions</a></li>
             <li><a class="link link-hover" href="/api/v2/schema/swagger-ui/">API</a></li>
             <li><a class="link link-hover" href="/faq/">FAQ</a></li>
+            
             <li><a class="link link-hover" href="https://apps.apple.com/us/app/asa-stats-mobile/id6443547246" target="_blank" rel="noopener">App&nbsp;Store</a></li>
             <li><a class="link link-hover" href="https://play.google.com/store/apps/details?id=com.asastats.app" target="_blank" rel="noopener">Play&nbsp;Store</a></li>
+            
           </ul>
         </div>
 
         <div>
           <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/50">Token</h2>
-          
           <ul class="mt-3 space-y-2 text-sm">
             <li><a class="link link-hover" href="https://app.pact.fi/swap?pair=ALGO:0/ASA+STATS+TOKEN:393537671" target="_blank" rel="noopener">Buy ASASTATS</a></li>
             <li><a class="link link-hover" href="/tokenomics/">Tokenomics</a></li>
+            
             <li><a class="link link-hover" href="https://app.pact.fi/pool/2757667443" target="_blank" rel="noopener">Pact liquidity</a></li>
             <li><a class="link link-hover" href="https://app.tinyman.org/pool/UXOJX6NJDGLJ3KALT3JYGGGXFPXJIKMWJZTXSLB2KAVY5O7WJHPA2B3HJE/add-liquidity" target="_blank" rel="noopener">Tinyman liquidity</a></li>
+            
           </ul>
         </div>
 
@@ -321,13 +327,13 @@
           <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/50">About</h2>
           <ul class="mt-3 space-y-2 text-sm">
             
-            
             <li><a class="link link-hover" href="#modalLogin">Log in</a></li>
             
             <li><a class="link link-hover" href="/about/">About</a></li>
             <li><a class="link link-hover" href="https://www.asastats.com/auth_privacy.html" target="_blank" rel="noopener">Privacy</a></li>
             <li><a class="link link-hover" href="/disclaimer/">Disclaimer</a></li>
             <li><a class="link link-hover" href="/sitemap/">Sitemap</a></li>
+            
           </ul>
         </div>
 
@@ -355,7 +361,7 @@
       
       <div id="modal-tab-login" class="modal-tab-panel is-active">
         <form class="login" id="modal_login_form" method="POST" action="/accounts/login/">
-          <input type="hidden" name="csrfmiddlewaretoken" value="B2qLHluP8XgZhOBuHIVRc1XMeQtlcgP9jGFPjRvAQyeFrssbAodGNotL6NOPrJnt">
+          <input type="hidden" name="csrfmiddlewaretoken" value="iAno2mHX9ejo5ziU2cr5kjQzBx78E2AeyCvoSvtVEMURzi3fj2UIR4bcgenG3odk">
           <input type="hidden" name="next" value="" id="id_modal_login_next" />
           <label class="block">
             <span class="mb-1 block text-sm">Login:</span>
@@ -367,10 +373,12 @@
             <input class="input w-full" id="id_password_modal" name="password"
                    autocomplete="off" placeholder="Password" type="password" required />
           </label>
+          
           <label class="mt-4 flex items-center gap-2 text-sm" title="Remember me on this computer">
             <input class="checkbox checkbox-sm" name="remember" type="checkbox">
             <span>Remember me</span>
           </label>
+          
           <div class="mt-5 text-center">
             <button class="btn btn-primary" id="id_cta_modal" type="submit">Log in</button>
           </div>
@@ -380,11 +388,14 @@
       
       <div id="modal-tab-social" class="modal-tab-panel" hidden>
         <div class="mx-auto flex max-w-sm flex-col gap-2">
-          <a class="btn btn-outline justify-start gap-3" role="button" href="/accounts/discord/login/"><img class="h-5 w-5" src="/static/img/social/discord.png" alt="Discord logo" />Sign in with Discord</a>
-          <a class="btn btn-outline justify-start gap-3" role="button" href="/accounts/twitter_oauth2/login/"><img class="h-5 w-5" src="/static/img/social/twitter.png" alt="X logo" />Sign in with X</a>
-          <a class="btn btn-outline justify-start gap-3" role="button" href="/accounts/reddit/login/"><img class="h-5 w-5" src="/static/img/social/reddit.png" alt="Reddit logo" />Sign in with Reddit</a>
-          <a class="btn btn-outline justify-start gap-3" role="button" href="/accounts/github/login/"><img class="h-5 w-5" src="/static/img/social/github.png" alt="GitHub logo" />Sign in with GitHub</a>
-          <a class="btn btn-outline justify-start gap-3" role="button" href="/accounts/google/login/"><img class="h-5 w-5" src="/static/img/social/google.png" alt="Google logo" />Sign in with Google</a>
+          
+
+
+          <a class="btn btn-outline justify-start gap-3" role="button" href="/accounts/discord/login/" data-app-signin="discord"><img class="h-5 w-5" src="/static/img/social/discord.png" alt="Discord logo" />Sign in with Discord</a>
+          <a class="btn btn-outline justify-start gap-3" role="button" href="/accounts/twitter/login/" data-app-signin="twitter_oauth2"><img class="h-5 w-5" src="/static/img/social/twitter.png" alt="X logo" />Sign in with X</a>
+          <a class="btn btn-outline justify-start gap-3" role="button" href="/accounts/reddit/login/" data-app-signin="reddit"><img class="h-5 w-5" src="/static/img/social/reddit.png" alt="Reddit logo" />Sign in with Reddit</a>
+          <a class="btn btn-outline justify-start gap-3" role="button" href="/accounts/github/login/" data-app-signin="github"><img class="h-5 w-5" src="/static/img/social/github.png" alt="GitHub logo" />Sign in with GitHub</a>
+          <a class="btn btn-outline justify-start gap-3" role="button" href="/accounts/google/login/" data-app-signin="google"><img class="h-5 w-5" src="/static/img/social/google.png" alt="Google logo" />Sign in with Google</a>
         </div>
       </div>
 
@@ -396,7 +407,7 @@
 
 
 <div id="wallet-connect" data-api-base="/api/v2/wallet/login">
-  <input type="hidden" name="csrfmiddlewaretoken" value="B2qLHluP8XgZhOBuHIVRc1XMeQtlcgP9jGFPjRvAQyeFrssbAodGNotL6NOPrJnt">
+  <input type="hidden" name="csrfmiddlewaretoken" value="iAno2mHX9ejo5ziU2cr5kjQzBx78E2AeyCvoSvtVEMURzi3fj2UIR4bcgenG3odk">
 
   <h5 class="text-lg font-semibold">Sign in with your wallet</h5>
   <p class="mt-2 text-sm text-base-content/80">Connect a wallet you have already linked to your
@@ -428,8 +439,8 @@
         </div>
 
         <label class="block">
-          
-          
+
+
           <select id="account-select-pera" class="select select-sm w-full">
             <option disabled selected>No accounts</option>
           </select>
@@ -462,8 +473,8 @@
         </div>
 
         <label class="block">
-          
-          
+
+
           <select id="account-select-defly" class="select select-sm w-full">
             <option disabled selected>No accounts</option>
           </select>
@@ -496,8 +507,8 @@
         </div>
 
         <label class="block">
-          
-          
+
+
           <select id="account-select-lute" class="select select-sm w-full">
             <option disabled selected>No accounts</option>
           </select>
@@ -530,8 +541,8 @@
         </div>
 
         <label class="block">
-          
-          
+
+
           <select id="account-select-kibisis" class="select select-sm w-full">
             <option disabled selected>No accounts</option>
           </select>
@@ -564,8 +575,8 @@
         </div>
 
         <label class="block">
-          
-          
+
+
           <select id="account-select-exodus" class="select select-sm w-full">
             <option disabled selected>No accounts</option>
           </select>
@@ -586,13 +597,13 @@
      data-api-base="/api/v2/wallet/login"
      data-wc-project-id="111111111111111111111"
      class="">
-  <input type="hidden" name="csrfmiddlewaretoken" value="B2qLHluP8XgZhOBuHIVRc1XMeQtlcgP9jGFPjRvAQyeFrssbAodGNotL6NOPrJnt">
+  <input type="hidden" name="csrfmiddlewaretoken" value="iAno2mHX9ejo5ziU2cr5kjQzBx78E2AeyCvoSvtVEMURzi3fj2UIR4bcgenG3odk">
 
   <h5>Other chains (EVM)</h5>
   <p>Connect an Ethereum-compatible wallet and prove control by signing a
     message. Nothing is sent on-chain and there is no fee.</p>
 
-  
+
 
   <div id="evm-app-error" data-notice="error" role="alert" style="display:none">
     No EVM wallet found. Install a browser wallet, or configure WalletConnect.
@@ -622,9 +633,11 @@
 <script src="/static/js/jquery-2.2.4.min.js"></script>
 <script src="/static/js/htmx.min.js"></script>
 <script src="/static/js/site.js"></script>
+<script src="/static/js/fiat.js"></script>
 <script src="/static/js/theme.js"></script>
 <script src="/static/js/authmodal.js"></script>
 <script type="module" src="/static/js/bundle.js"></script>
+
 
 <script src="/static/historic/hx-ws.min.js"></script>
 <script src="/static/historic/hammerjs.min.js"></script>

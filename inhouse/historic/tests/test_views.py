@@ -79,10 +79,11 @@ class TestHistoricViewsHistoricView:
             return_value=0,
         )
         redirect = mocker.patch(
-            "widgets.inhouse.historic.views.redirect", return_value="subscriptions"
+            "widgets.inhouse.historic.views.subscriptions_redirect",
+            return_value="subscriptions",
         )
         assert view.handle_no_permission() == "subscriptions"
-        redirect.assert_called_once_with("subscriptions")
+        redirect.assert_called_once_with(view.request)
 
     def test_historic_views_historic_view_handle_no_permission_passthrough(self, mocker):
         view = HistoricView()
@@ -142,6 +143,41 @@ class TestHistoricViewsIndexTemplate:
         source = get_template("historic/index.html").template.source
         assert """hx-config='{"ws": {"pauseOnBackground": false}}'""" in source
 
+
+
+class TestHistoricViewsTitle:
+    """The page names the address, not its internal hash, for one address."""
+
+    def _title(self, addresses):
+        import re
+
+        from django.template import Context, Template
+
+        source = get_template("historic/index.html").template.source
+        h4 = re.search(r"\{% with addrs=.*?\{% endwith %\}", source).group(0)
+        return Template("{% load core_extras %}" + h4).render(
+            Context({"bundle": "C38DC" + "0" * 30 + "10748", "addresses": addresses})
+        )
+
+    def test_historic_views_title_single_address(self):
+        html = self._title("ZRNRW" + "A" * 48 + "LMQPM")
+        assert ">ZRNRW...LMQPM</h4>" in html
+        assert 'title="C38DC' in html
+
+    def test_historic_views_title_bundle_keeps_its_hash(self):
+        html = self._title("A" * 58 + " " + "B" * 58)
+        assert ">C38DC...10748</h4>" in html
+
+    def test_historic_views_processing_single_address_total_row(self):
+        from django.template.loader import render_to_string
+
+        address = "ZRNRW" + "A" * 48 + "LMQPM"
+        html = render_to_string(
+            "historic/processing.html",
+            {"bundle": "C38DC", "addresses": [address, "C38DC" + "0" * 35]},
+        )
+        assert "<h5>ZRNRW...LMQPM total</h5>" in html
+        assert "C38DC...00000" not in html
 
 
 class TestHistoricViewsLimitMessageInApp:

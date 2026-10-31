@@ -17,7 +17,7 @@
     {# initialised and it keeps working if the script fails to load.          #}
     <details id="id-bundle" class="historic-bundle">
       <summary id="id-bundle-header" title="Click to show/hide bundle's addresses">
-        <h4>{{ bundle|short_address }}</h4>
+        {% with addrs=addresses|split_by_space %}<h4 title="{{ bundle }}">{% if addrs|length == 1 %}{{ addrs.0|short_address }}{% else %}{{ bundle|short_address }}{% endif %}</h4>{% endwith %}
       </summary>
       <div id="id-bundle-body" class="historic-bundle-addresses">
         {% for addr in addresses|split_by_space %}
@@ -43,6 +43,7 @@
         </form>
       </div>
       <canvas id="id-bars" width="500" height="250"></canvas>
+      <p class="historic-chart-hint">Zoom: pinch, or Ctrl + scroll. Move: drag with one finger, or Ctrl + drag.</p>
     </div>
     <div id="tcandles" class="historic-tab-panel canvas" hidden>
       <div class="historic-chart-actions">
@@ -51,6 +52,7 @@
         </form>
       </div>
       <canvas id="id-candles" width="500" height="250"></canvas>
+      <p class="historic-chart-hint">Zoom: pinch, or Ctrl + scroll. Move: drag with one finger, or Ctrl + drag.</p>
     </div>
     <div id="tupdate" class="historic-tab-panel" hidden>
       <form id="id-process" hx-ws:send data-bundle={{ bundle }} data-addresses="{{ addresses }}">

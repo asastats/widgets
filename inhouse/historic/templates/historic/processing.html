@@ -15,7 +15,7 @@
   <input type="hidden" name="addresses" value="{{ addresses|slice:":-1"|join:" " }}">
   {% for address in addresses %}
     <div class="phase-address">
-      <h5>{{ address|short_address }}</h5>
+      <h5>{% if forloop.last and forloop.counter == 2 %}{{ addresses.0|short_address }} total{% else %}{{ address|short_address }}{% endif %}</h5>
     </div>
     <div id="id-{{ address }}-content" class="phase-rows">
       {% for phase in '123'|make_list %}

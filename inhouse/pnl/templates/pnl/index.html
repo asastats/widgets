@@ -4,7 +4,7 @@
 <div class="pnl" hx-headers:inherited='{"X-CSRFToken": "{{ csrf_token }}"}'>
   <h1 class="pnl-page-title">Profit and loss</h1>
   <p class="pnl-addresses">
-    {% for addr in addresses|split_by_space %}<span title="{{ addr }}">{{ addr|short_address }}</span>{% endfor %}
+    {% for addr in addresses|split_by_space %}{% if not forloop.first %} {% endif %}<span title="{{ addr }}">{{ addr|short_address }}</span>{% endfor %}
   </p>
   <nav class="pnl-currency pnl-tabs" aria-label="Tabs">
     <a href="?{{ query }}"{% if not tab %} aria-current="true"{% endif %}>Profit and loss</a>
